@@ -363,8 +363,18 @@ update_database_schema() {
       return 1
     fi
     
+    # Check if SQLite schema file exists
+    if [ -f "$install_dir/schema.sqlite.sql" ]; then
+      print_info "Using SQLite-specific schema file: schema.sqlite.sql"
+      SCHEMA_FILE="$install_dir/schema.sqlite.sql"
+    else
+      print_warning "SQLite-specific schema file not found, using generic schema.sql"
+      print_warning "This may cause errors if the schema is not SQLite-compatible"
+      SCHEMA_FILE="$install_dir/schema.sql"
+    fi
+    
     # Apply schema
-    sqlite3 "$DB_PATH" < "$install_dir/schema.sql" >> "$LOG_FILE" 2>&1
+    sqlite3 "$DB_PATH" < "$SCHEMA_FILE" >> "$LOG_FILE" 2>&1
     
     if [ $? -eq 0 ]; then
       print_success "Database schema updated successfully"
@@ -401,8 +411,17 @@ update_database_schema() {
       return 1
     fi
     
+    # Check if MySQL schema file exists
+    if [ -f "$install_dir/schema.mysql.sql" ]; then
+      print_info "Using MySQL-specific schema file: schema.mysql.sql"
+      SCHEMA_FILE="$install_dir/schema.mysql.sql"
+    else
+      print_info "Using generic schema file: schema.sql"
+      SCHEMA_FILE="$install_dir/schema.sql"
+    fi
+    
     # Apply schema
-    mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USERNAME" -p"$DB_PASSWORD" "$DB_DATABASE" < "$install_dir/schema.sql" >> "$LOG_FILE" 2>&1
+    mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USERNAME" -p"$DB_PASSWORD" "$DB_DATABASE" < "$SCHEMA_FILE" >> "$LOG_FILE" 2>&1
     
     if [ $? -eq 0 ]; then
       print_success "Database schema updated successfully"
