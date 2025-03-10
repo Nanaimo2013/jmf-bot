@@ -165,7 +165,7 @@ update_from_github() {
   if [ ! -d "$install_dir/.git" ]; then
     print_error "Not a git repository: $install_dir"
     return 1
-  }
+  fi
   
   # Fetch latest changes
   print_status "Fetching latest changes from GitHub"
