@@ -58,8 +58,8 @@ module.exports = {
       }
     } catch (error) {
       logger.error(`Error in link command: ${error.message}`);
-      return interaction.reply({
-        content: 'An error occurred while executing this command.',
+      await interaction.reply({
+        content: '❌ There was an error executing this command.',
         ephemeral: true
       });
     }
@@ -91,11 +91,24 @@ module.exports = {
       const expiresAt = new Date();
       expiresAt.setHours(expiresAt.getHours() + 24); // Token expires in 24 hours
       
-      // Store the token in the database
-      await interaction.client.db.query(
-        'INSERT INTO account_links (discord_id, token, expires_at, created_at) VALUES (?, ?, ?, ?)',
-        [interaction.user.id, token, expiresAt, new Date()]
-      );
+      // Store the token in the database - check if created_at column exists
+      try {
+        await interaction.client.db.query(
+          'INSERT INTO account_links (discord_id, token, expires_at, created_at) VALUES (?, ?, ?, ?)',
+          [interaction.user.id, token, expiresAt, new Date()]
+        );
+      } catch (error) {
+        // If the error is about missing created_at column, try without it
+        if (error.message.includes('no column named created_at')) {
+          logger.warn('account_links table missing created_at column, trying without it');
+          await interaction.client.db.query(
+            'INSERT INTO account_links (discord_id, token, expires_at) VALUES (?, ?, ?)',
+            [interaction.user.id, token, expiresAt]
+          );
+        } else {
+          throw error;
+        }
+      }
       
       // Create the link embed with a more modern and interactive design
       const linkEmbed = new EmbedBuilder()
@@ -128,13 +141,11 @@ module.exports = {
           new ButtonBuilder()
             .setCustomId('link_instructions')
             .setLabel('View Instructions')
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji('📖'),
+            .setStyle(ButtonStyle.Secondary),
           new ButtonBuilder()
-            .setCustomId('link_verify')
-            .setLabel('Verify Link')
-            .setStyle(ButtonStyle.Success)
-            .setEmoji('✅')
+            .setCustomId('start_link_process')
+            .setLabel('Start Linking Process')
+            .setStyle(ButtonStyle.Primary)
         );
 
       await interaction.editReply({
@@ -143,124 +154,17 @@ module.exports = {
         ephemeral: true
       });
       
-      // Create a collector for button interactions
-      const filter = i => i.user.id === interaction.user.id && 
-                          (i.customId === 'link_instructions' || i.customId === 'link_verify');
+      // Record command usage
+      try {
+        await this.recordCommandUsage(interaction, 'link');
+      } catch (error) {
+        logger.error(`Failed to record command usage in database: ${error.message}`);
+      }
       
-      const collector = interaction.channel.createMessageComponentCollector({ 
-        filter, 
-        time: 900000 // 15 minutes
-      });
-      
-      collector.on('collect', async i => {
-        if (i.customId === 'link_instructions') {
-          // Show detailed instructions
-          const instructionsEmbed = new EmbedBuilder()
-            .setTitle('📝 Account Linking Instructions')
-            .setColor(config.embedColor || '#00AAFF')
-            .setDescription('Follow these steps to link your Discord account to your Pterodactyl panel account:')
-            .addFields(
-              { 
-                name: '1️⃣ Log in to the Panel',
-                value: `Go to [panel.jmfhosting.com](https://panel.jmfhosting.com) and log in to your account.`,
-                inline: false 
-              },
-              { 
-                name: '2️⃣ Navigate to Account Settings',
-                value: 'Click on your username in the top-right corner and select "Account" from the dropdown menu.',
-                inline: false 
-              },
-              { 
-                name: '3️⃣ Go to API Credentials',
-                value: 'In the account settings, click on the "API Credentials" tab.',
-                inline: false 
-              },
-              { 
-                name: '4️⃣ Create API Key',
-                value: 'Create a new API key with the description "Discord Link" and copy the API key.',
-                inline: false 
-              },
-              { 
-                name: '5️⃣ Enter Your Token',
-                value: `In the API key description field, enter your linking token: \`${token}\``,
-                inline: false 
-              },
-              { 
-                name: '6️⃣ Verify the Link',
-                value: 'Return to Discord and click the "Verify Link" button to complete the process.',
-                inline: false 
-              }
-            )
-            .setImage('https://cdn.discordapp.com/attachments/1343993728125239404/1343993728125239404/panel_instructions.png') // Replace with actual instruction image
-            .setFooter({ text: 'JMF Hosting • Account Linking System', iconURL: interaction.client.user.displayAvatarURL() });
-          
-          await i.reply({ 
-            embeds: [instructionsEmbed], 
-            ephemeral: true 
-          });
-        } else if (i.customId === 'link_verify') {
-          await i.deferReply({ ephemeral: true });
-          
-          try {
-            // Check if the account has been linked
-            const linkedAccount = await interaction.client.db.query(
-              'SELECT * FROM account_links WHERE discord_id = ? AND panel_id IS NOT NULL',
-              [interaction.user.id]
-            );
-            
-            if (linkedAccount && linkedAccount.length > 0) {
-              // Account has been linked successfully
-              const successEmbed = new EmbedBuilder()
-                .setTitle('✅ Account Linked Successfully')
-                .setDescription('Your Discord account has been successfully linked to your Pterodactyl panel account.')
-                .setColor('#00FF00')
-                .addFields(
-                  { 
-                    name: 'Panel Username',
-                    value: linkedAccount[0].pterodactyl_username || 'Unknown',
-                    inline: true 
-                  },
-                  { 
-                    name: 'Linked At',
-                    value: new Date(linkedAccount[0].linked_at).toLocaleString(),
-                    inline: true 
-                  }
-                )
-                .setFooter({ text: 'JMF Hosting • Account Linking System', iconURL: interaction.client.user.displayAvatarURL() })
-                .setTimestamp();
-              
-              await i.editReply({
-                embeds: [successEmbed],
-                components: [],
-                ephemeral: true
-              });
-              
-              // End the collector
-              collector.stop();
-            } else {
-              // Account has not been linked yet
-              await i.editReply({
-                content: 'Your account has not been linked yet. Please follow the instructions to link your account.',
-                ephemeral: true
-              });
-            }
-          } catch (error) {
-            logger.error(`Error verifying account link: ${error.message}`);
-            await i.editReply({
-              content: 'An error occurred while verifying your account link. Please try again later.',
-              ephemeral: true
-            });
-          }
-        }
-      });
-      
-      collector.on('end', collected => {
-        // Do nothing when the collector ends
-      });
     } catch (error) {
       logger.error(`Error generating link token: ${error.message}`);
       await interaction.editReply({
-        content: `An error occurred while generating your link token: ${error.message}`,
+        content: 'An error occurred while generating your link token: ' + error.message,
         ephemeral: true
       });
     }
@@ -275,16 +179,16 @@ module.exports = {
     
     try {
       // Check if user is linked
-      const linkedAccount = await interaction.client.db.query(
-        'SELECT * FROM account_links WHERE discord_id = ? AND panel_id IS NOT NULL',
+      const linkData = await interaction.client.db.query(
+        'SELECT * FROM account_links WHERE discord_id = ?',
         [interaction.user.id]
       );
       
-      if (!linkedAccount || linkedAccount.length === 0) {
+      if (!linkData || linkData.length === 0) {
         const notLinkedEmbed = new EmbedBuilder()
           .setTitle('❌ Account Not Linked')
           .setDescription('Your Discord account is not linked to any Pterodactyl panel account.')
-          .setColor('#FF0000')
+          .setColor('#FF5555')
           .addFields(
             { 
               name: 'How to Link Your Account',
@@ -294,107 +198,106 @@ module.exports = {
           )
           .setFooter({ text: 'JMF Hosting • Account Linking System', iconURL: interaction.client.user.displayAvatarURL() })
           .setTimestamp();
-        
+          
         const linkRow = new ActionRowBuilder()
           .addComponents(
             new ButtonBuilder()
               .setCustomId('start_link_process')
-              .setLabel('Start Linking Process')
+              .setLabel('Link Account')
               .setStyle(ButtonStyle.Primary)
-              .setEmoji('🔗')
           );
-        
-        await interaction.editReply({
+          
+        return interaction.editReply({
           embeds: [notLinkedEmbed],
           components: [linkRow],
           ephemeral: true
         });
-        
-        // Create a collector for button interactions
-        const filter = i => i.user.id === interaction.user.id && i.customId === 'start_link_process';
-        const collector = interaction.channel.createMessageComponentCollector({ 
-          filter, 
-          time: 300000 // 5 minutes
-        });
-        
-        collector.on('collect', async i => {
-          await i.deferUpdate();
-          await this.handleLinkAccount(interaction);
-          collector.stop();
-        });
-        
-        return;
       }
       
-      const account = linkedAccount[0];
+      const linkInfo = linkData[0];
+      const isVerified = linkInfo.verified === 1;
       
-      // Create the status embed
       const statusEmbed = new EmbedBuilder()
-        .setTitle('🔗 Account Link Status')
-        .setDescription('Your Discord account is linked to the following Pterodactyl panel account:')
-        .setColor('#00FF00')
+        .setTitle(isVerified ? '✅ Account Linked' : '⏳ Account Linking in Progress')
+        .setDescription(isVerified 
+          ? 'Your Discord account is linked to your Pterodactyl panel account.'
+          : 'Your account linking process has been started but is not yet complete.'
+        )
+        .setColor(isVerified ? '#55FF55' : '#FFAA00')
         .addFields(
           { 
-            name: 'Panel Username',
-            value: account.pterodactyl_username || 'Unknown',
+            name: 'Discord Account',
+            value: `<@${interaction.user.id}>`,
             inline: true 
-          },
-          { 
-            name: 'Panel ID',
-            value: account.panel_id || 'Unknown',
-            inline: true 
-          },
-          { 
-            name: 'Linked Since',
-            value: new Date(account.linked_at).toLocaleString(),
-            inline: true 
-          },
-          {
-            name: 'Account Benefits',
-            value: '• Access to server management via Discord\n• Automatic role synchronization\n• Quick server status checks\n• Priority support access',
-            inline: false
           }
         )
-        .setThumbnail('https://cdn.discordapp.com/attachments/1343993728125239404/1343993728125239404/jmf_logo.png') // Replace with your actual logo URL
         .setFooter({ text: 'JMF Hosting • Account Linking System', iconURL: interaction.client.user.displayAvatarURL() })
         .setTimestamp();
-      
-      // Create action row with buttons
-      const actionRow = new ActionRowBuilder()
-        .addComponents(
-          new ButtonBuilder()
-            .setLabel('Open Panel')
-            .setURL('https://panel.jmfhosting.com')
-            .setStyle(ButtonStyle.Link),
-          new ButtonBuilder()
-            .setCustomId('unlink_account')
-            .setLabel('Unlink Account')
-            .setStyle(ButtonStyle.Danger)
-            .setEmoji('🔓')
+        
+      if (isVerified) {
+        statusEmbed.addFields(
+          { 
+            name: 'Pterodactyl Username',
+            value: linkInfo.pterodactyl_username || 'Unknown',
+            inline: true 
+          },
+          { 
+            name: 'Linked On',
+            value: linkInfo.linked_at ? new Date(linkInfo.linked_at).toLocaleString() : 'Unknown',
+            inline: true 
+          }
         );
-      
-      await interaction.editReply({
-        embeds: [statusEmbed],
-        components: [actionRow],
-        ephemeral: true
-      });
-      
-      // Create a collector for button interactions
-      const filter = i => i.user.id === interaction.user.id && i.customId === 'unlink_account';
-      const collector = interaction.channel.createMessageComponentCollector({ 
-        filter, 
-        time: 300000 // 5 minutes
-      });
-      
-      collector.on('collect', async i => {
-        await i.deferUpdate();
-        await this.handleUnlinkAccount(interaction);
-        collector.stop();
-      });
+        
+        const unlinkRow = new ActionRowBuilder()
+          .addComponents(
+            new ButtonBuilder()
+              .setCustomId('unlink_account')
+              .setLabel('Unlink Account')
+              .setStyle(ButtonStyle.Danger)
+          );
+          
+        return interaction.editReply({
+          embeds: [statusEmbed],
+          components: [unlinkRow],
+          ephemeral: true
+        });
+      } else {
+        // Not verified yet
+        statusEmbed.addFields(
+          { 
+            name: 'Token',
+            value: `\`${linkInfo.token}\``,
+            inline: true 
+          },
+          { 
+            name: 'Expires',
+            value: linkInfo.expires_at ? new Date(linkInfo.expires_at).toLocaleString() : 'Unknown',
+            inline: true 
+          }
+        );
+        
+        const linkRow = new ActionRowBuilder()
+          .addComponents(
+            new ButtonBuilder()
+              .setLabel('Open Panel')
+              .setURL('https://panel.jmfhosting.com')
+              .setStyle(ButtonStyle.Link),
+            new ButtonBuilder()
+              .setCustomId('cancel_link')
+              .setLabel('Cancel Linking')
+              .setStyle(ButtonStyle.Danger)
+          );
+          
+        return interaction.editReply({
+          embeds: [statusEmbed],
+          components: [linkRow],
+          ephemeral: true
+        });
+      }
     } catch (error) {
       logger.error(`Error checking link status: ${error.message}`);
       await interaction.editReply({
-        content: `An error occurred while checking your link status: ${error.message}`,
+        content: 'An error occurred while checking your link status: ' + error.message,
         ephemeral: true
       });
     }
@@ -409,168 +312,95 @@ module.exports = {
     
     try {
       // Check if user is linked
-      const linkedAccount = await interaction.client.db.query(
-        'SELECT * FROM account_links WHERE discord_id = ? AND panel_id IS NOT NULL',
+      const linkData = await interaction.client.db.query(
+        'SELECT * FROM account_links WHERE discord_id = ?',
         [interaction.user.id]
       );
       
-      if (!linkedAccount || linkedAccount.length === 0) {
-        const notLinkedEmbed = new EmbedBuilder()
-          .setTitle('❌ Account Not Linked')
-          .setDescription('Your Discord account is not linked to any Pterodactyl panel account.')
-          .setColor('#FF0000')
-          .addFields(
-            { 
-              name: 'How to Link Your Account',
-              value: 'Use `/link account` to link your Discord account to your Pterodactyl panel account.',
-              inline: false 
-            }
-          )
-          .setFooter({ text: 'JMF Hosting • Account Linking System', iconURL: interaction.client.user.displayAvatarURL() })
-          .setTimestamp();
-        
+      if (!linkData || linkData.length === 0) {
         return interaction.editReply({
-          embeds: [notLinkedEmbed],
+          content: 'Your Discord account is not linked to any Pterodactyl panel account.',
           ephemeral: true
         });
       }
       
       // Create confirmation embed
-      const confirmationEmbed = new EmbedBuilder()
-        .setTitle('⚠️ Confirm Account Unlink')
-        .setDescription('Are you sure you want to unlink your Discord account from your Pterodactyl panel account?')
-        .setColor('#FFA500')
+      const confirmEmbed = new EmbedBuilder()
+        .setTitle('⚠️ Unlink Account Confirmation')
+        .setDescription('Are you sure you want to unlink your Discord account from your Pterodactyl panel account? This action cannot be undone.')
+        .setColor('#FFAA00')
         .addFields(
           { 
-            name: 'Panel Username',
-            value: linkedAccount[0].pterodactyl_username || 'Unknown',
+            name: 'Discord Account',
+            value: `<@${interaction.user.id}>`,
             inline: true 
           },
           { 
-            name: 'Linked Since',
-            value: new Date(linkedAccount[0].linked_at).toLocaleString(),
+            name: 'Pterodactyl Username',
+            value: linkData[0].pterodactyl_username || 'Unknown',
             inline: true 
-          },
-          {
-            name: 'What You Will Lose',
-            value: '• Discord-based server management\n• Automatic role synchronization\n• Quick server status checks\n• Priority support access',
-            inline: false
           }
         )
-        .setFooter({ text: 'This action cannot be undone automatically. You will need to link your account again if needed.', iconURL: interaction.client.user.displayAvatarURL() })
+        .setFooter({ text: 'JMF Hosting • Account Linking System', iconURL: interaction.client.user.displayAvatarURL() })
         .setTimestamp();
-      
-      // Create confirmation buttons
-      const confirmationRow = new ActionRowBuilder()
+        
+      const confirmRow = new ActionRowBuilder()
         .addComponents(
           new ButtonBuilder()
             .setCustomId('confirm_unlink')
             .setLabel('Confirm Unlink')
-            .setStyle(ButtonStyle.Danger)
-            .setEmoji('⚠️'),
+            .setStyle(ButtonStyle.Danger),
           new ButtonBuilder()
             .setCustomId('cancel_unlink')
             .setLabel('Cancel')
             .setStyle(ButtonStyle.Secondary)
-            .setEmoji('✖️')
         );
-      
-      const response = await interaction.editReply({
-        embeds: [confirmationEmbed],
-        components: [confirmationRow],
-        ephemeral: true
-      });
-      
-      // Create a collector for button interactions
-      const filter = i => i.user.id === interaction.user.id && 
-                          (i.customId === 'confirm_unlink' || i.customId === 'cancel_unlink');
-      
-      const collector = interaction.channel.createMessageComponentCollector({ 
-        filter, 
-        time: 60000 // 1 minute
-      });
-      
-      collector.on('collect', async i => {
-        if (i.customId === 'confirm_unlink') {
-          await i.deferUpdate();
-          
-          try {
-            // Delete the link from the database
-            await interaction.client.db.query(
-              'DELETE FROM account_links WHERE discord_id = ?',
-              [interaction.user.id]
-            );
-            
-            const unlinkSuccessEmbed = new EmbedBuilder()
-              .setTitle('✅ Account Unlinked')
-              .setDescription('Your Discord account has been successfully unlinked from your Pterodactyl panel account.')
-              .setColor('#00FF00')
-              .addFields(
-                { 
-                  name: 'Re-link Your Account',
-                  value: 'If you want to link your account again in the future, use `/link account`.',
-                  inline: false 
-                }
-              )
-              .setFooter({ text: 'JMF Hosting • Account Linking System', iconURL: interaction.client.user.displayAvatarURL() })
-              .setTimestamp();
-            
-            await interaction.editReply({
-              embeds: [unlinkSuccessEmbed],
-              components: [],
-              ephemeral: true
-            });
-          } catch (error) {
-            logger.error(`Error unlinking account: ${error.message}`);
-            await interaction.editReply({
-              content: `An error occurred while unlinking your account: ${error.message}`,
-              components: [],
-              ephemeral: true
-            });
-          }
-        } else if (i.customId === 'cancel_unlink') {
-          await i.deferUpdate();
-          
-          const cancelEmbed = new EmbedBuilder()
-            .setTitle('❌ Unlink Cancelled')
-            .setDescription('Your account will remain linked to your Pterodactyl panel account.')
-            .setColor('#00FF00')
-            .setFooter({ text: 'JMF Hosting • Account Linking System', iconURL: interaction.client.user.displayAvatarURL() })
-            .setTimestamp();
-          
-          await interaction.editReply({
-            embeds: [cancelEmbed],
-            components: [],
-            ephemeral: true
-          });
-        }
         
-        collector.stop();
-      });
-      
-      collector.on('end', collected => {
-        if (collected.size === 0) {
-          // Timeout - no response
-          const timeoutEmbed = new EmbedBuilder()
-            .setTitle('⏱️ Confirmation Timeout')
-            .setDescription('The unlink confirmation has timed out. Your account remains linked.')
-            .setColor('#FFA500')
-            .setFooter({ text: 'JMF Hosting • Account Linking System', iconURL: interaction.client.user.displayAvatarURL() })
-            .setTimestamp();
-          
-          interaction.editReply({
-            embeds: [timeoutEmbed],
-            components: [],
-            ephemeral: true
-          }).catch(err => logger.error(`Error updating timeout message: ${err.message}`));
-        }
+      await interaction.editReply({
+        embeds: [confirmEmbed],
+        components: [confirmRow],
+        ephemeral: true
       });
     } catch (error) {
       logger.error(`Error unlinking account: ${error.message}`);
       await interaction.editReply({
-        content: `An error occurred while unlinking your account: ${error.message}`,
+        content: 'An error occurred while unlinking your account: ' + error.message,
         ephemeral: true
       });
+    }
+  },
+
+  /**
+   * Record command usage in the database
+   * @param {CommandInteraction} interaction - The interaction
+   * @param {string} command - The command name
+   */
+  async recordCommandUsage(interaction, command) {
+    try {
+      // Try to insert into command_usage table
+      try {
+        await interaction.client.db.query(
+          'INSERT INTO command_usage (user_id, guild_id, command, channel_id, timestamp) VALUES (?, ?, ?, ?, ?)',
+          [interaction.user.id, interaction.guild.id, command, interaction.channel.id, new Date()]
+        );
+      } catch (error) {
+        // If the error is about missing command column, try without it
+        if (error.message.includes('no column named command')) {
+          logger.error(`Database query error: ${error.message}`);
+          logger.error(`Query: INSERT INTO command_usage (user_id, guild_id, command, channel_id, timestamp) VALUES (?, ?, ?, ?, ?)`);
+          logger.error(`Failed to record command usage in database: ${error.message}`);
+          
+          // Try to insert without the command column
+          await interaction.client.db.query(
+            'INSERT INTO command_usage (user_id, guild_id, channel_id, timestamp) VALUES (?, ?, ?, ?)',
+            [interaction.user.id, interaction.guild.id, interaction.channel.id, new Date()]
+          );
+        } else {
+          throw error;
+        }
+      }
+    } catch (error) {
+      logger.error(`Error recording command usage: ${error.message}`);
     }
   }
 }; 

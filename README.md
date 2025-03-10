@@ -29,7 +29,8 @@
 [📖 Documentation](docs/README.md) •
 [🚀 Getting Started](#-getting-started) •
 [💡 Features](#-features) •
-[🐳 Docker](#-docker-support)
+[🐳 Docker](#-docker-support) •
+[🔧 Troubleshooting](#-troubleshooting)
 
 </div>
 
@@ -59,18 +60,18 @@
 <tr>
 <td>
 
-### 💰 Economy & Progression
-- **Leveling System**: XP, levels, and rewards
-- **Economy System**: Virtual currency and shop
-- **Mining Game**: Interactive mining with upgrades
+### 💰 Economy System
+- **Mining**: Mine for resources and earn coins
+- **Leveling**: Earn XP and level up
+- **Leaderboards**: Compete with other users
 
 </td>
 <td>
 
 ### 🛠️ Administration
-- **Dashboard Integration**: Web interface
-- **Status Monitoring**: Service status display
-- **Database Integration**: Persistent data storage
+- **Custom Commands**: Create custom commands
+- **Welcome Messages**: Customize welcome messages
+- **Auto Roles**: Automatically assign roles
 
 </td>
 </tr>
@@ -80,190 +81,265 @@
 
 ### Prerequisites
 
-<div align="center">
+- [Node.js](https://nodejs.org/) (v16.9.0 or higher)
+- [npm](https://www.npmjs.com/) (v7 or higher)
+- [Git](https://git-scm.com/) (optional, for version control)
+- [MySQL](https://www.mysql.com/) (optional, SQLite is used by default)
 
-[![Node.js 16.9+](https://img.shields.io/badge/Node.js-16.9+-brightgreen.svg?style=for-the-badge)](https://nodejs.org/)
-[![MySQL 5.7+](https://img.shields.io/badge/MySQL-5.7+-blue.svg?style=for-the-badge)](https://www.mysql.com/)
-[![Discord Bot Token](https://img.shields.io/badge/Discord-Bot_Token-5865F2.svg?style=for-the-badge)](https://discord.com/developers/applications)
+### Installation
 
-</div>
-
-### Quick Start
+#### Quick Install (Recommended)
 
 ```bash
-# Clone repository
+# Clone the repository
 git clone https://github.com/Nanaimo2013/Jmf-Bot.git
 cd Jmf-Bot
 
-# Install dependencies
-npm install
-
-# Configure the bot
-cp .env.example .env
-cp config.json.example config.json
-
-# Deploy slash commands
-npm run deploy
-
-# Start the bot
-npm start
-```
-
-## 📦 Installation
-
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/Nanaimo2013/Jmf-Bot.git
-   cd Jmf-Bot
-   ```
-
-2. **Install dependencies**:
-   ```bash
-   npm install
-   ```
-
-3. **Create a configuration file**:
-   ```bash
-   cp config.json.example config.json
-   cp .env.example .env
-   ```
-
-4. **Edit the configuration files**:
-   - Update the `config.json` file with your bot settings
-   - Add your Discord bot token to the `.env` file
-
-5. **Set up the database**:
-   - Create a MySQL database
-   - Import the `schema.sql` file to create the necessary tables
-   - Update the database configuration in `config.json`
-
-6. **Deploy slash commands**:
-   ```bash
-   npm run deploy
-   ```
-
-7. **Start the bot**:
-   ```bash
-   npm start
-   ```
-
-## 🔧 Configuration
-
-The bot is highly configurable through the `config.json` file. You can also use the `/config` command to view and modify settings directly from Discord.
-
-### Key Configuration Sections
-
-- **General**: Bot token, prefix, and basic settings
-- **Channels**: Channel IDs and names for various features
-- **Roles**: Role names for different permissions
-- **Verification**: Settings for the verification system
-- **Tickets**: Configuration for the ticket system
-- **Leveling**: XP rates, rewards, and level-up messages
-- **Economy**: Currency settings, rewards, and shop items
-- **Mining**: Mining game worlds, resources, and upgrades
-- **Pterodactyl**: Game server panel integration
-- **Database**: Database connection settings
-- **Logging**: Logging configuration
-
-## 🐳 Docker Support
-
-### Using GitHub Packages
-
-The bot is available as a Docker image from GitHub Packages:
-
-```bash
-# Pull the image
-docker pull ghcr.io/nanaimo2013/jmf-bot:latest
-
-# Run with environment variables
-docker run -d \
-  --name jmf-bot \
-  -v $(pwd)/config.json:/usr/src/app/config.json \
-  -v $(pwd)/logs:/usr/src/app/logs \
-  --env-file .env \
-  ghcr.io/nanaimo2013/jmf-bot:latest
-```
-
-### Using Docker Compose
-
-```bash
-# Start all services
-docker-compose up -d
-
-# View logs
-docker-compose logs -f
-
-# Stop all services
-docker-compose down
-```
-
-### Building Locally
-
-```bash
-# Build the Docker image
-docker build -t jmf-bot .
-
-# Run the container
-docker run -d --name jmf-bot \
-  -v $(pwd)/config.json:/usr/src/app/config.json \
-  -v $(pwd)/logs:/usr/src/app/logs \
-  --env-file .env \
-  jmf-bot
-```
-
-## 🚢 Deployment
-
-### VM Installation
-
-For easy deployment on a VM, we provide an installation script:
-
-```bash
-# Download the installer
-wget https://raw.githubusercontent.com/Nanaimo2013/Jmf-Bot/main/install.sh
-
-# Make it executable
-chmod +x install.sh
-
-# Run the installer
-sudo ./install.sh
+# Run the installer script
+bash install.sh
 ```
 
 The installer will guide you through the setup process, including:
+- Setting up environment variables
 - Installing dependencies
-- Setting up the bot
-- Creating a systemd service
-- Configuring the bot
+- Initializing the database
+- Registering commands with Discord
+- Setting up systemd service (Linux only)
+- Configuring Docker (optional)
 
-## 📚 Documentation
+#### Manual Installation
 
-Comprehensive documentation is available in the [docs](docs) directory:
+1. Clone the repository:
+```bash
+git clone https://github.com/Nanaimo2013/Jmf-Bot.git
+cd Jmf-Bot
+```
 
-- [📖 Documentation Home](docs/README.md)
-- [🚀 Deployment Guide](docs/DEPLOYMENT.md)
-- [💻 VM Deployment Guide](docs/VM-DEPLOYMENT.md)
-- [🎮 Pterodactyl Integration](docs/PTERODACTYL.md)
-- [🔌 API Documentation](docs/API.md)
-- [📝 Changelog](CHANGELOG.md)
+2. Install dependencies:
+```bash
+npm install
+```
+
+3. Copy the example environment file:
+```bash
+cp .env.example .env
+```
+
+4. Edit the `.env` file with your Discord bot token and other settings.
+
+5. Initialize the database:
+```bash
+# For SQLite (default)
+node fix-database.js
+
+# For MySQL
+# First, create a database and update .env with your MySQL credentials
+# Then run:
+mysql -u your_username -p your_database < schema.mysql.sql
+```
+
+6. Register commands with Discord:
+```bash
+# Register commands globally (takes up to an hour to propagate)
+npm run deploy:global
+
+# OR register commands for a specific guild (instant)
+npm run deploy:guild
+```
+
+7. Start the bot:
+```bash
+npm start
+```
+
+## 🐳 Docker Support
+
+JMF Bot can be run in a Docker container for easier deployment and management.
+
+### Using Docker Compose (Recommended)
+
+1. Make sure you have Docker and Docker Compose installed.
+
+2. Copy the example environment file:
+```bash
+cp .env.example .env
+```
+
+3. Edit the `.env` file with your Discord bot token and other settings.
+
+4. Start the bot with Docker Compose:
+```bash
+docker-compose up -d
+```
+
+5. View logs:
+```bash
+docker-compose logs -f
+```
+
+### Using Dockerfile
+
+1. Build the Docker image:
+```bash
+docker build -t jmf-bot .
+```
+
+2. Run the container:
+```bash
+docker run -d \
+  --name jmf-bot \
+  -v $(pwd)/.env:/usr/src/app/.env \
+  -v $(pwd)/config.json:/usr/src/app/config.json \
+  -v $(pwd)/data:/usr/src/app/data \
+  -v $(pwd)/logs:/usr/src/app/logs \
+  jmf-bot
+```
+
+For more detailed instructions, see [DOCKER-USAGE.md](DOCKER-USAGE.md).
+
+## 📝 Configuration
+
+### Environment Variables
+
+The bot uses environment variables for sensitive configuration. Copy `.env.example` to `.env` and update the values:
+
+```
+# Discord Bot Token (Required)
+DISCORD_TOKEN=your_discord_bot_token
+
+# Database Configuration
+DB_TYPE=sqlite  # or mysql
+DB_PATH=./data/database.sqlite  # for SQLite
+
+# MySQL Configuration (if using MySQL)
+# DB_HOST=localhost
+# DB_PORT=3306
+# DB_DATABASE=jmf_bot
+# DB_USERNAME=jmf_bot
+# DB_PASSWORD=your_secure_password_here
+
+# Other settings
+NODE_ENV=production  # or development
+LOG_LEVEL=info  # debug, info, warn, error
+```
+
+### Bot Configuration
+
+The `config.json` file contains all the bot's feature configurations. Copy `config.json.example` to `config.json` and customize as needed.
+
+Key configuration sections:
+- `botName`: The name of your bot
+- `embedColor`: Default color for embeds
+- `prefix`: Legacy command prefix (slash commands are recommended)
+- `levelSystem`: XP and leveling settings
+- `economySystem`: Currency and economy settings
+- `welcomeSystem`: Welcome message settings
+- `ticketSystem`: Support ticket settings
+- `moderationSystem`: Moderation settings
+
+## 🔧 Troubleshooting
+
+### Database Issues
+
+If you encounter database-related errors, you can use the database fix script:
+
+```bash
+# Run the database update script
+bash update-database.sh
+```
+
+Common database errors and solutions:
+
+1. **Missing columns in tables**:
+   - Error: `table account_links has no column named created_at`
+   - Solution: Run `node fix-database.js` to add missing columns
+
+2. **Command usage tracking errors**:
+   - Error: `table command_usage has no column named command`
+   - Solution: Run `node fix-database.js` to fix the command_usage table
+
+3. **Button usage tracking errors**:
+   - Error: `table button_usage has no column named button_id`
+   - Solution: Run `node fix-database.js` to fix the button_usage table
+
+### Command Registration Issues
+
+If slash commands are not appearing:
+
+1. Make sure your bot has the `applications.commands` scope in the OAuth2 URL
+2. Try registering commands for a specific guild first:
+   ```bash
+   npm run deploy:guild
+   ```
+3. Check the bot's permissions in the Discord server
+
+### Hosting Issues
+
+If you're having trouble with the bot staying online:
+
+1. Use a process manager like PM2:
+   ```bash
+   npm install -g pm2
+   pm2 start src/index.js --name jmf-bot
+   ```
+
+2. Set up the systemd service (Linux only):
+   ```bash
+   sudo bash install-service.sh
+   ```
+
+3. Use Docker for containerized deployment:
+   ```bash
+   docker-compose up -d
+   ```
+
+## 🔄 Updating
+
+To update the bot to the latest version:
+
+```bash
+# Pull the latest changes
+git pull
+
+# Install any new dependencies
+npm install
+
+# Update the database schema
+bash update-database.sh
+
+# Restart the bot
+npm start
+```
+
+If using Docker:
+
+```bash
+# Pull the latest changes
+git pull
+
+# Rebuild and restart the container
+docker-compose up -d --build
+```
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md) and [Code of Conduct](CODE_OF_CONDUCT.md) before submitting a pull request.
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
-### Development Workflow
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-## 📄 License
+## 📜 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## 📞 Support
 
-For support, email support@jmfhosting.com or join our [Discord server](https://discord.gg/qZBWNjuBzy).
+Join our Discord server for support and updates:
+
+[Join JMF Hosting Discord](https://discord.gg/jmfhosting)
+
+## 🙏 Acknowledgements
+
+- [Discord.js](https://discord.js.org/) for the amazing library
+- [Node.js](https://nodejs.org/) for the runtime environment
+- All contributors who have helped improve this bot
 
 ---
 

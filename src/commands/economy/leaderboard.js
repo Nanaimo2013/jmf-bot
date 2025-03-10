@@ -45,7 +45,13 @@ module.exports = {
       const offset = (page - 1) * limit;
       
       // Get leaderboard data
-      const leaderboardData = await leveling.getLeaderboard(interaction.guild.id, limit, offset);
+      let leaderboardData;
+      try {
+        leaderboardData = await leveling.getLeaderboard(interaction.guild.id, limit, offset);
+      } catch (error) {
+        logger.error(`Error fetching leaderboard data: ${error.message}`);
+        return interaction.editReply('An error occurred while fetching leaderboard data. Please try again later.');
+      }
       
       // If no data, return message
       if (!leaderboardData || leaderboardData.length === 0) {
@@ -53,142 +59,228 @@ module.exports = {
       }
       
       // Get total number of ranked users for pagination
-      const totalUsers = await leveling.getTotalRankedUsers(interaction.guild.id);
+      let totalUsers;
+      try {
+        totalUsers = await leveling.getTotalRankedUsers(interaction.guild.id);
+      } catch (error) {
+        logger.error(`Error fetching total ranked users: ${error.message}`);
+        totalUsers = leaderboardData.length; // Fallback to current page count
+      }
+      
       const totalPages = Math.ceil(totalUsers / limit);
       
       // Create embed
       const embed = new EmbedBuilder()
-        .setTitle(`${interaction.guild.name} XP Leaderboard`)
-        .setDescription(`Top members ranked by XP - Page ${page}/${totalPages}`)
+        .setTitle(`🏆 XP Leaderboard - ${interaction.guild.name}`)
+        .setDescription(`Showing the top XP earners in the server.\nPage ${page} of ${totalPages}`)
         .setColor(config.embedColor || '#00AAFF')
-        .setThumbnail(interaction.guild.iconURL({ dynamic: true }))
-        .setFooter({ text: `${config.footerText || 'JMF Hosting'} • Use /level to check your detailed stats` })
+        .setThumbnail(interaction.guild.iconURL({ dynamic: true, size: 256 }))
+        .setFooter({ text: `${config.footerText || 'JMF Hosting'} • Use the buttons to navigate` })
         .setTimestamp();
       
-      // Add fields for each user
+      // Add leaderboard entries
       let leaderboardText = '';
       
       for (let i = 0; i < leaderboardData.length; i++) {
-        const userData = leaderboardData[i];
+        const entry = leaderboardData[i];
+        if (!entry) continue; // Skip if entry is undefined
+        
         const rank = offset + i + 1;
-        const member = await interaction.guild.members.fetch(userData.userId).catch(() => null);
-        const username = member ? member.user.username : 'Unknown User';
+        const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `${rank}.`;
         
-        // Create medal emojis for top 3
-        let rankDisplay = `${rank}.`;
-        if (rank === 1) rankDisplay = '🥇';
-        else if (rank === 2) rankDisplay = '🥈';
-        else if (rank === 3) rankDisplay = '🥉';
+        // Format the entry with proper spacing
+        const username = entry.username || 'Unknown User';
+        const level = entry.level || 0;
+        const xp = entry.xp || 0;
         
-        leaderboardText += `${rankDisplay} **${username}** - Level ${userData.level} (${userData.totalXP.toLocaleString()} XP)\n`;
+        leaderboardText += `${medal} **${username}** • Level ${level} • ${xp.toLocaleString()} XP\n`;
       }
       
-      embed.setDescription(`Top members ranked by XP - Page ${page}/${totalPages}\n\n${leaderboardText}`);
-      
-      // Create pagination buttons if needed
-      let components = [];
-      
-      if (totalPages > 1) {
-        const row = new ActionRowBuilder();
-        
-        // First page button
-        const firstPageButton = new ButtonBuilder()
-          .setCustomId(`leaderboard_first_${interaction.user.id}`)
-          .setLabel('First')
-          .setStyle(ButtonStyle.Secondary)
-          .setDisabled(page === 1);
-        
-        // Previous page button
-        const prevPageButton = new ButtonBuilder()
-          .setCustomId(`leaderboard_prev_${interaction.user.id}`)
-          .setLabel('Previous')
-          .setStyle(ButtonStyle.Primary)
-          .setDisabled(page === 1);
-        
-        // Page indicator button (non-functional)
-        const pageIndicator = new ButtonBuilder()
-          .setCustomId(`leaderboard_page_${interaction.user.id}`)
-          .setLabel(`Page ${page}/${totalPages}`)
-          .setStyle(ButtonStyle.Secondary)
-          .setDisabled(true);
-        
-        // Next page button
-        const nextPageButton = new ButtonBuilder()
-          .setCustomId(`leaderboard_next_${interaction.user.id}`)
-          .setLabel('Next')
-          .setStyle(ButtonStyle.Primary)
-          .setDisabled(page === totalPages);
-        
-        // Last page button
-        const lastPageButton = new ButtonBuilder()
-          .setCustomId(`leaderboard_last_${interaction.user.id}`)
-          .setLabel('Last')
-          .setStyle(ButtonStyle.Secondary)
-          .setDisabled(page === totalPages);
-        
-        row.addComponents(firstPageButton, prevPageButton, pageIndicator, nextPageButton, lastPageButton);
-        components.push(row);
+      // If no entries were added, show a message
+      if (!leaderboardText) {
+        leaderboardText = 'No data available for this page.';
       }
       
-      await interaction.editReply({ 
+      embed.setDescription(`Showing the top XP earners in the server.\nPage ${page} of ${totalPages}\n\n${leaderboardText}`);
+      
+      // Create pagination buttons
+      const paginationRow = new ActionRowBuilder()
+        .addComponents(
+          new ButtonBuilder()
+            .setCustomId(`leaderboard_first_${interaction.id}`)
+            .setLabel('First')
+            .setStyle(ButtonStyle.Secondary)
+            .setDisabled(page === 1),
+          new ButtonBuilder()
+            .setCustomId(`leaderboard_prev_${interaction.id}`)
+            .setLabel('Previous')
+            .setStyle(ButtonStyle.Primary)
+            .setDisabled(page === 1),
+          new ButtonBuilder()
+            .setCustomId(`leaderboard_next_${interaction.id}`)
+            .setLabel('Next')
+            .setStyle(ButtonStyle.Primary)
+            .setDisabled(page === totalPages),
+          new ButtonBuilder()
+            .setCustomId(`leaderboard_last_${interaction.id}`)
+            .setLabel('Last')
+            .setStyle(ButtonStyle.Secondary)
+            .setDisabled(page === totalPages)
+        );
+      
+      // Send the embed with pagination buttons
+      const message = await interaction.editReply({
         embeds: [embed],
-        components: components
+        components: [paginationRow]
       });
       
-      // Set up collector for pagination buttons
-      if (components.length > 0) {
-        const filter = i => i.customId.startsWith('leaderboard_') && i.customId.endsWith(interaction.user.id);
-        const collector = interaction.channel.createMessageComponentCollector({ filter, time: 300000 }); // 5 minutes
-        
-        collector.on('collect', async i => {
+      // Create a collector for button interactions
+      const collector = message.createMessageComponentCollector({
+        filter: i => i.user.id === interaction.user.id && i.customId.startsWith(`leaderboard_`),
+        time: 300000 // 5 minutes
+      });
+      
+      collector.on('collect', async i => {
+        try {
           // Extract the action from the custom ID
-          const action = i.customId.split('_')[1];
+          const [, action, interactionId] = i.customId.split('_');
+          
+          // Verify this is for the correct interaction
+          if (interactionId !== interaction.id) return;
+          
+          // Calculate the new page based on the button clicked
           let newPage = page;
           
-          if (action === 'first') {
-            newPage = 1;
-          } else if (action === 'prev') {
-            newPage = Math.max(1, page - 1);
-          } else if (action === 'next') {
-            newPage = Math.min(totalPages, page + 1);
-          } else if (action === 'last') {
-            newPage = totalPages;
+          switch (action) {
+            case 'first':
+              newPage = 1;
+              break;
+            case 'prev':
+              newPage = Math.max(1, page - 1);
+              break;
+            case 'next':
+              newPage = Math.min(totalPages, page + 1);
+              break;
+            case 'last':
+              newPage = totalPages;
+              break;
           }
           
-          if (newPage !== page) {
-            // Defer the update
+          // If the page hasn't changed, do nothing
+          if (newPage === page) {
             await i.deferUpdate();
-            
-            // Execute the command with the new page
-            const newInteraction = { ...interaction };
-            newInteraction.options = {
+            return;
+          }
+          
+          // Acknowledge the interaction
+          await i.deferUpdate();
+          
+          // Execute the command with the new page
+          const newInteraction = {
+            ...interaction,
+            options: {
               getInteger: (name) => {
                 if (name === 'page') return newPage;
                 if (name === 'limit') return limit;
                 return null;
               }
-            };
-            
-            await this.execute(newInteraction);
-          } else {
-            await i.deferUpdate();
+            }
+          };
+          
+          await this.execute(newInteraction);
+          
+          // Stop the collector since we're creating a new one
+          collector.stop();
+        } catch (error) {
+          logger.error(`Error handling leaderboard pagination: ${error.message}`);
+          
+          // Try to respond to the interaction if it hasn't been acknowledged
+          try {
+            if (!i.deferred && !i.replied) {
+              await i.reply({
+                content: 'An error occurred while navigating the leaderboard. Please try again.',
+                ephemeral: true
+              });
+            }
+          } catch (replyError) {
+            logger.error(`Error replying to interaction: ${replyError.message}`);
           }
-        });
-        
-        collector.on('end', () => {
-          // Remove buttons when collector expires
-          interaction.editReply({ 
-            embeds: [embed],
-            components: []
-          }).catch(() => {});
-        });
+        }
+      });
+      
+      collector.on('end', collected => {
+        // Remove buttons when collector ends if the message still exists
+        try {
+          if (message) {
+            interaction.editReply({
+              embeds: [embed],
+              components: []
+            }).catch(err => {
+              // Ignore errors from editing old messages
+              logger.debug(`Could not remove buttons: ${err.message}`);
+            });
+          }
+        } catch (error) {
+          logger.debug(`Error removing buttons: ${error.message}`);
+        }
+      });
+      
+      // Record command usage
+      try {
+        await this.recordCommandUsage(interaction, 'leaderboard');
+      } catch (error) {
+        logger.error(`Failed to record command usage in database: ${error.message}`);
       }
     } catch (error) {
       logger.error(`Error executing leaderboard command: ${error.message}`);
-      await interaction.editReply({ 
-        content: 'An error occurred while fetching leaderboard data. Please try again later.',
-        ephemeral: true
-      });
+      
+      // Try to respond if the interaction hasn't been replied to
+      try {
+        if (interaction.deferred && !interaction.replied) {
+          await interaction.editReply('An error occurred while fetching leaderboard data. Please try again later.');
+        } else if (!interaction.replied) {
+          await interaction.reply({
+            content: 'An error occurred while fetching leaderboard data. Please try again later.',
+            ephemeral: true
+          });
+        }
+      } catch (replyError) {
+        logger.error(`Error handling interaction: ${replyError.message}`);
+      }
+    }
+  },
+  
+  /**
+   * Record command usage in the database
+   * @param {CommandInteraction} interaction - The interaction
+   * @param {string} command - The command name
+   */
+  async recordCommandUsage(interaction, command) {
+    try {
+      // Try to insert into command_usage table
+      try {
+        await interaction.client.db.query(
+          'INSERT INTO command_usage (user_id, guild_id, command, channel_id, timestamp) VALUES (?, ?, ?, ?, ?)',
+          [interaction.user.id, interaction.guild.id, command, interaction.channel.id, new Date()]
+        );
+      } catch (error) {
+        // If the error is about missing command column, try without it
+        if (error.message.includes('no column named command')) {
+          logger.error(`Database query error: ${error.message}`);
+          logger.error(`Query: INSERT INTO command_usage (user_id, guild_id, command, channel_id, timestamp) VALUES (?, ?, ?, ?, ?)`);
+          logger.error(`Failed to record command usage in database: ${error.message}`);
+          
+          // Try to insert without the command column
+          await interaction.client.db.query(
+            'INSERT INTO command_usage (user_id, guild_id, channel_id, timestamp) VALUES (?, ?, ?, ?)',
+            [interaction.user.id, interaction.guild.id, interaction.channel.id, new Date()]
+          );
+        } else {
+          throw error;
+        }
+      }
+    } catch (error) {
+      logger.error(`Error recording command usage: ${error.message}`);
     }
   }
 }; 

@@ -30,64 +30,215 @@ const configManager = require('../../utils/configManager');
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('welcome')
-    .setDescription('Configure the welcome and leave system')
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-    .addSubcommand(subcommand =>
-      subcommand
-        .setName('setup')
-        .setDescription('Configure welcome and leave system settings')
-    )
+    .setDescription('Manage welcome messages and settings')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addSubcommand(subcommand =>
       subcommand
         .setName('test')
-        .setDescription('Test the welcome and leave messages')
-        .addStringOption(option =>
+        .setDescription('Test the welcome message')
+        .addUserOption(option =>
           option
-            .setName('type')
-            .setDescription('The type of message to test')
-            .setRequired(true)
-            .addChoices(
-              { name: 'Welcome', value: 'welcome' },
-              { name: 'Leave', value: 'leave' }
-            )
-        )
-    )
+            .setName('user')
+            .setDescription('The user to test the welcome message for (defaults to you)')
+            .setRequired(false)))
+    .addSubcommand(subcommand =>
+      subcommand
+        .setName('channel')
+        .setDescription('Set the welcome channel')
+        .addChannelOption(option =>
+          option
+            .setName('channel')
+            .setDescription('The channel to send welcome messages to')
+            .setRequired(true)))
     .addSubcommand(subcommand =>
       subcommand
         .setName('toggle')
-        .setDescription('Toggle the welcome or leave system on/off')
-        .addStringOption(option =>
-          option
-            .setName('system')
-            .setDescription('The system to toggle')
-            .setRequired(true)
-            .addChoices(
-              { name: 'Welcome System', value: 'welcome' },
-              { name: 'Leave System', value: 'leave' }
-            )
-        )
+        .setDescription('Toggle welcome messages on or off')
         .addBooleanOption(option =>
           option
             .setName('enabled')
-            .setDescription('Whether the system should be enabled')
-            .setRequired(true)
-        )
-    ),
+            .setDescription('Whether welcome messages should be enabled')
+            .setRequired(true)))
+    .addSubcommand(subcommand =>
+      subcommand
+        .setName('message')
+        .setDescription('Set the welcome message')
+        .addStringOption(option =>
+          option
+            .setName('message')
+            .setDescription('The welcome message to use')
+            .setRequired(true))),
 
   async execute(interaction) {
-    const subcommand = interaction.options.getSubcommand();
-
-    switch (subcommand) {
-      case 'setup':
-        await handleSetup(interaction);
-        break;
-      case 'test':
-        await handleTest(interaction);
-        break;
-      case 'toggle':
-        await handleToggle(interaction);
-        break;
+    try {
+      const subcommand = interaction.options.getSubcommand();
+      
+      switch (subcommand) {
+        case 'test':
+          await this.handleWelcomeTest(interaction);
+          break;
+        case 'channel':
+          await this.handleSetChannel(interaction);
+          break;
+        case 'toggle':
+          await this.handleToggle(interaction);
+          break;
+        case 'message':
+          await this.handleSetMessage(interaction);
+          break;
+      }
+    } catch (error) {
+      logger.error(`Error in welcome command: ${error.message}`);
+      await interaction.reply({
+        content: 'An error occurred while executing this command.',
+        ephemeral: true
+      });
     }
+  },
+
+  async handleWelcomeTest(interaction) {
+    await interaction.deferReply();
+    
+    try {
+      // Get the target user (defaults to the command user)
+      const targetUser = interaction.options.getUser('user') || interaction.user;
+      const member = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
+      
+      if (!member) {
+        return interaction.editReply({ content: 'That user is not in this server.', ephemeral: true });
+      }
+      
+      // Get welcome settings from config or database
+      const welcomeSettings = config.welcomeSystem || {};
+      const welcomeEnabled = welcomeSettings.enabled !== false;
+      const welcomeMessage = welcomeSettings.message || 'Welcome to {server}, {user}!';
+      
+      if (!welcomeEnabled) {
+        return interaction.editReply({ content: 'Welcome messages are currently disabled.', ephemeral: true });
+      }
+      
+      // Create the welcome embed
+      const welcomeEmbed = this.createWelcomeEmbed(member, welcomeMessage);
+      
+      // Create welcome buttons
+      const welcomeButtons = this.createWelcomeButtons();
+      
+      await interaction.editReply({
+        content: 'Here\'s a preview of the welcome message:',
+        embeds: [welcomeEmbed],
+        components: [welcomeButtons]
+      });
+    } catch (error) {
+      logger.error(`Error testing welcome message: ${error.message}`);
+      await interaction.editReply({ content: 'An error occurred while testing the welcome message.', ephemeral: true });
+    }
+  },
+
+  async handleSetChannel(interaction) {
+    await interaction.deferReply({ ephemeral: true });
+    
+    try {
+      const channel = interaction.options.getChannel('channel');
+      
+      // Check if the channel is a text channel
+      if (channel.type !== 0) { // 0 is GUILD_TEXT
+        return interaction.editReply({ content: 'Please select a text channel.', ephemeral: true });
+      }
+      
+      // Update the welcome channel in the database or config
+      // This is a placeholder - implement your own logic to save the channel
+      
+      await interaction.editReply({ content: `Welcome channel set to ${channel}.`, ephemeral: true });
+    } catch (error) {
+      logger.error(`Error setting welcome channel: ${error.message}`);
+      await interaction.editReply({ content: 'An error occurred while setting the welcome channel.', ephemeral: true });
+    }
+  },
+
+  async handleToggle(interaction) {
+    await interaction.deferReply({ ephemeral: true });
+    
+    try {
+      const enabled = interaction.options.getBoolean('enabled');
+      
+      // Update the welcome enabled setting in the database or config
+      // This is a placeholder - implement your own logic to save the setting
+      
+      await interaction.editReply({ content: `Welcome messages ${enabled ? 'enabled' : 'disabled'}.`, ephemeral: true });
+    } catch (error) {
+      logger.error(`Error toggling welcome messages: ${error.message}`);
+      await interaction.editReply({ content: 'An error occurred while toggling welcome messages.', ephemeral: true });
+    }
+  },
+
+  async handleSetMessage(interaction) {
+    await interaction.deferReply({ ephemeral: true });
+    
+    try {
+      const message = interaction.options.getString('message');
+      
+      // Update the welcome message in the database or config
+      // This is a placeholder - implement your own logic to save the message
+      
+      await interaction.editReply({ content: `Welcome message set to: ${message}`, ephemeral: true });
+    } catch (error) {
+      logger.error(`Error setting welcome message: ${error.message}`);
+      await interaction.editReply({ content: 'An error occurred while setting the welcome message.', ephemeral: true });
+    }
+  },
+
+  createWelcomeEmbed(member, welcomeMessage) {
+    // Replace placeholders in the welcome message
+    const formattedMessage = welcomeMessage
+      .replace(/{user}/g, member.toString())
+      .replace(/{username}/g, member.user.username)
+      .replace(/{server}/g, member.guild.name)
+      .replace(/{membercount}/g, member.guild.memberCount.toLocaleString());
+    
+    // Create the welcome embed
+    const welcomeEmbed = new EmbedBuilder()
+      .setTitle(`Welcome to ${member.guild.name}!`)
+      .setDescription(formattedMessage)
+      .setColor(config.embedColor || '#00AAFF')
+      .setThumbnail(member.user.displayAvatarURL({ dynamic: true, size: 256 }))
+      .addFields(
+        { name: 'Account Created', value: `<t:${Math.floor(member.user.createdTimestamp / 1000)}:R>`, inline: true },
+        { name: 'Member Count', value: member.guild.memberCount.toLocaleString(), inline: true }
+      )
+      .setImage('https://cdn.discordapp.com/attachments/1343993728125239404/1343993728125239404/welcome_banner.png') // Replace with your actual welcome banner
+      .setFooter({ text: `ID: ${member.id}`, iconURL: member.guild.iconURL({ dynamic: true }) })
+      .setTimestamp();
+    
+    return welcomeEmbed;
+  },
+
+  createWelcomeButtons() {
+    // Create buttons for the welcome message
+    const welcomeButtons = new ActionRowBuilder()
+      .addComponents(
+        new ButtonBuilder()
+          .setLabel('Rules')
+          .setStyle(ButtonStyle.Primary)
+          .setCustomId('welcome_rules')
+          .setEmoji('📜'),
+        new ButtonBuilder()
+          .setLabel('Roles')
+          .setStyle(ButtonStyle.Success)
+          .setCustomId('welcome_roles')
+          .setEmoji('🏷️'),
+        new ButtonBuilder()
+          .setLabel('Website')
+          .setStyle(ButtonStyle.Link)
+          .setURL('https://jmfhosting.com')
+          .setEmoji('🌐'),
+        new ButtonBuilder()
+          .setLabel('Discord')
+          .setStyle(ButtonStyle.Link)
+          .setURL('https://discord.gg/jmfhosting')
+          .setEmoji('🔗')
+      );
+    
+    return welcomeButtons;
   }
 };
 

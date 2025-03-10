@@ -15,13 +15,20 @@ const sqlite3 = require('sqlite3').verbose();
 const logger = require('./src/utils/logger');
 
 // Get database path from environment variables or use default
-const dbPath = process.env.DATABASE_PATH || './data/database.sqlite';
+const dbPath = process.env.DB_PATH || './data/database.sqlite';
 
 // Ensure the directory exists
 const dbDir = path.dirname(dbPath);
 if (!fs.existsSync(dbDir)) {
   fs.mkdirSync(dbDir, { recursive: true });
   logger.info(`Created database directory: ${dbDir}`);
+}
+
+// Create a backup of the database
+const backupPath = `${dbPath}.backup.${new Date().toISOString().replace(/[:.]/g, '')}`; 
+if (fs.existsSync(dbPath)) {
+  fs.copyFileSync(dbPath, backupPath);
+  logger.info(`Created backup at: ${backupPath}`);
 }
 
 // Connect to the database
@@ -73,23 +80,110 @@ function columnExists(tableName, columnName) {
         reject(err);
       } else {
         const columns = Array.isArray(rows) ? rows : [rows];
-        const column = columns.find(col => col && col.name === columnName);
-        resolve(!!column);
+        const exists = columns.some(col => col && col.name === columnName);
+        resolve(exists);
       }
     });
   });
 }
 
-// Fix database schema
-async function fixDatabaseSchema() {
-  try {
-    logger.info('Starting database schema fix...');
+// Function to get all columns in a table
+function getTableColumns(tableName) {
+  return new Promise((resolve, reject) => {
+    db.all(`PRAGMA table_info(${tableName})`, (err, rows) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(rows.map(row => row.name));
+      }
+    });
+  });
+}
 
-    // Create command_usage table if it doesn't exist
-    const commandUsageExists = await tableExists('command_usage');
-    if (!commandUsageExists) {
+// Main function to fix database issues
+async function fixDatabaseIssues() {
+  try {
+    logger.info('Starting database fix process...');
+    
+    // Begin transaction
+    await runQuery('BEGIN TRANSACTION');
+    
+    // Fix command_usage table
+    await fixCommandUsageTable();
+    
+    // Fix button_usage table
+    await fixButtonUsageTable();
+    
+    // Fix account_links table
+    await fixAccountLinksTable();
+    
+    // Fix command_errors table
+    await fixCommandErrorsTable();
+    
+    // Fix leveling table
+    await fixLevelingTable();
+    
+    // Fix mining_data table
+    await fixMiningDataTable();
+    
+    // Commit transaction
+    await runQuery('COMMIT');
+    logger.info('Database fix process completed successfully');
+  } catch (error) {
+    logger.error(`Error fixing database: ${error.message}`);
+    await runQuery('ROLLBACK');
+    logger.info('Changes rolled back due to error');
+  } finally {
+    // Close database connection
+    db.close((err) => {
+      if (err) {
+        logger.error(`Error closing database: ${err.message}`);
+      } else {
+        logger.info('Database connection closed');
+      }
+    });
+  }
+}
+
+// Fix command_usage table
+async function fixCommandUsageTable() {
+  const tableName = 'command_usage';
+  
+  // Check if table exists
+  const exists = await tableExists(tableName);
+  
+  if (!exists) {
+    logger.info(`Creating ${tableName} table...`);
+    await runQuery(`
+      CREATE TABLE ${tableName} (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id VARCHAR(20),
+        guild_id VARCHAR(20),
+        command VARCHAR(50),
+        channel_id VARCHAR(20),
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await runQuery(`CREATE INDEX idx_command_usage_user ON ${tableName}(user_id)`);
+    await runQuery(`CREATE INDEX idx_command_usage_guild ON ${tableName}(guild_id)`);
+    await runQuery(`CREATE INDEX idx_command_usage_command ON ${tableName}(command)`);
+    logger.info(`Created ${tableName} table`);
+  } else {
+    // Check if command column exists
+    const hasCommandColumn = await columnExists(tableName, 'command');
+    
+    if (!hasCommandColumn) {
+      logger.info(`Adding command column to ${tableName} table...`);
+      
+      // In SQLite, we need to recreate the table to add a column
+      // First, get all existing columns
+      const columns = await getTableColumns(tableName);
+      
+      // Create a new table with the command column
+      await runQuery(`ALTER TABLE ${tableName} RENAME TO ${tableName}_old`);
+      
       await runQuery(`
-        CREATE TABLE IF NOT EXISTS command_usage (
+        CREATE TABLE ${tableName} (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           user_id VARCHAR(20),
           guild_id VARCHAR(20),
@@ -98,61 +192,64 @@ async function fixDatabaseSchema() {
           timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
       `);
-      await runQuery(`CREATE INDEX IF NOT EXISTS idx_command_usage_user ON command_usage(user_id)`);
-      await runQuery(`CREATE INDEX IF NOT EXISTS idx_command_usage_guild ON command_usage(guild_id)`);
-      await runQuery(`CREATE INDEX IF NOT EXISTS idx_command_usage_command ON command_usage(command)`);
-      logger.info('Created command_usage table');
-    } else {
-      // Check if command column exists
-      const commandColumnExists = await columnExists('command_usage', 'command');
-      if (!commandColumnExists) {
-        // SQLite doesn't support dropping columns, so we need to recreate the table
-        logger.info('command_usage table exists but missing command column, recreating...');
-        
-        // Begin transaction
-        await runQuery('BEGIN TRANSACTION');
-        
-        // Rename the old table
-        await runQuery('ALTER TABLE command_usage RENAME TO command_usage_old');
-        
-        // Create the new table with the correct schema
-        await runQuery(`
-          CREATE TABLE command_usage (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id VARCHAR(20),
-            guild_id VARCHAR(20),
-            command VARCHAR(50),
-            channel_id VARCHAR(20),
-            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-          )
-        `);
-        
-        // Copy data from old table to new table
-        await runQuery(`
-          INSERT INTO command_usage (id, user_id, guild_id, command, channel_id, timestamp)
-          SELECT id, user_id, guild_id, NULL as command, channel_id, timestamp FROM command_usage_old
-        `);
-        
-        // Create indexes
-        await runQuery(`CREATE INDEX IF NOT EXISTS idx_command_usage_user ON command_usage(user_id)`);
-        await runQuery(`CREATE INDEX IF NOT EXISTS idx_command_usage_guild ON command_usage(guild_id)`);
-        await runQuery(`CREATE INDEX IF NOT EXISTS idx_command_usage_command ON command_usage(command)`);
-        
-        // Drop the old table
-        await runQuery('DROP TABLE command_usage_old');
-        
-        // Commit transaction
-        await runQuery('COMMIT');
-        
-        logger.info('Recreated command_usage table with command column');
-      }
+      
+      // Copy data from old table to new table
+      const oldColumns = columns.join(', ');
+      const newColumns = [...columns, 'command'].join(', ');
+      await runQuery(`INSERT INTO ${tableName} (${oldColumns}, command) SELECT ${oldColumns}, NULL FROM ${tableName}_old`);
+      
+      // Drop old table
+      await runQuery(`DROP TABLE ${tableName}_old`);
+      
+      // Recreate indexes
+      await runQuery(`CREATE INDEX idx_command_usage_user ON ${tableName}(user_id)`);
+      await runQuery(`CREATE INDEX idx_command_usage_guild ON ${tableName}(guild_id)`);
+      await runQuery(`CREATE INDEX idx_command_usage_command ON ${tableName}(command)`);
+      
+      logger.info(`Added command column to ${tableName} table`);
     }
+  }
+}
 
-    // Create button_usage table if it doesn't exist
-    const buttonUsageExists = await tableExists('button_usage');
-    if (!buttonUsageExists) {
+// Fix button_usage table
+async function fixButtonUsageTable() {
+  const tableName = 'button_usage';
+  
+  // Check if table exists
+  const exists = await tableExists(tableName);
+  
+  if (!exists) {
+    logger.info(`Creating ${tableName} table...`);
+    await runQuery(`
+      CREATE TABLE ${tableName} (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id VARCHAR(20),
+        guild_id VARCHAR(20),
+        button_id VARCHAR(100),
+        channel_id VARCHAR(20),
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await runQuery(`CREATE INDEX idx_button_usage_user ON ${tableName}(user_id)`);
+    await runQuery(`CREATE INDEX idx_button_usage_guild ON ${tableName}(guild_id)`);
+    await runQuery(`CREATE INDEX idx_button_usage_button ON ${tableName}(button_id)`);
+    logger.info(`Created ${tableName} table`);
+  } else {
+    // Check if button_id column exists
+    const hasButtonIdColumn = await columnExists(tableName, 'button_id');
+    
+    if (!hasButtonIdColumn) {
+      logger.info(`Adding button_id column to ${tableName} table...`);
+      
+      // In SQLite, we need to recreate the table to add a column
+      // First, get all existing columns
+      const columns = await getTableColumns(tableName);
+      
+      // Create a new table with the button_id column
+      await runQuery(`ALTER TABLE ${tableName} RENAME TO ${tableName}_old`);
+      
       await runQuery(`
-        CREATE TABLE IF NOT EXISTS button_usage (
+        CREATE TABLE ${tableName} (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           user_id VARCHAR(20),
           guild_id VARCHAR(20),
@@ -161,141 +258,173 @@ async function fixDatabaseSchema() {
           timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
       `);
-      await runQuery(`CREATE INDEX IF NOT EXISTS idx_button_usage_user ON button_usage(user_id)`);
-      await runQuery(`CREATE INDEX IF NOT EXISTS idx_button_usage_guild ON button_usage(guild_id)`);
-      await runQuery(`CREATE INDEX IF NOT EXISTS idx_button_usage_button ON button_usage(button_id)`);
-      logger.info('Created button_usage table');
-    } else {
-      // Check if button_id column exists
-      const buttonIdColumnExists = await columnExists('button_usage', 'button_id');
-      if (!buttonIdColumnExists) {
-        // SQLite doesn't support dropping columns, so we need to recreate the table
-        logger.info('button_usage table exists but missing button_id column, recreating...');
-        
-        // Begin transaction
-        await runQuery('BEGIN TRANSACTION');
-        
-        // Rename the old table
-        await runQuery('ALTER TABLE button_usage RENAME TO button_usage_old');
-        
-        // Create the new table with the correct schema
-        await runQuery(`
-          CREATE TABLE button_usage (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id VARCHAR(20),
-            guild_id VARCHAR(20),
-            button_id VARCHAR(100),
-            channel_id VARCHAR(20),
-            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-          )
-        `);
-        
-        // Copy data from old table to new table
-        await runQuery(`
-          INSERT INTO button_usage (id, user_id, guild_id, button_id, channel_id, timestamp)
-          SELECT id, user_id, guild_id, NULL as button_id, channel_id, timestamp FROM button_usage_old
-        `);
-        
-        // Create indexes
-        await runQuery(`CREATE INDEX IF NOT EXISTS idx_button_usage_user ON button_usage(user_id)`);
-        await runQuery(`CREATE INDEX IF NOT EXISTS idx_button_usage_guild ON button_usage(guild_id)`);
-        await runQuery(`CREATE INDEX IF NOT EXISTS idx_button_usage_button ON button_usage(button_id)`);
-        
-        // Drop the old table
-        await runQuery('DROP TABLE button_usage_old');
-        
-        // Commit transaction
-        await runQuery('COMMIT');
-        
-        logger.info('Recreated button_usage table with button_id column');
-      }
+      
+      // Copy data from old table to new table
+      const oldColumns = columns.join(', ');
+      const newColumns = [...columns, 'button_id'].join(', ');
+      await runQuery(`INSERT INTO ${tableName} (${oldColumns}, button_id) SELECT ${oldColumns}, NULL FROM ${tableName}_old`);
+      
+      // Drop old table
+      await runQuery(`DROP TABLE ${tableName}_old`);
+      
+      // Recreate indexes
+      await runQuery(`CREATE INDEX idx_button_usage_user ON ${tableName}(user_id)`);
+      await runQuery(`CREATE INDEX idx_button_usage_guild ON ${tableName}(guild_id)`);
+      await runQuery(`CREATE INDEX idx_button_usage_button ON ${tableName}(button_id)`);
+      
+      logger.info(`Added button_id column to ${tableName} table`);
     }
-
-    // Create command_errors table if it doesn't exist
-    const commandErrorsExists = await tableExists('command_errors');
-    if (!commandErrorsExists) {
-      await runQuery(`
-        CREATE TABLE IF NOT EXISTS command_errors (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          user_id VARCHAR(20),
-          guild_id VARCHAR(20),
-          command VARCHAR(50),
-          error_message TEXT,
-          stack_trace TEXT,
-          timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-      `);
-      await runQuery(`CREATE INDEX IF NOT EXISTS idx_command_errors_user ON command_errors(user_id)`);
-      await runQuery(`CREATE INDEX IF NOT EXISTS idx_command_errors_guild ON command_errors(guild_id)`);
-      await runQuery(`CREATE INDEX IF NOT EXISTS idx_command_errors_command ON command_errors(command)`);
-      logger.info('Created command_errors table');
-    } else {
-      // Check if command column exists
-      const commandColumnExists = await columnExists('command_errors', 'command');
-      if (!commandColumnExists) {
-        // SQLite doesn't support dropping columns, so we need to recreate the table
-        logger.info('command_errors table exists but missing command column, recreating...');
-        
-        // Begin transaction
-        await runQuery('BEGIN TRANSACTION');
-        
-        // Rename the old table
-        await runQuery('ALTER TABLE command_errors RENAME TO command_errors_old');
-        
-        // Create the new table with the correct schema
-        await runQuery(`
-          CREATE TABLE command_errors (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id VARCHAR(20),
-            guild_id VARCHAR(20),
-            command VARCHAR(50),
-            error_message TEXT,
-            stack_trace TEXT,
-            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-          )
-        `);
-        
-        // Copy data from old table to new table
-        await runQuery(`
-          INSERT INTO command_errors (id, user_id, guild_id, command, error_message, stack_trace, timestamp)
-          SELECT id, user_id, guild_id, NULL as command, error_message, stack_trace, timestamp FROM command_errors_old
-        `);
-        
-        // Create indexes
-        await runQuery(`CREATE INDEX IF NOT EXISTS idx_command_errors_user ON command_errors(user_id)`);
-        await runQuery(`CREATE INDEX IF NOT EXISTS idx_command_errors_guild ON command_errors(guild_id)`);
-        await runQuery(`CREATE INDEX IF NOT EXISTS idx_command_errors_command ON command_errors(command)`);
-        
-        // Drop the old table
-        await runQuery('DROP TABLE command_errors_old');
-        
-        // Commit transaction
-        await runQuery('COMMIT');
-        
-        logger.info('Recreated command_errors table with command column');
-      }
-    }
-
-    logger.info('Database schema fix completed successfully');
-  } catch (error) {
-    logger.error(`Error fixing database schema: ${error.message}`);
-    // If we're in a transaction, roll it back
-    try {
-      await runQuery('ROLLBACK');
-    } catch (rollbackError) {
-      logger.error(`Error rolling back transaction: ${rollbackError.message}`);
-    }
-  } finally {
-    // Close the database connection
-    db.close((err) => {
-      if (err) {
-        logger.error(`Error closing database connection: ${err.message}`);
-      } else {
-        logger.info('Database connection closed');
-      }
-    });
   }
 }
 
-// Run the fix
-fixDatabaseSchema(); 
+// Fix account_links table
+async function fixAccountLinksTable() {
+  const tableName = 'account_links';
+  
+  // Check if table exists
+  const exists = await tableExists(tableName);
+  
+  if (!exists) {
+    logger.info(`Creating ${tableName} table...`);
+    await runQuery(`
+      CREATE TABLE ${tableName} (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        discord_id VARCHAR(20) UNIQUE,
+        pterodactyl_id INTEGER,
+        token VARCHAR(100),
+        expires_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        verified BOOLEAN DEFAULT 0,
+        verified_at TIMESTAMP,
+        panel_id VARCHAR(100)
+      )
+    `);
+    await runQuery(`CREATE INDEX idx_account_links_discord ON ${tableName}(discord_id)`);
+    await runQuery(`CREATE INDEX idx_account_links_pterodactyl ON ${tableName}(pterodactyl_id)`);
+    logger.info(`Created ${tableName} table`);
+  } else {
+    // Check if created_at column exists
+    const hasCreatedAtColumn = await columnExists(tableName, 'created_at');
+    
+    if (!hasCreatedAtColumn) {
+      logger.info(`Adding created_at column to ${tableName} table...`);
+      await runQuery(`ALTER TABLE ${tableName} ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`);
+      logger.info(`Added created_at column to ${tableName} table`);
+    }
+    
+    // Check if token column exists
+    const hasTokenColumn = await columnExists(tableName, 'token');
+    
+    if (!hasTokenColumn) {
+      logger.info(`Adding token column to ${tableName} table...`);
+      await runQuery(`ALTER TABLE ${tableName} ADD COLUMN token VARCHAR(100)`);
+      logger.info(`Added token column to ${tableName} table`);
+    }
+    
+    // Check if expires_at column exists
+    const hasExpiresAtColumn = await columnExists(tableName, 'expires_at');
+    
+    if (!hasExpiresAtColumn) {
+      logger.info(`Adding expires_at column to ${tableName} table...`);
+      await runQuery(`ALTER TABLE ${tableName} ADD COLUMN expires_at TIMESTAMP`);
+      logger.info(`Added expires_at column to ${tableName} table`);
+    }
+    
+    // Check if panel_id column exists
+    const hasPanelIdColumn = await columnExists(tableName, 'panel_id');
+    
+    if (!hasPanelIdColumn) {
+      logger.info(`Adding panel_id column to ${tableName} table...`);
+      await runQuery(`ALTER TABLE ${tableName} ADD COLUMN panel_id VARCHAR(100)`);
+      logger.info(`Added panel_id column to ${tableName} table`);
+    }
+    
+    // Check if discord_id column exists
+    const hasDiscordIdColumn = await columnExists(tableName, 'discord_id');
+    
+    if (!hasDiscordIdColumn) {
+      logger.info(`Adding discord_id column to ${tableName} table...`);
+      await runQuery(`ALTER TABLE ${tableName} ADD COLUMN discord_id VARCHAR(20)`);
+      
+      // Update discord_id to match user_id if it exists
+      const hasUserIdColumn = await columnExists(tableName, 'user_id');
+      if (hasUserIdColumn) {
+        await runQuery(`UPDATE ${tableName} SET discord_id = user_id WHERE discord_id IS NULL`);
+      }
+      
+      logger.info(`Added discord_id column to ${tableName} table`);
+    }
+  }
+}
+
+// Fix command_errors table
+async function fixCommandErrorsTable() {
+  const tableName = 'command_errors';
+  
+  // Check if table exists
+  const exists = await tableExists(tableName);
+  
+  if (!exists) {
+    logger.info(`Creating ${tableName} table...`);
+    await runQuery(`
+      CREATE TABLE ${tableName} (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id VARCHAR(20),
+        guild_id VARCHAR(20),
+        command VARCHAR(50),
+        error_message TEXT,
+        stack_trace TEXT,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await runQuery(`CREATE INDEX idx_command_errors_user ON ${tableName}(user_id)`);
+    await runQuery(`CREATE INDEX idx_command_errors_guild ON ${tableName}(guild_id)`);
+    await runQuery(`CREATE INDEX idx_command_errors_command ON ${tableName}(command)`);
+    logger.info(`Created ${tableName} table`);
+  }
+}
+
+// Fix leveling table
+async function fixLevelingTable() {
+  const tableName = 'leveling';
+  
+  // Check if table exists
+  const exists = await tableExists(tableName);
+  
+  if (exists) {
+    // Make sure all required columns exist
+    const columns = await getTableColumns(tableName);
+    
+    if (!columns.includes('total_xp')) {
+      logger.info(`Adding total_xp column to ${tableName} table...`);
+      await runQuery(`ALTER TABLE ${tableName} ADD COLUMN total_xp INTEGER DEFAULT 0`);
+      await runQuery(`UPDATE ${tableName} SET total_xp = xp`);
+      logger.info(`Added total_xp column to ${tableName} table`);
+    }
+  }
+}
+
+// Fix mining_data table
+async function fixMiningDataTable() {
+  const tableName = 'mining_data';
+  
+  // Check if table exists
+  const exists = await tableExists(tableName);
+  
+  if (exists) {
+    // Check if resources column exists
+    const hasResourcesColumn = await columnExists(tableName, 'resources');
+    
+    if (!hasResourcesColumn) {
+      logger.info(`Adding resources column to ${tableName} table...`);
+      await runQuery(`ALTER TABLE ${tableName} ADD COLUMN resources TEXT DEFAULT '[]'`);
+      logger.info(`Added resources column to ${tableName} table`);
+    }
+  }
+}
+
+// Run the fix process
+fixDatabaseIssues().catch(err => {
+  logger.error(`Unhandled error in database fix process: ${err.message}`);
+  process.exit(1);
+}); 

@@ -11,6 +11,7 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const miningGame = require('../../modules/mining');
 const { formatDuration } = require('../../utils/timeUtils');
+const logger = require('../../utils/logger');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -58,191 +59,263 @@ module.exports = {
         .setDescription('Purchase mining equipment')
         .addStringOption(option =>
           option
+            .setName('item')
+            .setDescription('The item to purchase')
+            .setRequired(true))
+        .addStringOption(option =>
+          option
             .setName('type')
-            .setDescription('The type of item to buy')
+            .setDescription('The type of item')
             .setRequired(true)
             .addChoices(
               { name: 'Pickaxe', value: 'pickaxe' },
               { name: 'Pet', value: 'pet' },
               { name: 'Armor', value: 'armor' },
               { name: 'Booster', value: 'booster' }
-            ))
-        .addStringOption(option =>
-          option
-            .setName('name')
-            .setDescription('The name of the item to buy')
-            .setRequired(true))),
+            ))),
 
   async execute(interaction) {
-    const userId = interaction.user.id;
-    const username = interaction.user.username;
-
-    // Initialize user data if not exists
-    miningGame.initializeUser(userId);
-
-    const subcommand = interaction.options.getSubcommand();
-
-    switch (subcommand) {
-      case 'dig':
-        return this.handleMining(interaction, userId);
-      case 'stats':
-        return this.handleStats(interaction, userId, username);
-      case 'inventory':
-        return this.handleInventory(interaction, userId, username);
-      case 'world':
-        return this.handleWorldChange(interaction, userId);
-      case 'shop':
-        return this.handleShop(interaction);
-      case 'buy':
-        return this.handlePurchase(interaction, userId);
-      default:
-        return interaction.reply({ content: 'Invalid subcommand', ephemeral: true });
+    try {
+      await interaction.deferReply();
+      
+      const subcommand = interaction.options.getSubcommand();
+      const userId = interaction.user.id;
+      const username = interaction.user.username;
+      
+      // Initialize user if needed
+      if (!miningGame.getUserStats(userId)) {
+        miningGame.initializeUser(userId);
+      }
+      
+      switch (subcommand) {
+        case 'dig':
+          await this.handleMining(interaction, userId);
+          break;
+        case 'stats':
+          await this.handleStats(interaction, userId, username);
+          break;
+        case 'inventory':
+          await this.handleInventory(interaction, userId, username);
+          break;
+        case 'world':
+          await this.handleWorldChange(interaction, userId);
+          break;
+        case 'shop':
+          await this.handleShop(interaction);
+          break;
+        case 'buy':
+          await this.handlePurchase(interaction, userId);
+          break;
+      }
+      
+      // Record command usage
+      try {
+        await this.recordCommandUsage(interaction, 'mine');
+      } catch (error) {
+        logger.error(`Failed to record command usage in database: ${error.message}`);
+      }
+    } catch (error) {
+      logger.error(`Error executing command mine: ${error.message}`);
+      
+      // Try to respond if the interaction hasn't been replied to
+      try {
+        if (interaction.deferred && !interaction.replied) {
+          await interaction.editReply('An error occurred while processing your mining command. Please try again later.');
+        } else if (!interaction.replied) {
+          await interaction.reply({
+            content: 'An error occurred while processing your mining command. Please try again later.',
+            ephemeral: true
+          });
+        }
+      } catch (replyError) {
+        logger.error(`Error handling interaction: ${replyError.message}`);
+      }
     }
   },
 
   async handleMining(interaction, userId) {
     // Check if user can mine
-    const miningStatus = miningGame.canMine(userId);
-    if (!miningStatus.canMine) {
-      const timeLeft = formatDuration(miningStatus.timeLeft);
-      return interaction.reply({
-        content: `You must wait ${timeLeft} before mining again.`,
-        ephemeral: true
-      });
-    }
-
-    // Perform mining
-    const result = miningGame.mine(userId);
-
-    // Create result embed
-    const embed = new EmbedBuilder()
-      .setTitle('Mining Results')
-      .setColor('#FFD700')
-      .setDescription('Here\'s what you found:');
-
-    // Add main resources
-    for (const resource of result.resources) {
-      const description = resource.isBonus
-        ? `${resource.quantity}x ${resource.name} (Bonus!)\nValue: ${resource.value} 🪙\nXP: ${resource.xp}`
-        : `${resource.quantity}x ${resource.name}\nValue: ${resource.value} 🪙\nXP: ${resource.xp}`;
+    const canMine = miningGame.canMine(userId);
+    
+    if (canMine !== true) {
+      // User is on cooldown
+      const cooldownEmbed = new EmbedBuilder()
+        .setTitle('⏳ Mining Cooldown')
+        .setDescription(`You need to wait before mining again.`)
+        .setColor('#FFA500')
+        .addFields(
+          { name: 'Time Remaining', value: formatDuration(canMine), inline: true }
+        )
+        .setFooter({ text: 'JMF Hosting • Mining System' })
+        .setTimestamp();
       
-      embed.addFields({ name: resource.name, value: description, inline: true });
+      return interaction.editReply({ embeds: [cooldownEmbed] });
     }
-
-    // Add totals
-    embed.addFields(
-      { name: 'Total Value', value: `${result.totalValue} 🪙`, inline: true },
-      { name: 'Total XP', value: result.totalXp.toString(), inline: true }
-    );
-
-    // Add level up message if applicable
-    if (result.levelUp) {
-      const stats = miningGame.getUserStats(userId);
-      embed.addFields({
-        name: 'Level Up!',
-        value: `Congratulations! You've reached level ${stats.level}!`,
-        inline: false
-      });
+    
+    // User can mine, process mining
+    try {
+      const result = await miningGame.mine(userId);
+      
+      if (!result) {
+        return interaction.editReply('An error occurred while mining. Please try again later.');
+      }
+      
+      // Create the mining result embed
+      const miningEmbed = new EmbedBuilder()
+        .setTitle('⛏️ Mining Results')
+        .setDescription(`You went mining in the ${result.world || 'Unknown'} world.`)
+        .setColor('#00AAFF')
+        .setFooter({ text: 'JMF Hosting • Mining System' })
+        .setTimestamp();
+      
+      // Add XP and coins fields
+      miningEmbed.addFields(
+        { name: 'XP Gained', value: `${result.xpGained || 0} XP`, inline: true },
+        { name: 'Coins Earned', value: `${result.coinsEarned || 0} coins`, inline: true }
+      );
+      
+      // Add resources found if any
+      if (result.resources && Array.isArray(result.resources) && result.resources.length > 0) {
+        let resourcesText = '';
+        
+        for (const resource of result.resources) {
+          if (resource && resource.name && resource.amount) {
+            resourcesText += `${resource.amount}x ${resource.name}\n`;
+          }
+        }
+        
+        if (resourcesText) {
+          miningEmbed.addFields({ name: 'Resources Found', value: resourcesText, inline: false });
+        }
+      } else {
+        miningEmbed.addFields({ name: 'Resources Found', value: 'No resources found this time.', inline: false });
+      }
+      
+      // Add level up message if applicable
+      if (result.leveledUp) {
+        miningEmbed.addFields({ 
+          name: '🎉 Level Up!', 
+          value: `You are now mining level ${result.newLevel}!`, 
+          inline: false 
+        });
+      }
+      
+      await interaction.editReply({ embeds: [miningEmbed] });
+    } catch (error) {
+      logger.error(`Error during mining: ${error.message}`);
+      await interaction.editReply('An error occurred while mining. Please try again later.');
     }
-
-    return interaction.reply({ embeds: [embed] });
   },
 
   async handleStats(interaction, userId, username) {
-    const embed = miningGame.createStatsEmbed(userId, username);
-    return interaction.reply({ embeds: [embed] });
+    const statsEmbed = await miningGame.createStatsEmbed(userId, username);
+    await interaction.editReply({ embeds: [statsEmbed] });
   },
 
   async handleInventory(interaction, userId, username) {
-    const embed = miningGame.createInventoryEmbed(userId, username);
-    return interaction.reply({ embeds: [embed] });
+    const inventoryEmbed = await miningGame.createInventoryEmbed(userId, username);
+    await interaction.editReply({ embeds: [inventoryEmbed] });
   },
 
   async handleWorldChange(interaction, userId) {
     const worldName = interaction.options.getString('name');
-    const result = miningGame.changeWorld(userId, worldName);
-
-    if (!result.success) {
-      return interaction.reply({
-        content: `Failed to change world: ${result.message}`,
-        ephemeral: true
-      });
+    
+    try {
+      const result = await miningGame.changeWorld(userId, worldName);
+      
+      if (result.success) {
+        const worldChangeEmbed = new EmbedBuilder()
+          .setTitle('🌍 World Changed')
+          .setDescription(`You are now mining in the ${result.world} world.`)
+          .setColor('#00AAFF')
+          .addFields(
+            { name: 'World Level', value: `${result.level}`, inline: true },
+            { name: 'Resources', value: result.resources.join(', '), inline: true }
+          )
+          .setFooter({ text: 'JMF Hosting • Mining System' })
+          .setTimestamp();
+        
+        await interaction.editReply({ embeds: [worldChangeEmbed] });
+      } else {
+        await interaction.editReply(result.message || 'Failed to change world. Please try again.');
+      }
+    } catch (error) {
+      logger.error(`Error changing world: ${error.message}`);
+      await interaction.editReply('An error occurred while changing worlds. Please try again later.');
     }
-
-    return interaction.reply({
-      content: result.message,
-      ephemeral: true
-    });
   },
 
   async handleShop(interaction) {
     const category = interaction.options.getString('category');
-    const config = require('../../../config.json');
     
-    const embed = new EmbedBuilder()
-      .setTitle(`Mining Shop - ${category.charAt(0).toUpperCase() + category.slice(1)}s`)
-      .setColor('#00ff00');
-
-    let items;
-    switch (category) {
-      case 'pickaxe':
-        items = config.miningGame.pickaxes;
-        break;
-      case 'pet':
-        items = config.miningGame.pets;
-        break;
-      case 'armor':
-        items = config.miningGame.armor;
-        break;
-      case 'booster':
-        items = config.miningGame.boosters;
-        break;
-      default:
-        return interaction.reply({
-          content: 'Invalid shop category',
-          ephemeral: true
-        });
-    }
-
-    for (const item of items) {
-      let description = `Cost: ${item.cost} 🪙\n`;
-      
-      if (item.power) description += `Power: ${item.power}\n`;
-      if (item.cooldownReduction) description += `Cooldown Reduction: ${item.cooldownReduction}s\n`;
-      if (item.bonusChance) description += `Bonus Chance: ${item.bonusChance}%\n`;
-      if (item.valueBuff) description += `Value Buff: ${item.valueBuff}%\n`;
-      if (item.rareChance) description += `Rare Find Chance: ${item.rareChance}%\n`;
-      if (item.xpBoost) description += `XP Boost: ${item.xpBoost}%\n`;
-      if (item.allBuff) description += `All Stats Buff: ${item.allBuff}%\n`;
-      if (item.duration) description += `Duration: ${item.duration / 3600} hour(s)\n`;
-      if (item.description) description += `\n${item.description}`;
-
-      embed.addFields({
-        name: item.name,
-        value: description,
-        inline: true
-      });
-    }
-
-    return interaction.reply({ embeds: [embed] });
+    // This would be implemented based on your shop system
+    // For now, just return a placeholder
+    const shopEmbed = new EmbedBuilder()
+      .setTitle('🛒 Mining Shop')
+      .setDescription(`Browse and purchase mining equipment.`)
+      .setColor('#00AAFF')
+      .addFields(
+        { name: 'Category', value: category.charAt(0).toUpperCase() + category.slice(1) + 's', inline: false },
+        { name: 'Coming Soon', value: 'The shop system is currently under development.', inline: false }
+      )
+      .setFooter({ text: 'JMF Hosting • Mining System' })
+      .setTimestamp();
+    
+    await interaction.editReply({ embeds: [shopEmbed] });
   },
 
   async handlePurchase(interaction, userId) {
+    const itemName = interaction.options.getString('item');
     const itemType = interaction.options.getString('type');
-    const itemName = interaction.options.getString('name');
-
-    const result = miningGame.purchaseItem(userId, itemType, itemName);
-
-    if (!result.success) {
-      return interaction.reply({
-        content: `Failed to purchase item: ${result.message}`,
-        ephemeral: true
-      });
+    
+    // This would be implemented based on your purchase system
+    // For now, just return a placeholder
+    const purchaseEmbed = new EmbedBuilder()
+      .setTitle('🛒 Item Purchase')
+      .setDescription(`Purchase system is under development.`)
+      .setColor('#00AAFF')
+      .addFields(
+        { name: 'Item', value: itemName, inline: true },
+        { name: 'Type', value: itemType.charAt(0).toUpperCase() + itemType.slice(1), inline: true },
+        { name: 'Status', value: 'The purchase system is currently under development.', inline: false }
+      )
+      .setFooter({ text: 'JMF Hosting • Mining System' })
+      .setTimestamp();
+    
+    await interaction.editReply({ embeds: [purchaseEmbed] });
+  },
+  
+  /**
+   * Record command usage in the database
+   * @param {CommandInteraction} interaction - The interaction
+   * @param {string} command - The command name
+   */
+  async recordCommandUsage(interaction, command) {
+    try {
+      // Try to insert into command_usage table
+      try {
+        await interaction.client.db.query(
+          'INSERT INTO command_usage (user_id, guild_id, command, channel_id, timestamp) VALUES (?, ?, ?, ?, ?)',
+          [interaction.user.id, interaction.guild.id, command, interaction.channel.id, new Date()]
+        );
+      } catch (error) {
+        // If the error is about missing command column, try without it
+        if (error.message.includes('no column named command')) {
+          logger.error(`Database query error: ${error.message}`);
+          logger.error(`Query: INSERT INTO command_usage (user_id, guild_id, command, channel_id, timestamp) VALUES (?, ?, ?, ?, ?)`);
+          logger.error(`Failed to record command usage in database: ${error.message}`);
+          
+          // Try to insert without the command column
+          await interaction.client.db.query(
+            'INSERT INTO command_usage (user_id, guild_id, channel_id, timestamp) VALUES (?, ?, ?, ?)',
+            [interaction.user.id, interaction.guild.id, interaction.channel.id, new Date()]
+          );
+        } else {
+          throw error;
+        }
+      }
+    } catch (error) {
+      logger.error(`Error recording command usage: ${error.message}`);
     }
-
-    return interaction.reply({
-      content: result.message,
-      ephemeral: true
-    });
   }
 }; 

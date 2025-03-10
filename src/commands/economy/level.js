@@ -39,9 +39,26 @@ module.exports = {
       // Get user's level data
       const userData = await leveling.getUserData(targetUser.id, interaction.guild.id);
       
+      // If no data, create default data
+      if (!userData) {
+        logger.warn(`No level data found for user ${targetUser.id} in guild ${interaction.guild.id}`);
+        return interaction.editReply({ 
+          content: `No level data found for ${targetUser.username}. They need to send messages to earn XP.`,
+          ephemeral: true
+        });
+      }
+      
+      // Ensure userData has all required properties
+      const safeUserData = {
+        xp: userData.xp || 0,
+        level: userData.level || 0,
+        totalXP: userData.totalXP || userData.xp || 0,
+        rank: userData.rank || '?'
+      };
+      
       // Calculate progress to next level
-      const currentXP = userData.xp;
-      const currentLevel = userData.level;
+      const currentXP = safeUserData.xp;
+      const currentLevel = safeUserData.level;
       const requiredXP = leveling.calculateRequiredXP(currentLevel);
       const progress = Math.min(Math.floor((currentXP / requiredXP) * 100), 100);
       
@@ -51,6 +68,11 @@ module.exports = {
       const emptyBlocks = progressBarLength - filledBlocks;
       const progressBar = `${'█'.repeat(filledBlocks)}${'░'.repeat(emptyBlocks)}`;
       
+      // Format numbers with commas
+      const formattedCurrentXP = currentXP.toLocaleString();
+      const formattedRequiredXP = requiredXP.toLocaleString();
+      const formattedTotalXP = safeUserData.totalXP.toLocaleString();
+      
       // Create embed
       const embed = new EmbedBuilder()
         .setTitle(`${targetUser.username}'s Level`)
@@ -59,9 +81,9 @@ module.exports = {
         .setThumbnail(targetUser.displayAvatarURL({ dynamic: true, size: 256 }))
         .addFields(
           { name: 'Level', value: `${currentLevel}`, inline: true },
-          { name: 'Total XP', value: `${userData.totalXP.toLocaleString()}`, inline: true },
-          { name: 'Rank', value: `#${userData.rank || '?'}`, inline: true },
-          { name: 'Progress to Level ' + (currentLevel + 1), value: `${progressBar} ${progress}%\n${currentXP.toLocaleString()} / ${requiredXP.toLocaleString()} XP`, inline: false }
+          { name: 'Total XP', value: `${formattedTotalXP}`, inline: true },
+          { name: 'Rank', value: `#${safeUserData.rank}`, inline: true },
+          { name: 'Progress to Level ' + (currentLevel + 1), value: `${progressBar} ${progress}%\n${formattedCurrentXP} / ${formattedRequiredXP} XP`, inline: false }
         )
         .setFooter({ text: `${config.footerText || 'JMF Hosting'} • Level System` })
         .setTimestamp();
@@ -97,12 +119,53 @@ module.exports = {
       }
       
       await interaction.editReply({ embeds: [embed] });
+      
+      // Record command usage
+      try {
+        await this.recordCommandUsage(interaction, 'level');
+      } catch (error) {
+        logger.error(`Failed to record command usage in database: ${error.message}`);
+      }
     } catch (error) {
       logger.error(`Error executing level command: ${error.message}`);
       await interaction.editReply({ 
         content: 'An error occurred while fetching level data. Please try again later.',
         ephemeral: true
       });
+    }
+  },
+  
+  /**
+   * Record command usage in the database
+   * @param {CommandInteraction} interaction - The interaction
+   * @param {string} command - The command name
+   */
+  async recordCommandUsage(interaction, command) {
+    try {
+      // Try to insert into command_usage table
+      try {
+        await interaction.client.db.query(
+          'INSERT INTO command_usage (user_id, guild_id, command, channel_id, timestamp) VALUES (?, ?, ?, ?, ?)',
+          [interaction.user.id, interaction.guild.id, command, interaction.channel.id, new Date()]
+        );
+      } catch (error) {
+        // If the error is about missing command column, try without it
+        if (error.message.includes('no column named command')) {
+          logger.error(`Database query error: ${error.message}`);
+          logger.error(`Query: INSERT INTO command_usage (user_id, guild_id, command, channel_id, timestamp) VALUES (?, ?, ?, ?, ?)`);
+          logger.error(`Failed to record command usage in database: ${error.message}`);
+          
+          // Try to insert without the command column
+          await interaction.client.db.query(
+            'INSERT INTO command_usage (user_id, guild_id, channel_id, timestamp) VALUES (?, ?, ?, ?)',
+            [interaction.user.id, interaction.guild.id, interaction.channel.id, new Date()]
+          );
+        } else {
+          throw error;
+        }
+      }
+    } catch (error) {
+      logger.error(`Error recording command usage: ${error.message}`);
     }
   }
 }; 
