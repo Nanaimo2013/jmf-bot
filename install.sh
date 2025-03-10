@@ -263,10 +263,17 @@ test_bot_configuration() {
   print_status "$GEAR" "Testing bot configuration..."
   log "INFO" "Testing bot configuration"
   
-  # Test Discord token format
+  # Test Discord token format - make this a warning only, not an error
   if [[ ! $BOT_TOKEN =~ ^[A-Za-z0-9_-]{24}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27}$ ]]; then
-    print_warning "$WARNING" "Discord token format looks invalid. Please verify it's correct"
-    log "WARNING" "Discord token format looks invalid"
+    print_warning "$WARNING" "Discord token format looks unusual. This is just a warning, installation will continue."
+    log "WARNING" "Discord token format looks unusual"
+    
+    read -p "$(echo -e "${YELLOW}${BOLD}?${NC} ${YELLOW}Are you sure your Discord token is correct? (y/n):${NC} ")" CONFIRM_TOKEN
+    if [[ ! "$CONFIRM_TOKEN" =~ ^[Yy]$ ]]; then
+      print_error "$CROSS_MARK" "Installation cancelled due to token concerns"
+      log "ERROR" "Installation cancelled due to token concerns"
+      exit 1
+    fi
   else
     print_success "$CHECK_MARK" "Discord token format looks valid"
     log "SUCCESS" "Discord token format looks valid"
@@ -293,6 +300,19 @@ test_bot_configuration() {
       else
         print_warning "$WARNING" "Could not connect to Pterodactyl API (HTTP $HTTP_STATUS). Please verify the URL"
         log "WARNING" "Could not connect to Pterodactyl API (HTTP $HTTP_STATUS)"
+        
+        # Suggest the application API URL if using admin API
+        if [[ "$PTERODACTYL_API_URL" == *"/api" ]] && [[ ! "$PTERODACTYL_API_URL" == *"/api/application" ]]; then
+          SUGGESTED_URL="${PTERODACTYL_API_URL}/application"
+          print_info "$INFO" "You might need to use the application API URL: $SUGGESTED_URL"
+          
+          read -p "$(echo -e "${YELLOW}${BOLD}?${NC} ${YELLOW}Would you like to use this URL instead? (y/n):${NC} ")" USE_SUGGESTED
+          if [[ "$USE_SUGGESTED" =~ ^[Yy]$ ]]; then
+            PTERODACTYL_API_URL="$SUGGESTED_URL"
+            print_success "$CHECK_MARK" "Updated Pterodactyl API URL to: $PTERODACTYL_API_URL"
+            log "SUCCESS" "Updated Pterodactyl API URL to: $PTERODACTYL_API_URL"
+          fi
+        fi
       fi
     else
       print_warning "$WARNING" "curl not found, skipping Pterodactyl API connection test"
@@ -329,6 +349,121 @@ create_service_user() {
       log "ERROR" "Failed to create service user '$SERVICE_USER'"
       exit 1
     fi
+  fi
+}
+
+# Function to install database dependencies
+install_database_dependencies() {
+  print_status "$GEAR" "Installing database dependencies..."
+  log "INFO" "Installing database dependencies"
+  
+  if [ "$DB_TYPE" = "sqlite" ]; then
+    print_status "$GEAR" "Installing SQLite dependencies..."
+    apt-get install -y sqlite3 >> "$LOG_FILE" 2>&1
+    
+    if [ $? -eq 0 ]; then
+      print_success "$CHECK_MARK" "SQLite dependencies installed successfully"
+      log "SUCCESS" "SQLite dependencies installed successfully"
+    else
+      print_warning "$WARNING" "Failed to install SQLite dependencies"
+      log "WARNING" "Failed to install SQLite dependencies"
+    fi
+  elif [ "$DB_TYPE" = "mysql" ]; then
+    print_status "$GEAR" "Installing MySQL client dependencies..."
+    apt-get install -y mysql-client >> "$LOG_FILE" 2>&1
+    
+    if [ $? -eq 0 ]; then
+      print_success "$CHECK_MARK" "MySQL client dependencies installed successfully"
+      log "SUCCESS" "MySQL client dependencies installed successfully"
+    else
+      print_warning "$WARNING" "Failed to install MySQL client dependencies"
+      log "WARNING" "Failed to install MySQL client dependencies"
+    fi
+  fi
+}
+
+# Function to test the bot
+test_bot() {
+  print_status "$GEAR" "Testing bot functionality..."
+  log "INFO" "Testing bot functionality"
+  
+  # Test if the bot can start
+  cd "$INSTALL_DIR"
+  
+  # Create a temporary test script
+  cat > test_bot.js << EOF
+require('dotenv').config();
+const { Client, GatewayIntentBits } = require('discord.js');
+
+// Create a client instance
+const client = new Client({
+  intents: [GatewayIntentBits.Guilds]
+});
+
+// Log when the client is ready
+client.once('ready', () => {
+  console.log('Bot test successful! Bot is able to connect to Discord.');
+  process.exit(0);
+});
+
+// Handle errors
+client.on('error', (error) => {
+  console.error('Error during bot test:', error.message);
+  process.exit(1);
+});
+
+// Set a timeout in case the bot doesn't connect
+setTimeout(() => {
+  console.error('Bot test timed out after 30 seconds.');
+  process.exit(1);
+}, 30000);
+
+// Login to Discord
+client.login(process.env.DISCORD_TOKEN).catch(error => {
+  console.error('Failed to login to Discord:', error.message);
+  process.exit(1);
+});
+EOF
+
+  # Run the test script
+  print_status "$GEAR" "Attempting to connect to Discord..."
+  node test_bot.js > test_output.log 2>&1 &
+  TEST_PID=$!
+  
+  # Wait for the test to complete (max 30 seconds)
+  TIMEOUT=30
+  while [ $TIMEOUT -gt 0 ] && kill -0 $TEST_PID 2>/dev/null; do
+    sleep 1
+    TIMEOUT=$((TIMEOUT - 1))
+  done
+  
+  # Check if the process is still running
+  if kill -0 $TEST_PID 2>/dev/null; then
+    kill $TEST_PID
+    print_error "$CROSS_MARK" "Bot test timed out"
+    log "ERROR" "Bot test timed out"
+    cat test_output.log >> "$LOG_FILE"
+    return 1
+  fi
+  
+  # Check the output
+  if grep -q "Bot test successful" test_output.log; then
+    print_success "$CHECK_MARK" "Bot successfully connected to Discord"
+    log "SUCCESS" "Bot successfully connected to Discord"
+    return 0
+  else
+    print_error "$CROSS_MARK" "Bot failed to connect to Discord"
+    log "ERROR" "Bot failed to connect to Discord"
+    cat test_output.log >> "$LOG_FILE"
+    
+    # Show the error message
+    ERROR_MSG=$(grep -i "error" test_output.log | head -1)
+    if [ -n "$ERROR_MSG" ]; then
+      print_error "$CROSS_MARK" "Error: $ERROR_MSG"
+      log "ERROR" "Error: $ERROR_MSG"
+    fi
+    
+    return 1
   fi
 }
 
@@ -403,6 +538,82 @@ read -p "$(echo -e "${CYAN}${BOLD}?${NC} ${CYAN}Memory limit [$DEFAULT_MEMORY_LI
 MEMORY_LIMIT=${MEMORY_LIMIT:-$DEFAULT_MEMORY_LIMIT}
 log "INFO" "Memory limit set to: $MEMORY_LIMIT"
 
+# Ask for database configuration
+echo -e "\n${YELLOW}${BOLD}${STAR} Database Configuration:${NC}"
+DEFAULT_DB_TYPE="sqlite"
+read -p "$(echo -e "${CYAN}${BOLD}?${NC} ${CYAN}Database type (sqlite/mysql) [$DEFAULT_DB_TYPE]:${NC} ")" DB_TYPE
+DB_TYPE=${DB_TYPE:-$DEFAULT_DB_TYPE}
+log "INFO" "Database type set to: $DB_TYPE"
+
+if [ "$DB_TYPE" = "mysql" ]; then
+  # Ask for MySQL configuration
+  DEFAULT_DB_HOST="localhost"
+  read -p "$(echo -e "${CYAN}${BOLD}?${NC} ${CYAN}MySQL Host [$DEFAULT_DB_HOST]:${NC} ")" DB_HOST
+  DB_HOST=${DB_HOST:-$DEFAULT_DB_HOST}
+  
+  DEFAULT_DB_PORT="3306"
+  read -p "$(echo -e "${CYAN}${BOLD}?${NC} ${CYAN}MySQL Port [$DEFAULT_DB_PORT]:${NC} ")" DB_PORT
+  DB_PORT=${DB_PORT:-$DEFAULT_DB_PORT}
+  
+  DEFAULT_DB_NAME="jmf_bot"
+  read -p "$(echo -e "${CYAN}${BOLD}?${NC} ${CYAN}MySQL Database Name [$DEFAULT_DB_NAME]:${NC} ")" DB_NAME
+  DB_NAME=${DB_NAME:-$DEFAULT_DB_NAME}
+  
+  DEFAULT_DB_USER="jmf_bot"
+  read -p "$(echo -e "${CYAN}${BOLD}?${NC} ${CYAN}MySQL Username [$DEFAULT_DB_USER]:${NC} ")" DB_USER
+  DB_USER=${DB_USER:-$DEFAULT_DB_USER}
+  
+  read -p "$(echo -e "${CYAN}${BOLD}?${NC} ${CYAN}MySQL Password:${NC} ")" DB_PASSWORD
+  
+  # Test MySQL connection
+  print_status "$GEAR" "Testing MySQL connection..."
+  if command_exists mysql; then
+    if mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p"$DB_PASSWORD" -e ";" 2>> "$LOG_FILE"; then
+      print_success "$CHECK_MARK" "MySQL connection successful"
+      
+      # Check if database exists, create if not
+      if ! mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p"$DB_PASSWORD" -e "USE $DB_NAME" 2>> "$LOG_FILE"; then
+        print_warning "$WARNING" "Database '$DB_NAME' does not exist. Creating it..."
+        if mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p"$DB_PASSWORD" -e "CREATE DATABASE $DB_NAME" 2>> "$LOG_FILE"; then
+          print_success "$CHECK_MARK" "Database '$DB_NAME' created successfully"
+        else
+          print_error "$CROSS_MARK" "Failed to create database '$DB_NAME'"
+          log "ERROR" "Failed to create database '$DB_NAME'"
+          exit 1
+        fi
+      fi
+    else
+      print_error "$CROSS_MARK" "Failed to connect to MySQL. Please check your credentials"
+      log "ERROR" "Failed to connect to MySQL"
+      
+      read -p "$(echo -e "${YELLOW}${BOLD}?${NC} ${YELLOW}Would you like to switch to SQLite instead? (y/n):${NC} ")" SWITCH_TO_SQLITE
+      if [[ "$SWITCH_TO_SQLITE" =~ ^[Yy]$ ]]; then
+        DB_TYPE="sqlite"
+        print_success "$CHECK_MARK" "Switched to SQLite database"
+        log "SUCCESS" "Switched to SQLite database"
+      else
+        exit 1
+      fi
+    fi
+  else
+    print_warning "$WARNING" "MySQL client not found, cannot test connection"
+    log "WARNING" "MySQL client not found, cannot test connection"
+    
+    read -p "$(echo -e "${YELLOW}${BOLD}?${NC} ${YELLOW}Continue anyway? (y/n):${NC} ")" CONTINUE_MYSQL
+    if [[ ! "$CONTINUE_MYSQL" =~ ^[Yy]$ ]]; then
+      print_info "$INFO" "Switching to SQLite database"
+      DB_TYPE="sqlite"
+    fi
+  fi
+fi
+
+# If using SQLite, set default path
+if [ "$DB_TYPE" = "sqlite" ]; then
+  DB_PATH="./data/database.sqlite"
+  print_info "$INFO" "SQLite database will be created at: $INSTALL_DIR/$DB_PATH"
+  log "INFO" "SQLite database will be created at: $INSTALL_DIR/$DB_PATH"
+fi
+
 # Confirm installation
 echo -e "\n${YELLOW}${BOLD}${STAR} Installation Summary:${NC}"
 echo -e "${BLUE}${BOLD}${GLOBE} Installation Directory:${NC} $INSTALL_DIR"
@@ -431,7 +642,10 @@ create_service_user
 print_status "$GEAR" "Installing required packages"
 log "INFO" "Installing required packages"
 apt-get update >> "$LOG_FILE" 2>&1
-apt-get install -y git curl wget >> "$LOG_FILE" 2>&1
+apt-get install -y git curl wget jq >> "$LOG_FILE" 2>&1
+
+# Install database dependencies
+install_database_dependencies
 
 # Install Node.js safely
 install_nodejs
@@ -461,31 +675,54 @@ mkdir -p "$INSTALL_DIR/data"
 mkdir -p "$INSTALL_DIR/data/users"
 mkdir -p "$INSTALL_DIR/logs"
 
-# Install dependencies
-print_status "$GEAR" "Installing Node.js dependencies"
-log "INFO" "Installing Node.js dependencies"
+# Install dependencies with better error handling
+print_status "$GEAR" "Installing dependencies..."
 cd "$INSTALL_DIR"
-# Use --legacy-peer-deps to fix dependency conflicts between chart.js and chartjs-node-canvas
-npm install --production --legacy-peer-deps >> "$LOG_FILE" 2>&1
 
-if [ $? -ne 0 ]; then
-  print_warning "$WARNING" "First attempt to install dependencies failed, trying with additional flags"
-  log "WARNING" "First attempt to install dependencies failed, trying with additional flags"
-  
-  # Try with force flag as a fallback
-  npm install --production --legacy-peer-deps --force >> "$LOG_FILE" 2>&1
-  
+# Install sqlite3 and sqlite packages first if using SQLite
+if [ "$DB_TYPE" = "sqlite" ]; then
+  print_status "$GEAR" "Installing SQLite dependencies..."
+  npm install sqlite3 sqlite --no-save --legacy-peer-deps >> "$LOG_FILE" 2>&1
   if [ $? -ne 0 ]; then
-    print_error "$CROSS_MARK" "Failed to install Node.js dependencies"
-    log "ERROR" "Failed to install Node.js dependencies"
-    exit 1
+    print_warning "$WARNING" "Failed to install SQLite dependencies separately, will try with full install"
+    log "WARNING" "Failed to install SQLite dependencies separately"
+  else
+    print_success "$CHECK_MARK" "SQLite dependencies installed successfully"
+  fi
+fi
+
+# Install all dependencies
+npm install --production --legacy-peer-deps >> "$LOG_FILE" 2>&1
+if [ $? -ne 0 ]; then
+  print_warning "$WARNING" "Initial npm install failed, trying with force flag..."
+  npm install --production --legacy-peer-deps --force >> "$LOG_FILE" 2>&1
+  if [ $? -ne 0 ]; then
+    print_error "$CROSS_MARK" "Failed to install dependencies. Check the log file for details."
+    
+    # Try to fix common issues
+    print_status "$GEAR" "Attempting to fix common dependency issues..."
+    
+    # Fix canvas issues
+    if grep -q "canvas" "$LOG_FILE"; then
+      print_status "$GEAR" "Installing canvas dependencies..."
+      apt-get install -y build-essential libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev >> "$LOG_FILE" 2>&1
+      npm install canvas --build-from-source --legacy-peer-deps >> "$LOG_FILE" 2>&1
+    fi
+    
+    # Try one more time
+    print_status "$GEAR" "Trying npm install one more time..."
+    npm install --production --legacy-peer-deps --force >> "$LOG_FILE" 2>&1
+    if [ $? -ne 0 ]; then
+      print_error "$CROSS_MARK" "Failed to install dependencies after multiple attempts. Check the log file for details."
+      exit 1
+    else
+      print_success "$CHECK_MARK" "Dependencies installed successfully after fixes"
+    fi
   else
     print_success "$CHECK_MARK" "Dependencies installed successfully with force flag"
-    log "SUCCESS" "Dependencies installed successfully with force flag"
   fi
 else
   print_success "$CHECK_MARK" "Dependencies installed successfully"
-  log "SUCCESS" "Dependencies installed successfully"
 fi
 
 # Create .env file
@@ -498,6 +735,41 @@ DISCORD_TOKEN=$BOT_TOKEN
 # Pterodactyl API
 PTERODACTYL_API_URL=$PTERODACTYL_API_URL
 PTERODACTYL_API_KEY=$PTERODACTYL_API_KEY
+
+# Database Configuration
+EOF
+
+# Add database configuration based on type
+if [ "$DB_TYPE" = "mysql" ]; then
+  cat >> "$INSTALL_DIR/.env" << EOF
+DB_TYPE=mysql
+DB_HOST=$DB_HOST
+DB_PORT=$DB_PORT
+DB_DATABASE=$DB_NAME
+DB_USERNAME=$DB_USER
+DB_PASSWORD=$DB_PASSWORD
+
+# SQLite Configuration (commented out)
+# DB_TYPE=sqlite
+# DB_PATH=./data/database.sqlite
+EOF
+else
+  cat >> "$INSTALL_DIR/.env" << EOF
+DB_TYPE=sqlite
+DB_PATH=$DB_PATH
+
+# MySQL Configuration (commented out)
+# DB_TYPE=mysql
+# DB_HOST=localhost
+# DB_PORT=3306
+# DB_DATABASE=jmf_bot
+# DB_USERNAME=jmf_bot
+# DB_PASSWORD=your_secure_password_here
+EOF
+fi
+
+# Add remaining environment variables
+cat >> "$INSTALL_DIR/.env" << EOF
 
 # Environment
 NODE_ENV=production
@@ -521,9 +793,34 @@ if [ ! -f "$INSTALL_DIR/config.json" ]; then
     "moderationLogs": "",
     "nodes": "",
     "status": ""
+  },
+  "database": {
+    "enabled": true,
+    "type": "$DB_TYPE"
   }
 }
 EOF
+else
+  # Update database configuration in existing config.json
+  print_status "$GEAR" "Updating database configuration in config.json"
+  log "INFO" "Updating database configuration in config.json"
+  
+  # Check if jq is installed
+  if command_exists jq; then
+    # Create a temporary file
+    TMP_CONFIG=$(mktemp)
+    
+    # Update database configuration using jq
+    jq ".database = {\"enabled\": true, \"type\": \"$DB_TYPE\"}" "$INSTALL_DIR/config.json" > "$TMP_CONFIG"
+    
+    # Replace the original file
+    mv "$TMP_CONFIG" "$INSTALL_DIR/config.json"
+    
+    print_success "$CHECK_MARK" "Database configuration updated in config.json"
+  else
+    print_warning "$WARNING" "jq not found, skipping config.json update"
+    log "WARNING" "jq not found, skipping config.json update"
+  fi
 fi
 
 # Set proper permissions
@@ -572,6 +869,26 @@ WantedBy=multi-user.target
 EOF
 
 # Ask before enabling and starting the service
+read -p "$(echo -e "${CYAN}${BOLD}?${NC} ${CYAN}Do you want to test the bot before starting the service? (y/n):${NC} ")" TEST_BOT
+if [[ "$TEST_BOT" =~ ^[Yy]$ ]]; then
+  test_bot
+  if [ $? -ne 0 ]; then
+    print_warning "$WARNING" "Bot test failed. You may need to check your configuration."
+    log "WARNING" "Bot test failed"
+    
+    read -p "$(echo -e "${YELLOW}${BOLD}?${NC} ${YELLOW}Do you still want to start the bot service? (y/n):${NC} ")" START_ANYWAY
+    if [[ ! "$START_ANYWAY" =~ ^[Yy]$ ]]; then
+      print_info "$INFO" "Service not started. You can start it later with: systemctl start jmf-bot"
+      log "INFO" "Service not started by user choice after failed test"
+      systemctl daemon-reload >> "$LOG_FILE" 2>&1
+      exit 0
+    fi
+  else
+    print_success "$CHECK_MARK" "Bot test successful! The bot is able to connect to Discord."
+    log "SUCCESS" "Bot test successful"
+  fi
+fi
+
 read -p "$(echo -e "${CYAN}${BOLD}?${NC} ${CYAN}Do you want to enable and start the bot service now? (y/n):${NC} ")" START_SERVICE
 if [[ "$START_SERVICE" =~ ^[Yy]$ ]]; then
   # Reload systemd
@@ -620,6 +937,16 @@ echo -e "${BLUE}${BOLD}${GEAR} Installation Log:${NC} $LOG_FILE"
 # Print completion message
 echo -e "\n${GREEN}${BOLD}${SPARKLES} Installation completed successfully! ${SPARKLES}${NC}"
 log "SUCCESS" "Installation completed successfully"
+
+# Clean up temporary files
+print_status "$GEAR" "Cleaning up temporary files..."
+if [ -f "$INSTALL_DIR/test_bot.js" ]; then
+  rm "$INSTALL_DIR/test_bot.js"
+fi
+if [ -f "$INSTALL_DIR/test_output.log" ]; then
+  rm "$INSTALL_DIR/test_output.log"
+fi
+print_success "$CHECK_MARK" "Cleanup completed"
 
 # Print footer
 echo -e "\n${PURPLE}${BOLD}© 2025 JMFHosting. All Rights Reserved.${NC}"

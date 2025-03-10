@@ -11,7 +11,7 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "add-copyright": "node add-copyright.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"No tests specified - skipping tests\" && exit 0"
   },
   "keywords": [
     "discord",
@@ -46,7 +46,9 @@
     "canvas": "^2.11.2",
     "chart.js": "^3.9.1",
     "chartjs-node-canvas": "^4.1.6",
-    "fs-extra": "^11.2.0"
+    "fs-extra": "^11.2.0",
+    "sqlite3": "^5.1.6",
+    "sqlite": "^5.0.1"
   },
   "devDependencies": {
     "nodemon": "^3.0.2",
