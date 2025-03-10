@@ -84,14 +84,14 @@ async function sendLeaveMessage(member) {
         leaveChannel = guild.channels.cache.get(config.leaveSystem.channelId);
       }
       
-      // If not found, try the channels.leave ID
-      if (!leaveChannel && config.channels?.leave) {
-        leaveChannel = guild.channels.cache.get(config.channels.leave);
-      }
-      
       // If not found, try the channels.joinLeave ID
       if (!leaveChannel && config.channels?.joinLeave) {
         leaveChannel = guild.channels.cache.get(config.channels.joinLeave);
+      }
+      
+      // If not found, try the channels.leave ID
+      if (!leaveChannel && config.channels?.leave) {
+        leaveChannel = guild.channels.cache.get(config.channels.leave);
       }
       
       // If still not found, try by name
@@ -109,6 +109,7 @@ async function sendLeaveMessage(member) {
         
         // Send leave message
         await leaveChannel.send({ embeds: [leaveEmbed] });
+        
         logger.info(`Sent leave message for ${member.user.tag} in ${guild.name}`);
       } else {
         logger.warn(`Leave channel not found in guild: ${guild.name}`);

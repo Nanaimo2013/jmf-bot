@@ -199,6 +199,11 @@ async function sendWelcomeMessage(member) {
         welcomeChannel = guild.channels.cache.get(config.welcomeSystem.channelId);
       }
       
+      // If not found, try the channels.joinLeave ID
+      if (!welcomeChannel && config.channels?.joinLeave) {
+        welcomeChannel = guild.channels.cache.get(config.channels.joinLeave);
+      }
+      
       // If not found, try the channels.welcome ID
       if (!welcomeChannel && config.channels?.welcome) {
         welcomeChannel = guild.channels.cache.get(config.channels.welcome);

@@ -19,19 +19,18 @@
     "unverified": "Unverified"
   },
   "channels": {
-    "welcome": "1348548224578748422",
-    "leave": "1348548224578748422",
+    "welcome": "1348545298477355019",
+    "joinLeave": "1348577178891190333",
     "announcements": "1348545299605356554",
     "rules": "1348573814493024276",
-    "general": "💬︱general",
-    "createTicket": "🎫︱create-ticket",
+    "general": "1348545308770046052",
+    "createTicket": "1348545321701212236",
     "botCommands": "🤖︱bot-commands",
     "modLogs": "📝︱mod-logs",
-    "ticketLogs": "🎫︱ticket-logs",
+    "ticketLogs": "1348545396577669160",
     "staffChat": "💬︱staff-chat",
     "verification": "1348545303082434600",
     "logs": "📝︱logs",
-    "joinLeave": "1348577178891190333",
     "moderationLogs": "📝︱mod-logs",
     "nodes": "🖥️︱node-status",
     "status": "⚙️︱service-status",
@@ -59,17 +58,22 @@
   "welcomeMessage": "Welcome to the JMF Hosting Discord server, {user}! Please read the rules in <#RULES_CHANNEL_ID> and verify yourself to gain access to the rest of the server.",
   "welcomeSystem": {
     "enabled": true,
-    "channelName": "welcome",
-    "message": "Welcome to the JMF Hosting Discord server, {user}! We're glad to have you here. Please read our rules and enjoy your stay!",
+    "channelId": "1348577178891190333",
+    "channelName": "join-leave",
+    "message": "Welcome to the JMF Hosting Discord server, {user}! We're glad to have you here. Please read our rules in {rules} and enjoy your stay!",
     "embedColor": "#00FF00",
-    "mentionUser": true
+    "mentionUser": true,
+    "showJoinDate": true,
+    "showAccountAge": true
   },
   "leaveSystem": {
     "enabled": true,
+    "channelId": "1348577178891190333",
     "channelName": "join-leave",
     "message": "**{user}** has left the server. We hope to see them again soon!",
     "embedColor": "#FF0000",
-    "showRoles": true
+    "showRoles": true,
+    "showJoinDuration": true
   },
   "autoRole": {
     "enabled": false,
