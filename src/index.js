@@ -46,36 +46,56 @@ client.cooldowns = new Collection();
 const foldersPath = path.join(__dirname, 'commands');
 const commandItems = fs.readdirSync(foldersPath);
 
+logger.info(`Loading commands from ${foldersPath}`);
+
 for (const item of commandItems) {
   const itemPath = path.join(foldersPath, item);
-  const itemStat = fs.statSync(itemPath);
   
-  if (itemStat.isDirectory()) {
-    // Handle folders
-    const commandFiles = fs.readdirSync(itemPath).filter(file => file.endsWith('.js'));
+  try {
+    const itemStat = fs.statSync(itemPath);
     
-    for (const file of commandFiles) {
-      const filePath = path.join(itemPath, file);
-      const command = require(filePath);
+    if (itemStat.isDirectory()) {
+      // Handle folders
+      logger.debug(`Processing command directory: ${item}`);
+      const commandFiles = fs.readdirSync(itemPath).filter(file => file.endsWith('.js'));
       
-      // Set a new item in the Collection with the key as the command name and the value as the exported module
-      if ('data' in command && 'execute' in command) {
-        client.commands.set(command.data.name, command);
-        logger.debug(`Loaded command from folder: ${command.data.name}`);
-      } else {
-        logger.warn(`The command at ${filePath} is missing a required "data" or "execute" property.`);
+      for (const file of commandFiles) {
+        const filePath = path.join(itemPath, file);
+        try {
+          const command = require(filePath);
+          
+          // Set a new item in the Collection with the key as the command name and the value as the exported module
+          if ('data' in command && 'execute' in command) {
+            client.commands.set(command.data.name, command);
+            logger.debug(`Loaded command from folder: ${command.data.name}`);
+          } else {
+            logger.warn(`The command at ${filePath} is missing a required "data" or "execute" property.`);
+          }
+        } catch (error) {
+          logger.error(`Error loading command at ${filePath}: ${error.message}`);
+          logger.error(error.stack);
+        }
+      }
+    } else if (item.endsWith('.js')) {
+      // Handle JS files directly in the commands folder
+      logger.debug(`Processing command file: ${item}`);
+      try {
+        const command = require(itemPath);
+        
+        if ('data' in command && 'execute' in command) {
+          client.commands.set(command.data.name, command);
+          logger.debug(`Loaded command: ${command.data.name}`);
+        } else {
+          logger.warn(`The command at ${itemPath} is missing a required "data" or "execute" property.`);
+        }
+      } catch (error) {
+        logger.error(`Error loading command at ${itemPath}: ${error.message}`);
+        logger.error(error.stack);
       }
     }
-  } else if (item.endsWith('.js')) {
-    // Handle JS files directly in the commands folder
-    const command = require(itemPath);
-    
-    if ('data' in command && 'execute' in command) {
-      client.commands.set(command.data.name, command);
-      logger.debug(`Loaded command: ${command.data.name}`);
-    } else {
-      logger.warn(`The command at ${itemPath} is missing a required "data" or "execute" property.`);
-    }
+  } catch (error) {
+    logger.error(`Error processing item ${item} in commands folder: ${error.message}`);
+    logger.error(error.stack);
   }
 }
 

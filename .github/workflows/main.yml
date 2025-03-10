@@ -158,4 +158,8 @@ jobs:
           cd /
           rm -rf $TEMP_DIR
           
-          echo "Deployment completed at $(date)" 
+          echo "Deployment completed at $(date)"
+permissions:
+  actions: read
+  contents: read
+  security-events: write  # This is crucial for uploading code scanning results

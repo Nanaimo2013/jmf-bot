@@ -15,7 +15,7 @@ const { EmbedBuilder, AttachmentBuilder } = require('discord.js');
 const levelSystem = require('../modules/leveling');
 const economy = require('../modules/economy');
 const miningGame = require('../modules/mining');
-const { generateAIResponse } = require('../utils/aiUtils');
+const aiUtils = require('../utils/aiUtils');
 
 module.exports = {
   name: 'messageCreate',
@@ -40,7 +40,8 @@ module.exports = {
       
       // AI chat response if enabled and message is in AI chat channel
       if (config.aiChat && config.aiChat.enabled && 
-          message.channel.id === config.aiChat.channelId) {
+          message.channel.id === config.aiChat.channelId &&
+          aiUtils.isAIEnabled()) {
         await handleAIChat(message, client);
       }
       
@@ -273,7 +274,7 @@ async function handleAutoMod(message, client) {
 }
 
 /**
- * Handle AI chat responses
+ * Handle AI chat functionality
  * @param {Message} message - The Discord message
  * @param {Client} client - The Discord client
  */
@@ -301,27 +302,46 @@ async function handleAIChat(message, client) {
       }
     }
     
-    // If AI integration is implemented, this is where you would call the AI service
-    // For now, we'll just send a placeholder response
-    const responses = [
-      "I'm still learning how to respond to that.",
-      "That's an interesting point!",
-      "I'd love to discuss that further.",
-      "Thanks for sharing your thoughts.",
-      "I'm processing that information."
-    ];
+    // Get conversation history if available
+    let history = [];
+    if (client.db) {
+      try {
+        const result = await client.db.query(
+          'SELECT user_message, ai_response FROM ai_chat_messages WHERE channel_id = ? AND user_id = ? ORDER BY timestamp DESC LIMIT 5',
+          [message.channel.id, message.author.id]
+        );
+        
+        if (result && result.length > 0) {
+          history = result.map(row => ({
+            role: 'user',
+            content: row.user_message
+          })).concat(result.map(row => ({
+            role: 'assistant',
+            content: row.ai_response
+          }))).filter(item => item.content); // Filter out empty messages
+        }
+      } catch (error) {
+        logger.error(`Failed to retrieve conversation history: ${error.message}`);
+      }
+    }
     
-    const randomResponse = responses[Math.floor(Math.random() * responses.length)];
+    // Generate AI response
+    const response = await aiUtils.generateAIResponse(
+      message.content,
+      message.author.id,
+      message.author.username,
+      history
+    );
     
     setTimeout(async () => {
-      const reply = await message.reply(randomResponse);
+      const reply = await message.reply(response);
       
       // Record the AI response in database
       if (client.db) {
         try {
           await client.db.query(
             'UPDATE ai_chat_messages SET ai_response = ?, response_message_id = ? WHERE message_id = ?',
-            [randomResponse, reply.id, message.id]
+            [response, reply.id, message.id]
           );
         } catch (error) {
           logger.error(`Failed to record AI response in database: ${error.message}`);
