@@ -11,6 +11,7 @@
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const logger = require('../utils/logger');
 const config = require('../../config.json');
+const { createVerifyEmbed } = require('../embeds/verify-embed');
 
 class VerificationSystem {
   constructor() {
@@ -35,16 +36,7 @@ class VerificationSystem {
   async createVerificationMessage(channel) {
     try {
       // Create verification embed
-      const embed = new EmbedBuilder()
-        .setTitle('Server Verification')
-        .setDescription(config.verification?.message || 'Welcome to the server! Please click the button below to verify yourself and gain access to the server.')
-        .setColor(config.verification?.embedColor || '#00FF00')
-        .setTimestamp();
-
-      // Add footer if configured
-      if (config.footerText) {
-        embed.setFooter({ text: config.footerText });
-      }
+      const embed = createVerifyEmbed();
 
       // Create verification button
       const row = new ActionRowBuilder()

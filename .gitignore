@@ -9,9 +9,6 @@ jspm_packages/
 .env.test.local
 .env.production.local
 
-# Config files with sensitive information
-config.json
-
 # Logs
 logs
 *.log

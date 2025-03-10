@@ -13,6 +13,7 @@ const logger = require('../utils/logger');
 const config = require('../../config.json');
 const economy = require('../modules/economy');
 const mining = require('../modules/mining');
+const { createWelcomeMemberEmbed } = require('../embeds/welcome-member-embed');
 
 module.exports = {
   name: 'guildMemberAdd',
@@ -39,6 +40,12 @@ module.exports = {
             [guild.id, user.id, new Date()]
           );
           
+          // Record join event
+          await client.db.query(
+            'INSERT INTO member_events (user_id, guild_id, event_type, timestamp) VALUES (?, ?, ?, ?)',
+            [user.id, guild.id, 'join', new Date()]
+          );
+          
           // Update bot statistics
           await client.db.query(
             'UPDATE bot_statistics SET users_joined = users_joined + 1 WHERE id = (SELECT MAX(id) FROM bot_statistics)'
@@ -48,69 +55,11 @@ module.exports = {
         }
       }
       
-      // Assign unverified role if verification is enabled
-      if (config.verification?.enabled) {
-        const unverifiedRole = guild.roles.cache.find(
-          role => role.name === (config.verification.unverifiedRole || 'Unverified')
-        );
-        
-        if (unverifiedRole) {
-          try {
-            await member.roles.add(unverifiedRole);
-            logger.info(`Assigned unverified role to ${user.tag} in ${guild.name}`);
-          } catch (error) {
-            logger.error(`Failed to assign unverified role to ${user.tag}: ${error.message}`);
-          }
-        }
-      }
+      // Handle role assignment based on configuration
+      await handleRoleAssignment(member);
       
       // Send welcome message if configured
-      if (config.welcomeChannel) {
-        const welcomeChannel = guild.channels.cache.find(
-          channel => channel.name === config.welcomeChannel || channel.id === config.welcomeChannel
-        );
-        
-        if (welcomeChannel) {
-          try {
-            const welcomeEmbed = new EmbedBuilder()
-              .setTitle('New Member')
-              .setDescription(`Welcome to the server, ${member}! We're glad to have you here.`)
-              .setColor(config.embedColor || '#00FF00')
-              .setThumbnail(user.displayAvatarURL({ dynamic: true }))
-              .addFields(
-                { name: 'Member Count', value: `${guild.memberCount}`, inline: true },
-                { name: 'Account Created', value: `<t:${Math.floor(user.createdTimestamp / 1000)}:R>`, inline: true }
-              )
-              .setTimestamp()
-              .setFooter({ text: config.footerText || guild.name });
-            
-            await welcomeChannel.send({ embeds: [welcomeEmbed] });
-          } catch (error) {
-            logger.error(`Failed to send welcome message: ${error.message}`);
-          }
-        }
-      }
-      
-      // Send verification instructions if enabled
-      if (config.verification?.enabled && config.verification?.instructionsChannel) {
-        const instructionsChannel = guild.channels.cache.find(
-          channel => channel.name === config.verification.instructionsChannel || channel.id === config.verification.instructionsChannel
-        );
-        
-        if (instructionsChannel) {
-          try {
-            const verificationEmbed = new EmbedBuilder()
-              .setTitle('Verification Required')
-              .setDescription(`Welcome ${member}! To access the rest of the server, please verify yourself by going to the verification channel and clicking the verify button.`)
-              .setColor(config.verification.embedColor || '#00FF00')
-              .setTimestamp();
-            
-            await instructionsChannel.send({ content: `${member}`, embeds: [verificationEmbed] });
-          } catch (error) {
-            logger.error(`Failed to send verification instructions: ${error.message}`);
-          }
-        }
-      }
+      await sendWelcomeMessage(member);
       
       // Initialize user in economy and mining systems
       try {
@@ -133,35 +82,12 @@ module.exports = {
           const welcomeDM = new EmbedBuilder()
             .setTitle(`Welcome to ${guild.name}!`)
             .setDescription(config.welcomeDMMessage || `Thanks for joining our server! We're glad to have you here.`)
-            .setColor(config.embedColor || '#00FF00')
+            .setColor(config.embedColor || '#00AAFF')
             .setTimestamp();
           
           await member.send({ embeds: [welcomeDM] });
         } catch (error) {
           logger.warn(`Could not send welcome DM to ${member.user.tag}: ${error.message}`);
-        }
-      }
-      
-      // Auto-role assignment if enabled
-      if (config.autoRole && config.autoRole.enabled) {
-        try {
-          const roleNames = Array.isArray(config.autoRole.roles) 
-            ? config.autoRole.roles 
-            : [config.autoRole.roles];
-          
-          for (const roleName of roleNames) {
-            const role = guild.roles.cache.find(r => r.name === roleName);
-            if (role) {
-              try {
-                await member.roles.add(role);
-                logger.info(`Auto-assigned role ${roleName} to new member ${user.tag}`);
-              } catch (error) {
-                logger.error(`Failed to assign role ${roleName} to ${user.tag}: ${error.message}`);
-              }
-            }
-          }
-        } catch (error) {
-          logger.error(`Error in auto-role assignment: ${error.message}`);
         }
       }
       
@@ -178,6 +104,138 @@ module.exports = {
     }
   }
 };
+
+/**
+ * Handle role assignment for new members
+ * @param {GuildMember} member - The member who joined
+ */
+async function handleRoleAssignment(member) {
+  const { guild } = member;
+  
+  try {
+    // Assign unverified role if verification is enabled
+    if (config.verification?.enabled) {
+      const unverifiedRole = guild.roles.cache.find(
+        role => role.name === (config.verification.unverifiedRole || 'Unverified')
+      );
+      
+      if (unverifiedRole) {
+        try {
+          await member.roles.add(unverifiedRole);
+          logger.info(`Assigned unverified role to ${member.user.tag} in ${guild.name}`);
+        } catch (error) {
+          logger.error(`Failed to assign unverified role to ${member.user.tag}: ${error.message}`);
+        }
+      } else {
+        logger.warn(`Unverified role not found in guild: ${guild.name}`);
+      }
+    }
+    
+    // Auto-role assignment if enabled
+    if (config.autoRole && config.autoRole.enabled) {
+      try {
+        // Get roles to assign
+        const roleNames = Array.isArray(config.autoRole.roles) 
+          ? config.autoRole.roles 
+          : [config.autoRole.roles];
+        
+        // Assign each role
+        for (const roleName of roleNames) {
+          const role = guild.roles.cache.find(r => 
+            r.name === roleName || r.id === roleName
+          );
+          
+          if (role) {
+            try {
+              await member.roles.add(role);
+              logger.info(`Auto-assigned role ${roleName} to new member ${member.user.tag}`);
+            } catch (error) {
+              logger.error(`Failed to assign role ${roleName} to ${member.user.tag}: ${error.message}`);
+            }
+          } else {
+            logger.warn(`Auto-role ${roleName} not found in guild: ${guild.name}`);
+          }
+        }
+      } catch (error) {
+        logger.error(`Error in auto-role assignment: ${error.message}`);
+      }
+    }
+    
+    // Assign member role if configured and verification is not enabled
+    if (config.memberRole && !config.verification?.enabled) {
+      const memberRole = guild.roles.cache.find(r => 
+        r.name === config.memberRole || r.id === config.memberRole
+      );
+      
+      if (memberRole) {
+        try {
+          await member.roles.add(memberRole);
+          logger.info(`Assigned member role to ${member.user.tag} in ${guild.name}`);
+        } catch (error) {
+          logger.error(`Failed to assign member role to ${member.user.tag}: ${error.message}`);
+        }
+      }
+    }
+  } catch (error) {
+    logger.error(`Error in role assignment: ${error.message}`);
+  }
+}
+
+/**
+ * Send welcome message for new members
+ * @param {GuildMember} member - The member who joined
+ */
+async function sendWelcomeMessage(member) {
+  const { guild } = member;
+  
+  try {
+    // Check if welcome system is enabled
+    if (config.welcomeSystem?.enabled) {
+      // Get welcome channel
+      const welcomeChannelName = config.welcomeSystem.channelName || config.channels?.welcome || 'welcome';
+      const welcomeChannel = guild.channels.cache.find(
+        channel => channel.name === welcomeChannelName || 
+                  channel.id === welcomeChannelName ||
+                  channel.id === config.welcomeSystem.channelId
+      );
+      
+      if (welcomeChannel) {
+        // Create welcome embed
+        const welcomeEmbed = createWelcomeMemberEmbed(member);
+        
+        // Send welcome message
+        await welcomeChannel.send({ embeds: [welcomeEmbed] });
+        logger.info(`Sent welcome message for ${member.user.tag} in ${guild.name}`);
+      } else {
+        logger.warn(`Welcome channel not found in guild: ${guild.name}`);
+      }
+    }
+    
+    // Send verification instructions if enabled
+    if (config.verification?.enabled && config.verification?.instructionsChannel) {
+      const instructionsChannel = guild.channels.cache.find(
+        channel => channel.name === config.verification.instructionsChannel || 
+                  channel.id === config.verification.instructionsChannel
+      );
+      
+      if (instructionsChannel) {
+        try {
+          const verificationEmbed = new EmbedBuilder()
+            .setTitle('Verification Required')
+            .setDescription(`Welcome ${member}! To access the rest of the server, please verify yourself by going to the verification channel and clicking the verify button.`)
+            .setColor(config.verification.embedColor || '#00FF00')
+            .setTimestamp();
+          
+          await instructionsChannel.send({ content: `${member}`, embeds: [verificationEmbed] });
+        } catch (error) {
+          logger.error(`Failed to send verification instructions: ${error.message}`);
+        }
+      }
+    }
+  } catch (error) {
+    logger.error(`Error sending welcome message: ${error.message}`);
+  }
+}
 
 /**
  * Update member count channels

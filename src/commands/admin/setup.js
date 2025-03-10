@@ -59,10 +59,10 @@ module.exports = {
     const roles = {};
     
     // Staff Roles
-    roles.owner = await this.createRole(guild, config.roles.owner, '#FF0000', 'ADMINISTRATOR');
-    roles.admin = await this.createRole(guild, config.roles.admin, '#FF7700', 'ADMINISTRATOR');
-    roles.moderator = await this.createRole(guild, config.roles.moderator, '#FFAA00', 'MODERATE_MEMBERS');
-    roles.support = await this.createRole(guild, config.roles.support, '#FFDD00', 'MANAGE_MESSAGES');
+    roles.owner = await this.createRole(guild, config.roles.owner, '#FF0000', PermissionFlagsBits.Administrator);
+    roles.admin = await this.createRole(guild, config.roles.admin, '#FF7700', PermissionFlagsBits.Administrator);
+    roles.moderator = await this.createRole(guild, config.roles.moderator, '#FFAA00', PermissionFlagsBits.ModerateMembers);
+    roles.support = await this.createRole(guild, config.roles.support, '#FFDD00', PermissionFlagsBits.ManageMessages);
     
     // Special Roles
     roles.developer = await this.createRole(guild, config.roles.developer, '#00AAFF');
@@ -89,7 +89,7 @@ module.exports = {
    * @param {Guild} guild - The Discord guild
    * @param {string} name - The role name
    * @param {string} color - The role color
-   * @param {string} permission - The permission to grant
+   * @param {bigint} permission - The permission to grant
    * @returns {Role} The created role
    */
   async createRole(guild, name, color, permission = null) {
@@ -111,7 +111,7 @@ module.exports = {
     
     // Add permissions if specified
     if (permission) {
-      roleOptions.permissions = [permission];
+      roleOptions.permissions = permission;
     }
     
     // Create the role

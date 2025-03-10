@@ -12,49 +12,21 @@ const userLogger = require('../utils/userLogger');
 const logger = require('../utils/logger');
 const { EmbedBuilder } = require('discord.js');
 const config = require('../../config.json');
+const { createLeaveMemberEmbed } = require('../embeds/leave-member-embed');
 
 module.exports = {
   name: 'guildMemberRemove',
   once: false,
   async execute(member, client) {
     try {
+      const { guild, user } = member;
+      
       // Log the leave event
+      logger.info(`User ${user.tag} left guild: ${guild.name}`);
       await userLogger.logLeave(member, client);
       
       // Send leave message if enabled
-      if (config.leaveSystem && config.leaveSystem.enabled) {
-        const leaveChannelName = config.leaveSystem.channelName || 'welcome';
-        const leaveChannel = member.guild.channels.cache.find(
-          channel => channel.name === leaveChannelName && channel.type === 0
-        );
-        
-        if (leaveChannel) {
-          // Create leave embed
-          const leaveEmbed = new EmbedBuilder()
-            .setTitle('Member Left')
-            .setDescription(config.leaveSystem.message
-              ? config.leaveSystem.message.replace('{user}', member.user.tag)
-              : `**${member.user.tag}** has left the server.`)
-            .setColor(config.leaveSystem.embedColor || '#FF0000')
-            .setThumbnail(member.user.displayAvatarURL({ dynamic: true }))
-            .setTimestamp()
-            .setFooter({ 
-              text: `Members: ${member.guild.memberCount}`, 
-              iconURL: member.guild.iconURL({ dynamic: true }) 
-            });
-            
-          // Add join date if available
-          if (member.joinedAt) {
-            const joinDuration = Math.floor((Date.now() - member.joinedAt) / (1000 * 60 * 60 * 24));
-            leaveEmbed.addFields({ 
-              name: 'Member Since', 
-              value: `${member.joinedAt.toDateString()} (${joinDuration} days)` 
-            });
-          }
-          
-          await leaveChannel.send({ embeds: [leaveEmbed] });
-        }
-      }
+      await sendLeaveMessage(member);
       
       // Update member count channels if enabled
       if (config.memberCountChannels && config.memberCountChannels.enabled) {
@@ -62,8 +34,9 @@ module.exports = {
       }
       
       // Record leave in database
-      if (client.db) {
+      if (client.db && client.db.isConnected) {
         try {
+          // Record leave event
           await client.db.query(
             'INSERT INTO member_events (user_id, guild_id, event_type, timestamp) VALUES (?, ?, ?, ?)',
             [member.id, member.guild.id, 'leave', new Date()]
@@ -71,8 +44,13 @@ module.exports = {
           
           // Update user status in database
           await client.db.query(
-            'UPDATE users SET is_member = 0, left_at = ? WHERE user_id = ? AND guild_id = ?',
-            [new Date(), member.id, member.guild.id]
+            'UPDATE guild_members SET is_member = 0, left_at = ? WHERE guild_id = ? AND user_id = ?',
+            [new Date(), member.guild.id, member.id]
+          );
+          
+          // Update bot statistics
+          await client.db.query(
+            'UPDATE bot_statistics SET users_left = users_left + 1 WHERE id = (SELECT MAX(id) FROM bot_statistics)'
           );
         } catch (error) {
           logger.error(`Failed to record leave event in database: ${error.message}`);
@@ -80,62 +58,7 @@ module.exports = {
       }
       
       // Check if this was a kick or ban
-      try {
-        const auditLogs = await member.guild.fetchAuditLogs({
-          limit: 1,
-          type: 20 // MEMBER_KICK
-        });
-        
-        const kickLog = auditLogs.entries.first();
-        
-        // If the user was kicked and it happened in the last 5 seconds
-        if (kickLog && kickLog.target.id === member.id && 
-            (Date.now() - kickLog.createdTimestamp) < 5000) {
-          
-          logger.info(`User ${member.user.tag} was kicked by ${kickLog.executor.tag}`);
-          
-          // Record kick in database
-          if (client.db) {
-            try {
-              await client.db.query(
-                'INSERT INTO moderation_actions (user_id, guild_id, action_type, moderator_id, reason, timestamp) VALUES (?, ?, ?, ?, ?, ?)',
-                [member.id, member.guild.id, 'kick', kickLog.executor.id, kickLog.reason || 'No reason provided', new Date()]
-              );
-            } catch (error) {
-              logger.error(`Failed to record kick in database: ${error.message}`);
-            }
-          }
-        } else {
-          // Check if it was a ban
-          const banLogs = await member.guild.fetchAuditLogs({
-            limit: 1,
-            type: 22 // MEMBER_BAN_ADD
-          });
-          
-          const banLog = banLogs.entries.first();
-          
-          // If the user was banned and it happened in the last 5 seconds
-          if (banLog && banLog.target.id === member.id && 
-              (Date.now() - banLog.createdTimestamp) < 5000) {
-            
-            logger.info(`User ${member.user.tag} was banned by ${banLog.executor.tag}`);
-            
-            // Record ban in database
-            if (client.db) {
-              try {
-                await client.db.query(
-                  'INSERT INTO moderation_actions (user_id, guild_id, action_type, moderator_id, reason, timestamp) VALUES (?, ?, ?, ?, ?, ?)',
-                  [member.id, member.guild.id, 'ban', banLog.executor.id, banLog.reason || 'No reason provided', new Date()]
-                );
-              } catch (error) {
-                logger.error(`Failed to record ban in database: ${error.message}`);
-              }
-            }
-          }
-        }
-      } catch (error) {
-        logger.error(`Error checking audit logs: ${error.message}`);
-      }
+      await checkModAction(member, client);
       
     } catch (error) {
       logger.error(`Error in guildMemberRemove event: ${error.message}`);
@@ -144,13 +67,109 @@ module.exports = {
 };
 
 /**
+ * Send leave message for members who left
+ * @param {GuildMember} member - The member who left
+ */
+async function sendLeaveMessage(member) {
+  const { guild } = member;
+  
+  try {
+    // Check if leave system is enabled
+    if (config.leaveSystem && config.leaveSystem.enabled) {
+      // Get leave channel
+      const leaveChannelName = config.leaveSystem.channelName || config.channels?.joinLeave || 'welcome';
+      const leaveChannel = guild.channels.cache.find(
+        channel => channel.name === leaveChannelName || 
+                  channel.id === leaveChannelName ||
+                  channel.id === config.leaveSystem.channelId
+      );
+      
+      if (leaveChannel) {
+        // Create leave embed
+        const leaveEmbed = createLeaveMemberEmbed(member);
+        
+        // Send leave message
+        await leaveChannel.send({ embeds: [leaveEmbed] });
+        logger.info(`Sent leave message for ${member.user.tag} in ${guild.name}`);
+      } else {
+        logger.warn(`Leave channel not found in guild: ${guild.name}`);
+      }
+    }
+  } catch (error) {
+    logger.error(`Error sending leave message: ${error.message}`);
+  }
+}
+
+/**
+ * Check if the member was kicked or banned
+ * @param {GuildMember} member - The member who left
+ * @param {Client} client - The Discord client
+ */
+async function checkModAction(member, client) {
+  try {
+    const auditLogs = await member.guild.fetchAuditLogs({
+      limit: 1,
+      type: 20 // MEMBER_KICK
+    });
+    
+    const kickLog = auditLogs.entries.first();
+    
+    // If the user was kicked and it happened in the last 5 seconds
+    if (kickLog && kickLog.target.id === member.id && 
+        (Date.now() - kickLog.createdTimestamp) < 5000) {
+      
+      logger.info(`User ${member.user.tag} was kicked by ${kickLog.executor.tag}`);
+      
+      // Record kick in database
+      if (client.db && client.db.isConnected) {
+        try {
+          await client.db.query(
+            'INSERT INTO moderation_actions (user_id, guild_id, action_type, moderator_id, reason, timestamp) VALUES (?, ?, ?, ?, ?, ?)',
+            [member.id, member.guild.id, 'kick', kickLog.executor.id, kickLog.reason || 'No reason provided', new Date()]
+          );
+        } catch (error) {
+          logger.error(`Failed to record kick in database: ${error.message}`);
+        }
+      }
+    } else {
+      // Check if it was a ban
+      const banLogs = await member.guild.fetchAuditLogs({
+        limit: 1,
+        type: 22 // MEMBER_BAN_ADD
+      });
+      
+      const banLog = banLogs.entries.first();
+      
+      // If the user was banned and it happened in the last 5 seconds
+      if (banLog && banLog.target.id === member.id && 
+          (Date.now() - banLog.createdTimestamp) < 5000) {
+        
+        logger.info(`User ${member.user.tag} was banned by ${banLog.executor.tag}`);
+        
+        // Record ban in database
+        if (client.db && client.db.isConnected) {
+          try {
+            await client.db.query(
+              'INSERT INTO moderation_actions (user_id, guild_id, action_type, moderator_id, reason, timestamp) VALUES (?, ?, ?, ?, ?, ?)',
+              [member.id, member.guild.id, 'ban', banLog.executor.id, banLog.reason || 'No reason provided', new Date()]
+            );
+          } catch (error) {
+            logger.error(`Failed to record ban in database: ${error.message}`);
+          }
+        }
+      }
+    }
+  } catch (error) {
+    logger.error(`Error checking audit logs: ${error.message}`);
+  }
+}
+
+/**
  * Update member count channels
  * @param {Guild} guild - The Discord guild
  */
 async function updateMemberCountChannels(guild) {
   try {
-    const config = require('../../config.json');
-    
     if (!config.memberCountChannels || !config.memberCountChannels.enabled) return;
     
     // Total members channel

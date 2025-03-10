@@ -378,4 +378,131 @@ FOR EACH ROW
 BEGIN
     UPDATE users SET last_seen = NEW.timestamp WHERE user_id = NEW.user_id;
 END //
-DELIMITER ; 
+DELIMITER ;
+
+-- JMF Hosting Discord Bot Database Schema
+-- © 2025 JMFHosting. All Rights Reserved.
+-- Developed by Nanaimo2013 (https://github.com/Nanaimo2013)
+
+-- Enable foreign key constraints
+PRAGMA foreign_keys = ON;
+
+-- Create account_links table for linking Discord accounts to Pterodactyl panel accounts
+CREATE TABLE IF NOT EXISTS account_links (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    discord_id TEXT NOT NULL,
+    discord_username TEXT NOT NULL,
+    panel_id TEXT,
+    panel_username TEXT,
+    token TEXT,
+    api_key TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    linked_at TIMESTAMP,
+    expires_at TIMESTAMP,
+    is_active BOOLEAN DEFAULT 1,
+    UNIQUE(discord_id),
+    UNIQUE(panel_id)
+);
+
+-- Create servers table
+CREATE TABLE IF NOT EXISTS servers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    server_id TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    game TEXT NOT NULL,
+    owner_id INTEGER,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    status TEXT DEFAULT 'offline',
+    node TEXT,
+    ip TEXT,
+    port INTEGER,
+    FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
+-- Create inventory table
+CREATE TABLE IF NOT EXISTS inventory (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    item_id TEXT NOT NULL,
+    item_type TEXT NOT NULL,
+    quantity INTEGER DEFAULT 1,
+    acquired_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- Create mining_stats table
+CREATE TABLE IF NOT EXISTS mining_stats (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    world_id INTEGER NOT NULL,
+    resources_mined INTEGER DEFAULT 0,
+    value_earned INTEGER DEFAULT 0,
+    xp_earned INTEGER DEFAULT 0,
+    last_mined TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- Create warnings table
+CREATE TABLE IF NOT EXISTS warnings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    moderator_id INTEGER NOT NULL,
+    reason TEXT NOT NULL,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (moderator_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- Create bans table
+CREATE TABLE IF NOT EXISTS bans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    moderator_id INTEGER NOT NULL,
+    reason TEXT NOT NULL,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP,
+    is_active BOOLEAN DEFAULT 1,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (moderator_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- Create notes table
+CREATE TABLE IF NOT EXISTS notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    moderator_id INTEGER NOT NULL,
+    note TEXT NOT NULL,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (moderator_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- Create statistics table
+CREATE TABLE IF NOT EXISTS statistics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value INTEGER DEFAULT 0,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(guild_id, key)
+);
+
+-- Create indexes for performance
+CREATE INDEX IF NOT EXISTS idx_users_discord_id ON users(discord_id);
+CREATE INDEX IF NOT EXISTS idx_account_links_discord_id ON account_links(discord_id);
+CREATE INDEX IF NOT EXISTS idx_account_links_panel_id ON account_links(panel_id);
+CREATE INDEX IF NOT EXISTS idx_servers_server_id ON servers(server_id);
+CREATE INDEX IF NOT EXISTS idx_servers_owner_id ON servers(owner_id);
+CREATE INDEX IF NOT EXISTS idx_economy_transactions_user_id ON economy_transactions(user_id);
+CREATE INDEX IF NOT EXISTS idx_inventory_user_id ON inventory(user_id);
+CREATE INDEX IF NOT EXISTS idx_mining_stats_user_id ON mining_stats(user_id);
+CREATE INDEX IF NOT EXISTS idx_tickets_user_id ON tickets(user_id);
+CREATE INDEX IF NOT EXISTS idx_tickets_ticket_id ON tickets(ticket_id);
+CREATE INDEX IF NOT EXISTS idx_ticket_messages_ticket_id ON ticket_messages(ticket_id);
+CREATE INDEX IF NOT EXISTS idx_verifications_user_id ON verifications(user_id);
+CREATE INDEX IF NOT EXISTS idx_warnings_user_id ON warnings(user_id);
+CREATE INDEX IF NOT EXISTS idx_bans_user_id ON bans(user_id);
+CREATE INDEX IF NOT EXISTS idx_notes_user_id ON notes(user_id);
+CREATE INDEX IF NOT EXISTS idx_settings_guild_id ON settings(guild_id);
+CREATE INDEX IF NOT EXISTS idx_statistics_guild_id ON statistics(guild_id); 
