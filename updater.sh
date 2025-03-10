@@ -227,7 +227,7 @@ deploy_commands() {
   if [ ! -f "$install_dir/src/deploy-commands.js" ]; then
     print_error "deploy-commands.js not found"
     return 1
-  }
+  fi
   
   # Deploy commands
   npm run deploy >> "$LOG_FILE" 2>&1
