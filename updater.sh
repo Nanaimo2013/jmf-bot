@@ -183,7 +183,7 @@ update_from_github() {
     git branch -r | grep -v '\->' | sed "s,\x1B\[[0-9;]*[a-zA-Z],,g" | sed 's/origin\//  /' >> "$LOG_FILE" 2>&1
     git branch -r | grep -v '\->' | sed "s,\x1B\[[0-9;]*[a-zA-Z],,g" | sed 's/origin\//  /'
     return 1
-  }
+  fi
   
   # Reset to the specified branch
   print_status "Resetting to origin/$branch"
@@ -498,4 +498,4 @@ main() {
 }
 
 # Run the main function
-main 
+main
