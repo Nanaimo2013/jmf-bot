@@ -4,12 +4,12 @@ By JMFHosting
 <div align="center">
 
 [![Status](https://img.shields.io/badge/Status-Active%20Development-blue.svg?style=for-the-badge)](https://github.com/Nanaimo2013/Jmf-Bot)
-[![Version](https://img.shields.io/badge/Version-1.0.0-green.svg?style=for-the-badge)](https://github.com/Nanaimo2013/Jmf-Bot/releases)
-[![Progress](https://img.shields.io/badge/Progress-75%25-orange.svg?style=for-the-badge)](https://github.com/Nanaimo2013/Jmf-Bot/milestones)
+[![Version](https://img.shields.io/badge/Version-1.1.1-green.svg?style=for-the-badge)](https://github.com/Nanaimo2013/Jmf-Bot/releases)
+[![Progress](https://img.shields.io/badge/Progress-78%25-orange.svg?style=for-the-badge)](https://github.com/Nanaimo2013/Jmf-Bot/milestones)
 
 </div>
 
-## 🚀 Current Status (v1.0.0)
+## 🚀 Current Status (v1.1.1)
 
 <table>
 <tr>
@@ -44,6 +44,11 @@ By JMFHosting
   - [x] Shop system
   - [x] Transaction logging
   - [x] Reward distribution
+- [x] Leveling System
+  - [x] Balanced XP progression
+  - [x] Message and voice XP tracking
+  - [x] Level-based rewards
+  - [x] Configurable XP rates
 
 </td>
 <td>

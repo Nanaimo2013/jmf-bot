@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/Version-1.0.0-blue.svg?style=for-the-badge)](https://github.com/Nanaimo2013/Jmf-Bot/releases)
+[![Version](https://img.shields.io/badge/Version-1.1.1-blue.svg?style=for-the-badge)](https://github.com/Nanaimo2013/Jmf-Bot/releases)
 [![Discord.js](https://img.shields.io/badge/discord.js-v14-blue.svg?style=for-the-badge)](https://discord.js.org/)
 [![Documentation](https://img.shields.io/badge/Documentation-Comprehensive-green.svg?style=for-the-badge)](https://github.com/Nanaimo2013/Jmf-Bot/docs)
 
@@ -17,7 +17,7 @@
 
 ### 🏗️ Architecture & Design
 - [System Architecture](ARCHITECTURE.md) - Overview of the bot's architecture
-- [Development Roadmap](ROADMAP.md) - Future development plans
+- [Development Roadmap](development/ROADMAP.md) - Future development plans
 
 ### 🔌 Integrations
 - [Pterodactyl Integration](PTERODACTYL.md) - Game server management
@@ -28,6 +28,7 @@
 - [Permission System](PERMISSIONS.md) - Role-based permissions
 - [Economy System](ECONOMY.md) - Virtual currency and shop
 - [Ticket System](TICKETS.md) - Support ticket management
+- [Leveling System](features/leveling.md) - XP progression and rewards
 
 ### 🛠️ Development
 - [Contributing Guide](../CONTRIBUTING.md) - How to contribute to the project
@@ -48,6 +49,7 @@
 - `/server` - Manage game servers
 - `/mine` - Play the mining game
 - `/balance` - Check your balance
+- `/level` - View your level and XP
 
 </td>
 <td>

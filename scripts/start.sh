@@ -192,6 +192,13 @@ check_database() {
     if grep -q "DB_TYPE=sqlite" "$env_file"; then
       print_info "Using SQLite database"
       
+      # Check if unified schema file exists
+      if [ ! -f "$install_dir/src/database/schema/unified-schema.sql" ]; then
+        print_warning "Unified schema file not found: $install_dir/src/database/schema/unified-schema.sql"
+      else
+        print_success "Unified schema file found"
+      fi
+      
       # Check if SQLite database file exists or can be created
       DB_PATH=$(grep "DB_PATH=" "$env_file" | cut -d '=' -f 2)
       if [ -z "$DB_PATH" ]; then
@@ -210,7 +217,7 @@ check_database() {
         print_warning "Database directory does not exist: $DB_DIR"
         print_status "Creating database directory"
         mkdir -p "$DB_DIR"
-        chown -R jmf-bot:jmf-bot "$DB_DIR"
+        chmod 755 "$DB_DIR"
       fi
       
       # Check if database file exists
@@ -224,6 +231,13 @@ check_database() {
       return 0
     elif grep -q "DB_TYPE=mysql" "$env_file"; then
       print_info "Using MySQL database"
+      
+      # Check if unified schema file exists
+      if [ ! -f "$install_dir/src/database/schema/unified-schema.sql" ]; then
+        print_warning "Unified schema file not found: $install_dir/src/database/schema/unified-schema.sql"
+      else
+        print_success "Unified schema file found"
+      fi
       
       # Check MySQL connection (simplified)
       if command_exists mysql; then
@@ -495,6 +509,50 @@ check_pterodactyl_api() {
   fi
 }
 
+# Function to set file permissions
+set_file_permissions() {
+  local install_dir=$1
+  
+  print_section "Setting File Permissions"
+  
+  # Check if permissions script exists
+  if [ -f "$install_dir/scripts/set-permissions.sh" ]; then
+    print_status "Running permissions script"
+    chmod +x "$install_dir/scripts/set-permissions.sh"
+    "$install_dir/scripts/set-permissions.sh"
+    
+    if [ $? -eq 0 ]; then
+      print_success "Permissions set successfully"
+      return 0
+    else
+      print_warning "Failed to set permissions"
+    fi
+  fi
+  
+  print_status "Setting basic permissions manually"
+  
+  # Set executable permissions for scripts
+  find "$install_dir" -name "*.sh" -exec chmod +x {} \;
+  
+  # Set permissions for data directory
+  if [ -d "$install_dir/data" ]; then
+    chmod -R 755 "$install_dir/data"
+  fi
+  
+  # Set permissions for logs directory
+  if [ -d "$install_dir/logs" ]; then
+    chmod -R 755 "$install_dir/logs"
+  fi
+  
+  # Set permissions for .env file
+  if [ -f "$install_dir/.env" ]; then
+    chmod 600 "$install_dir/.env"
+  fi
+  
+  print_success "Basic permissions set"
+  return 0
+}
+
 # Function to start the bot
 start_bot() {
   local install_dir=$1
@@ -624,6 +682,9 @@ main() {
   # Deploy slash commands
   print_section "Deploying Slash Commands"
   deploy_slash_commands "$install_dir"
+  
+  # Set file permissions
+  set_file_permissions "$install_dir"
   
   # Ask if user wants to start the bot
   echo -e "\n${YELLOW}${BOLD}${WARNING} Warning:${NC} This will start/restart the JMF Hosting Discord Bot service."

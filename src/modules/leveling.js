@@ -32,6 +32,19 @@ class LevelingSystem {
     this.userDataCache = new Map();
     this.cacheTTL = 60000; // 1 minute cache TTL
     
+    // Track recent level ups to prevent duplicate messages
+    this.recentLevelUps = new Map();
+    
+    // Track message counts for XP rewards
+    this.messageCounter = new Map();
+    
+    // Track voice time in minutes for XP rewards
+    this.voiceTimeCounter = new Map();
+    
+    // Configure how often to reward XP
+    this.messageRewardFrequency = config.levelSystem?.messageRewardFrequency || 5; // Every 5th message
+    this.voiceRewardFrequency = config.levelSystem?.voiceRewardFrequency || 10; // Every 10 minutes
+    
     this.init();
   }
 
@@ -59,6 +72,10 @@ class LevelingSystem {
       
       // Set up voice XP processing interval
       setInterval(() => this.processVoiceXP(), 60000); // Every minute
+      
+      // Set up cleanup intervals
+      setInterval(() => this.cleanupExpiredLocks(), 60000); // Every minute
+      setInterval(() => this.cleanupCounters(), 3600000); // Every hour
       
       // Load data from database if available
       if (this.db && this.db.isConnected) {
@@ -161,28 +178,42 @@ class LevelingSystem {
       // Set cooldown
       this.messageCooldowns.set(cooldownKey, now);
       
-      // Get base XP amount
-      const baseXp = config.levelSystem.xpPerMessage || 5;
-      
-      // Apply multipliers
-      let xpMultiplier = 1;
-      
-      // Check for premium roles
-      if (config.levelSystem.xpMultipliers) {
-        for (const [role, multiplier] of Object.entries(config.levelSystem.xpMultipliers)) {
-          if (message.member.roles.cache.some(r => r.name === role || r.id === role)) {
-            xpMultiplier = Math.max(xpMultiplier, multiplier);
-          }
-        }
-      }
-      
-      const xpToAdd = Math.floor(baseXp * xpMultiplier);
-      
-      // Add XP
-      await this.addXP(author, xpToAdd, guild, channel);
+      // Increment message counter
+      const counterKey = `msg-${userId}-${guildId}`;
+      const currentCount = this.messageCounter.get(counterKey) || 0;
+      const newCount = currentCount + 1;
+      this.messageCounter.set(counterKey, newCount);
       
       // Update total messages count
       await this.updateUserStat(userId, guildId, 'total_messages', 1, true);
+      
+      // Log message count progress
+      logger.debug(`User ${author.tag} message count: ${newCount}/${this.messageRewardFrequency}`);
+      
+      // Only give XP every Nth message
+      if (newCount % this.messageRewardFrequency === 0) {
+        // Get base XP amount
+        const baseXp = config.levelSystem.xpPerMessage || 3;
+        
+        // Apply multipliers
+        let xpMultiplier = 1;
+        
+        // Check for premium roles
+        if (config.levelSystem.xpMultipliers) {
+          for (const [role, multiplier] of Object.entries(config.levelSystem.xpMultipliers)) {
+            if (message.member.roles.cache.some(r => r.name === role || r.id === role)) {
+              xpMultiplier = Math.max(xpMultiplier, multiplier);
+            }
+          }
+        }
+        
+        const xpToAdd = Math.floor(baseXp * xpMultiplier);
+        
+        // Add XP
+        await this.addXP(author, xpToAdd, guild, channel);
+        
+        logger.info(`Awarded ${xpToAdd} XP to ${author.tag} for message activity (message #${newCount})`);
+      }
     } catch (error) {
       logger.error(`Error handling message for XP: ${error.message}`);
     }
@@ -255,7 +286,7 @@ class LevelingSystem {
       if (!config.levelSystem || !config.levelSystem.enabled || !this.client) return;
       
       const now = Date.now();
-      const xpPerMinute = config.levelSystem.voiceXpPerMinute || 2;
+      const xpPerMinute = config.levelSystem.voiceXpPerMinute || 1;
       
       for (const [key, state] of this.voiceTimeTracking.entries()) {
         const [userId, guildId] = key.split('-');
@@ -287,25 +318,43 @@ class LevelingSystem {
         // Skip if user is muted or deafened
         if (member.voice.mute || member.voice.deaf) continue;
         
-        // Apply multipliers
-        let xpMultiplier = 1;
+        // Increment voice time counter (in minutes)
+        const counterKey = `voice-${userId}-${guildId}`;
+        const currentMinutes = this.voiceTimeCounter.get(counterKey) || 0;
+        const newMinutes = currentMinutes + 1;
+        this.voiceTimeCounter.set(counterKey, newMinutes);
         
-        // Check for premium roles
-        if (config.levelSystem.xpMultipliers) {
-          for (const [role, multiplier] of Object.entries(config.levelSystem.xpMultipliers)) {
-            if (member.roles.cache.some(r => r.name === role || r.id === role)) {
-              xpMultiplier = Math.max(xpMultiplier, multiplier);
-            }
-          }
-        }
-        
-        const xpToAdd = Math.floor(xpPerMinute * xpMultiplier);
-        
-        // Add XP
-        await this.addXP(member.user, xpToAdd, guild);
+        // Update total voice minutes
+        await this.updateUserStat(userId, guildId, 'total_voice_minutes', 1, true);
         
         // Update last voice timestamp
         await this.updateUserStat(userId, guildId, 'last_voice_timestamp', new Date());
+        
+        // Log voice time progress
+        logger.debug(`User ${member.user.tag} voice time: ${newMinutes}/${this.voiceRewardFrequency} minutes`);
+        
+        // Only give XP every Nth minute
+        if (newMinutes % this.voiceRewardFrequency === 0) {
+          // Apply multipliers
+          let xpMultiplier = 1;
+          
+          // Check for premium roles
+          if (config.levelSystem.xpMultipliers) {
+            for (const [role, multiplier] of Object.entries(config.levelSystem.xpMultipliers)) {
+              if (member.roles.cache.some(r => r.name === role || r.id === role)) {
+                xpMultiplier = Math.max(xpMultiplier, multiplier);
+              }
+            }
+          }
+          
+          // Calculate XP for the full time period
+          const xpToAdd = Math.floor(xpPerMinute * this.voiceRewardFrequency * xpMultiplier);
+          
+          // Add XP
+          await this.addXP(member.user, xpToAdd, guild);
+          
+          logger.info(`Awarded ${xpToAdd} XP to ${member.user.tag} for voice activity (${this.voiceRewardFrequency} minutes)`);
+        }
       }
     } catch (error) {
       logger.error(`Error processing voice XP: ${error.message}`);
@@ -444,19 +493,41 @@ class LevelingSystem {
         .replace('{user}', `<@${user.id}>`)
         .replace('{level}', newLevel);
       
-      // Determine where to send the message
-      if (config.levelSystem.levelUpChannel) {
-        const levelUpChannel = guild.channels.cache.find(
-          c => c.name === config.levelSystem.levelUpChannel || c.id === config.levelSystem.levelUpChannel
-        );
-        
-        if (levelUpChannel) {
-          await levelUpChannel.send(formattedMessage);
+      // Create a unique key for this level up event to prevent duplicate messages
+      const levelUpKey = `${user.id}-${guild.id}-${newLevel}`;
+      
+      // Check if we've already sent a message for this level up in the last minute
+      const recentLevelUps = this.recentLevelUps || new Map();
+      const now = Date.now();
+      const lastLevelUpTime = recentLevelUps.get(levelUpKey) || 0;
+      
+      // Only send the message if it hasn't been sent in the last minute
+      if (now - lastLevelUpTime > 60000) {
+        // Determine where to send the message
+        if (config.levelSystem.levelUpChannel) {
+          const levelUpChannel = guild.channels.cache.find(
+            c => c.name === config.levelSystem.levelUpChannel || c.id === config.levelSystem.levelUpChannel
+          );
+          
+          if (levelUpChannel) {
+            await levelUpChannel.send(formattedMessage);
+          } else if (channel) {
+            await channel.send(formattedMessage);
+          }
         } else if (channel) {
           await channel.send(formattedMessage);
         }
-      } else if (channel) {
-        await channel.send(formattedMessage);
+        
+        // Record that we sent this level up message
+        recentLevelUps.set(levelUpKey, now);
+        this.recentLevelUps = recentLevelUps;
+        
+        // Clean up old entries from the map (older than 5 minutes)
+        for (const [key, time] of recentLevelUps.entries()) {
+          if (now - time > 300000) { // 5 minutes
+            recentLevelUps.delete(key);
+          }
+        }
       }
       
       // Log level up

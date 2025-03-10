@@ -20,7 +20,7 @@
 [![Node.js](https://img.shields.io/badge/node.js-%3E%3D16.9.0-brightgreen.svg?style=for-the-badge)](https://nodejs.org/)
 [![MySQL](https://img.shields.io/badge/mysql-v8-orange.svg?style=for-the-badge)](https://www.mysql.com/)
 [![SQLite](https://img.shields.io/badge/sqlite-v3-blue.svg?style=for-the-badge)](https://www.sqlite.org/)
-[![Version](https://img.shields.io/badge/VERSION-1.0.0-blue.svg?style=for-the-badge)](https://github.com/Nanaimo2013/Jmf-Bot/releases)
+[![Version](https://img.shields.io/badge/VERSION-1.1.1-blue.svg?style=for-the-badge)](https://github.com/Nanaimo2013/Jmf-Bot/releases)
 [![Docker](https://img.shields.io/badge/docker-supported-2496ED.svg?style=for-the-badge&logo=docker)](https://github.com/Nanaimo2013/Jmf-Bot/pkgs/container/jmf-bot)
 
 <br/>
@@ -61,7 +61,7 @@
 
 ### 💰 Economy System
 - **Mining**: Mine for resources and earn coins
-- **Leveling**: Earn XP and level up
+- **Leveling**: Balanced XP progression with configurable rates
 - **Leaderboards**: Compete with other users
 
 </td>

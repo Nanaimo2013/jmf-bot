@@ -68,10 +68,16 @@ run_database_fix() {
 apply_sqlite_schema() {
     echo -e "${BLUE}Applying SQLite schema...${NC}"
     
+    # Check if unified schema file exists
+    if [ ! -f "src/database/schema/unified-schema.sql" ]; then
+        echo -e "${RED}Error: unified-schema.sql not found at src/database/schema/unified-schema.sql${NC}"
+        exit 1
+    fi
+    
     # Check if sqlite3 command is available
     if command -v sqlite3 &> /dev/null; then
         echo -e "${GREEN}Using sqlite3 command to apply schema...${NC}"
-        sqlite3 "$DB_PATH" < schema.sqlite.sql
+        sqlite3 "$DB_PATH" < src/database/schema/unified-schema.sql
         
         if [ $? -eq 0 ]; then
             echo -e "${GREEN}SQLite schema applied successfully.${NC}"
@@ -81,7 +87,7 @@ apply_sqlite_schema() {
         fi
     else
         echo -e "${YELLOW}sqlite3 command not found. Using Node.js to apply schema...${NC}"
-        node fix-sqlite-schema.js
+        node scripts/database/apply-unified-schema.js
         
         if [ $? -eq 0 ]; then
             echo -e "${GREEN}SQLite schema applied successfully using Node.js.${NC}"
@@ -95,6 +101,12 @@ apply_sqlite_schema() {
 # Function to apply MySQL schema
 apply_mysql_schema() {
     echo -e "${BLUE}Applying MySQL schema...${NC}"
+    
+    # Check if unified schema file exists
+    if [ ! -f "src/database/schema/unified-schema.sql" ]; then
+        echo -e "${RED}Error: unified-schema.sql not found at src/database/schema/unified-schema.sql${NC}"
+        exit 1
+    fi
     
     # Check if MySQL credentials are set
     if [ -z "$DB_HOST" ] || [ -z "$DB_USERNAME" ] || [ -z "$DB_DATABASE" ]; then
@@ -113,7 +125,7 @@ apply_mysql_schema() {
         fi
         
         # Apply schema
-        mysql -h "$DB_HOST" -P "${DB_PORT:-3306}" -u "$DB_USERNAME" $MYSQL_PWD_OPTION "$DB_DATABASE" < schema.mysql.sql
+        mysql -h "$DB_HOST" -P "${DB_PORT:-3306}" -u "$DB_USERNAME" $MYSQL_PWD_OPTION "$DB_DATABASE" < src/database/schema/unified-schema.sql
         
         if [ $? -eq 0 ]; then
             echo -e "${GREEN}MySQL schema applied successfully.${NC}"

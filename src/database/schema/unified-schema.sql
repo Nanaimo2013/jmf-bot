@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS messages (
 
 -- Member events table
 CREATE TABLE IF NOT EXISTS member_events (
-  id INTEGER PRIMARY KEY AUTO_INCREMENT,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id VARCHAR(20) NOT NULL,
   guild_id VARCHAR(20) NOT NULL,
   event_type VARCHAR(20) NOT NULL,
@@ -41,20 +41,20 @@ CREATE TABLE IF NOT EXISTS member_events (
 
 -- Command usage table
 CREATE TABLE IF NOT EXISTS command_usage (
-  id INTEGER PRIMARY KEY AUTO_INCREMENT,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id VARCHAR(20) NOT NULL,
   guild_id VARCHAR(20) NOT NULL,
-  command VARCHAR(50) NOT NULL,
+  command_name VARCHAR(50) NOT NULL,
   channel_id VARCHAR(20) NOT NULL,
   timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Command errors table
 CREATE TABLE IF NOT EXISTS command_errors (
-  id INTEGER PRIMARY KEY AUTO_INCREMENT,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id VARCHAR(20) NOT NULL,
   guild_id VARCHAR(20) NOT NULL,
-  command VARCHAR(50) NOT NULL,
+  command_name VARCHAR(50) NOT NULL,
   channel_id VARCHAR(20) NOT NULL,
   error_message TEXT NOT NULL,
   stack_trace TEXT,
@@ -85,11 +85,10 @@ CREATE TABLE IF NOT EXISTS legacy_command_errors (
 
 -- Button usage table
 CREATE TABLE IF NOT EXISTS button_usage (
-  id INTEGER PRIMARY KEY AUTO_INCREMENT,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id VARCHAR(20) NOT NULL,
   guild_id VARCHAR(20) NOT NULL,
   custom_id VARCHAR(100) NOT NULL,
-  button_id VARCHAR(100) NOT NULL,
   channel_id VARCHAR(20) NOT NULL,
   message_id VARCHAR(20),
   success TINYINT(1) DEFAULT 1,
@@ -98,11 +97,11 @@ CREATE TABLE IF NOT EXISTS button_usage (
 
 -- Select menu usage table
 CREATE TABLE IF NOT EXISTS select_menu_usage (
-  id INTEGER PRIMARY KEY AUTO_INCREMENT,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id VARCHAR(20) NOT NULL,
   guild_id VARCHAR(20) NOT NULL,
   custom_id VARCHAR(100) NOT NULL,
-  values TEXT NOT NULL,
+  selected_values TEXT NOT NULL,
   channel_id VARCHAR(20) NOT NULL,
   message_id VARCHAR(20),
   success TINYINT(1) DEFAULT 1,
@@ -111,33 +110,30 @@ CREATE TABLE IF NOT EXISTS select_menu_usage (
 
 -- Modal submissions table
 CREATE TABLE IF NOT EXISTS modal_submissions (
-  id INTEGER PRIMARY KEY AUTO_INCREMENT,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id VARCHAR(20) NOT NULL,
   guild_id VARCHAR(20) NOT NULL,
   custom_id VARCHAR(100) NOT NULL,
+  field_values TEXT,
   channel_id VARCHAR(20) NOT NULL,
   timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Tickets table
 CREATE TABLE IF NOT EXISTS tickets (
-  id INTEGER PRIMARY KEY AUTO_INCREMENT,
-  ticket_id VARCHAR(20) UNIQUE,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ticket_id VARCHAR(20) NOT NULL,
   guild_id VARCHAR(20) NOT NULL,
   channel_id VARCHAR(20) NOT NULL,
   user_id VARCHAR(20) NOT NULL,
+  subject TEXT,
   status VARCHAR(20) DEFAULT 'open',
-  subject VARCHAR(255),
-  description TEXT,
   category VARCHAR(50) DEFAULT 'general',
-  priority VARCHAR(20) DEFAULT 'Medium',
-  contact_info VARCHAR(255),
-  claimed_by VARCHAR(20),
-  claimed_at TIMESTAMP,
+  priority VARCHAR(20) DEFAULT 'medium',
+  contact_info TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   closed_at TIMESTAMP,
-  closed_by VARCHAR(20),
-  transcript_url TEXT
+  closed_by VARCHAR(20)
 );
 
 -- Moderation actions table
@@ -231,7 +227,7 @@ CREATE TABLE IF NOT EXISTS transfers (
 
 -- Market listings table
 CREATE TABLE IF NOT EXISTS market_listings (
-  id INTEGER PRIMARY KEY AUTO_INCREMENT,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   seller_id VARCHAR(20) NOT NULL,
   item_type VARCHAR(50) NOT NULL,
   item_name VARCHAR(100) NOT NULL,
@@ -410,7 +406,7 @@ CREATE INDEX IF NOT EXISTS idx_messages_channel_id ON messages(channel_id);
 CREATE INDEX IF NOT EXISTS idx_messages_user_id ON messages(user_id);
 CREATE INDEX IF NOT EXISTS idx_member_events_user_id ON member_events(user_id);
 CREATE INDEX IF NOT EXISTS idx_member_events_guild_id ON member_events(guild_id);
-CREATE INDEX IF NOT EXISTS idx_command_usage_command ON command_usage(command);
+CREATE INDEX IF NOT EXISTS idx_command_usage_command ON command_usage(command_name);
 CREATE INDEX IF NOT EXISTS idx_command_usage_user_id ON command_usage(user_id);
 CREATE INDEX IF NOT EXISTS idx_moderation_actions_user_id ON moderation_actions(user_id);
 CREATE INDEX IF NOT EXISTS idx_moderation_actions_guild_id ON moderation_actions(guild_id);

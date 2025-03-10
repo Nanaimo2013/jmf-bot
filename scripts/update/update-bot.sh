@@ -249,6 +249,39 @@ else
   print_error "JMF Bot container is not running"
 fi
 
+print_section "Setting File Permissions"
+
+# Check if permissions script exists
+if [ -f "./scripts/set-permissions.sh" ]; then
+  print_status "Running permissions script"
+  chmod +x ./scripts/set-permissions.sh
+  ./scripts/set-permissions.sh
+  
+  if [ $? -eq 0 ]; then
+    print_success "Permissions set successfully"
+  else
+    print_warning "Failed to set permissions"
+  fi
+else
+  print_warning "Permissions script not found: ./scripts/set-permissions.sh"
+  print_status "Setting basic permissions manually"
+  
+  # Set executable permissions for scripts
+  find . -name "*.sh" -exec chmod +x {} \;
+  
+  # Set permissions for data directory
+  if [ -d "./data" ]; then
+    chmod -R 755 "./data"
+  fi
+  
+  # Set permissions for logs directory
+  if [ -d "./logs" ]; then
+    chmod -R 755 "./logs"
+  fi
+  
+  print_success "Basic permissions set"
+fi
+
 print_section "Update Complete"
 
 echo -e "${GREEN}${BOLD}${ROCKET} JMF Hosting Discord Bot has been successfully updated!${NC}"

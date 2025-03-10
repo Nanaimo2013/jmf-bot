@@ -15,6 +15,9 @@ const economy = require('../modules/economy');
 const mining = require('../modules/mining');
 const { createWelcomeMemberEmbed } = require('../embeds/welcome-member-embed');
 
+// Track recent welcome messages to prevent duplicates
+const recentWelcomes = new Map();
+
 module.exports = {
   name: 'guildMemberAdd',
   once: false,
@@ -191,46 +194,66 @@ async function sendWelcomeMessage(member) {
   try {
     // Check if welcome system is enabled
     if (config.welcomeSystem?.enabled) {
-      // Get welcome channel - prioritize channel ID over channel name
-      let welcomeChannel;
+      // Check if we've already sent a welcome message for this user in the last minute
+      const welcomeKey = `${member.id}-${guild.id}`;
+      const now = Date.now();
+      const lastWelcomeTime = recentWelcomes.get(welcomeKey) || 0;
       
-      // First try to get the channel by ID from welcomeSystem.channelId
-      if (config.welcomeSystem.channelId) {
-        welcomeChannel = guild.channels.cache.get(config.welcomeSystem.channelId);
-      }
-      
-      // If not found, try the channels.joinLeave ID
-      if (!welcomeChannel && config.channels?.joinLeave) {
-        welcomeChannel = guild.channels.cache.get(config.channels.joinLeave);
-      }
-      
-      // If not found, try the channels.welcome ID
-      if (!welcomeChannel && config.channels?.welcome) {
-        welcomeChannel = guild.channels.cache.get(config.channels.welcome);
-      }
-      
-      // If still not found, try by name
-      if (!welcomeChannel) {
-        const welcomeChannelName = config.welcomeSystem.channelName || 'welcome';
-        welcomeChannel = guild.channels.cache.find(
-          channel => channel.name === welcomeChannelName || 
-                    channel.name.includes(welcomeChannelName)
-        );
-      }
-      
-      if (welcomeChannel) {
-        // Create welcome embed
-        const welcomeEmbed = createWelcomeMemberEmbed(member);
+      // Only proceed if we haven't sent a welcome message in the last minute
+      if (now - lastWelcomeTime > 60000) {
+        // Get welcome channel - prioritize channel ID over channel name
+        let welcomeChannel;
         
-        // Send welcome message
-        await welcomeChannel.send({ 
-          content: config.welcomeSystem.mentionUser ? `<@${member.id}>` : null,
-          embeds: [welcomeEmbed] 
-        });
+        // First try to get the channel by ID from welcomeSystem.channelId
+        if (config.welcomeSystem.channelId) {
+          welcomeChannel = guild.channels.cache.get(config.welcomeSystem.channelId);
+        }
         
-        logger.info(`Sent welcome message for ${member.user.tag} in ${guild.name}`);
+        // If not found, try the channels.joinLeave ID
+        if (!welcomeChannel && config.channels?.joinLeave) {
+          welcomeChannel = guild.channels.cache.get(config.channels.joinLeave);
+        }
+        
+        // If not found, try the channels.welcome ID
+        if (!welcomeChannel && config.channels?.welcome) {
+          welcomeChannel = guild.channels.cache.get(config.channels.welcome);
+        }
+        
+        // If still not found, try by name
+        if (!welcomeChannel) {
+          const welcomeChannelName = config.welcomeSystem.channelName || 'welcome';
+          welcomeChannel = guild.channels.cache.find(
+            channel => channel.name === welcomeChannelName || 
+                      channel.name.includes(welcomeChannelName)
+          );
+        }
+        
+        if (welcomeChannel) {
+          // Create welcome embed
+          const welcomeEmbed = createWelcomeMemberEmbed(member);
+          
+          // Send welcome message
+          await welcomeChannel.send({ 
+            content: config.welcomeSystem.mentionUser ? `<@${member.id}>` : null,
+            embeds: [welcomeEmbed] 
+          });
+          
+          // Record that we sent this welcome message
+          recentWelcomes.set(welcomeKey, now);
+          
+          // Clean up old entries from the map (older than 5 minutes)
+          for (const [key, time] of recentWelcomes.entries()) {
+            if (now - time > 300000) { // 5 minutes
+              recentWelcomes.delete(key);
+            }
+          }
+          
+          logger.info(`Sent welcome message for ${member.user.tag} in ${guild.name}`);
+        } else {
+          logger.warn(`Welcome channel not found in guild: ${guild.name}`);
+        }
       } else {
-        logger.warn(`Welcome channel not found in guild: ${guild.name}`);
+        logger.debug(`Skipping duplicate welcome message for ${member.user.tag} in ${guild.name}`);
       }
     }
     

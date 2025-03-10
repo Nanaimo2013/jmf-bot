@@ -5,6 +5,17 @@ All notable changes to the JMF Hosting Discord Bot will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2025-03-10
+
+### Changed
+- Improved leveling system with more balanced progression
+- Reduced XP gain rates (message XP from 5 to 3, voice XP from 2 to 1)
+- Increased message reward frequency from every 3rd message to every 5th message
+- Increased voice reward frequency from every 5 minutes to every 10 minutes
+- Made level curve steeper with updated formula (150 * (level ^ 1.8))
+- Added better logging for XP rewards and level progression
+- Added tracking for total voice minutes in the database
+
 ## [1.1.0] - 2025-03-10
 
 ### Added

@@ -129,12 +129,47 @@ fi
 
 print_section "Setting Permissions"
 
-# Set ownership and permissions
-print_status "Setting ownership and permissions for $install_dir"
-chown -R jmf-bot:jmf-bot "$install_dir"
-chmod -R 750 "$install_dir"
-
-print_success "Permissions set successfully"
+# Check if permissions script exists
+if [ -f "$install_dir/scripts/set-permissions.sh" ]; then
+  print_status "Running permissions script"
+  chmod +x "$install_dir/scripts/set-permissions.sh"
+  "$install_dir/scripts/set-permissions.sh"
+  
+  if [ $? -eq 0 ]; then
+    print_success "Permissions set successfully"
+  else
+    print_warning "Failed to set permissions"
+  fi
+else
+  print_warning "Permissions script not found: $install_dir/scripts/set-permissions.sh"
+  print_status "Setting basic permissions manually"
+  
+  # Set ownership and permissions
+  print_status "Setting ownership and permissions for $install_dir"
+  chown -R jmf-bot:jmf-bot "$install_dir"
+  chmod -R 750 "$install_dir"
+  
+  # Set executable permissions for scripts
+  find "$install_dir" -name "*.sh" -exec chmod +x {} \;
+  
+  # Set permissions for data directory
+  if [ -d "$install_dir/data" ]; then
+    chmod -R 755 "$install_dir/data"
+  fi
+  
+  # Set permissions for logs directory
+  if [ -d "$install_dir/logs" ]; then
+    chmod -R 755 "$install_dir/logs"
+  fi
+  
+  # Set permissions for .env file
+  if [ -f "$install_dir/.env" ]; then
+    chmod 600 "$install_dir/.env"
+    chown jmf-bot:jmf-bot "$install_dir/.env"
+  fi
+  
+  print_success "Basic permissions set"
+fi
 
 print_section "Installing Systemd Service"
 

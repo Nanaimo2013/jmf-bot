@@ -116,9 +116,11 @@
   },
   "levelSystem": {
     "enabled": true,
-    "xpPerMessage": 5,
+    "xpPerMessage": 3,
     "xpCooldown": 60,
-    "voiceXpPerMinute": 2,
+    "voiceXpPerMinute": 1,
+    "messageRewardFrequency": 5,
+    "voiceRewardFrequency": 10,
     "levelUpMessage": "Congratulations {user}! You've reached level {level}!",
     "levelUpChannel": "⭐︱leveling",
     "levelRoles": {
@@ -133,7 +135,7 @@
       "premiumTier2": 1.25,
       "premiumTier3": 1.5
     },
-    "levelFormula": "100 * (level ^ 1.5)"
+    "levelFormula": "150 * (level ^ 1.8)"
   },
   "gameServers": {
     "statusChannel": "server-status",

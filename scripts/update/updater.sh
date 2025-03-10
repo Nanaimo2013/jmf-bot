@@ -293,17 +293,17 @@ update_database_schema() {
     return 1
   }
   
-  # Check if schema.sql exists
-  if [ ! -f "$install_dir/schema.sql" ]; then
-    print_error "schema.sql not found"
+  # Check if unified schema file exists
+  if [ ! -f "$install_dir/src/database/schema/unified-schema.sql" ]; then
+    print_error "unified-schema.sql not found at $install_dir/src/database/schema/unified-schema.sql"
     return 1
-  fi
+  }
   
   # Check if .env file exists and contains database configuration
   if [ ! -f "$install_dir/.env" ]; then
     print_error ".env file not found"
     return 1
-  fi
+  }
   
   # Get database type from .env
   DB_TYPE=$(grep "DB_TYPE=" "$install_dir/.env" | cut -d= -f2)
@@ -337,6 +337,10 @@ update_database_schema() {
     fi
   fi
   
+  # Set schema file path
+  SCHEMA_FILE="$install_dir/src/database/schema/unified-schema.sql"
+  print_info "Using unified schema file: $SCHEMA_FILE"
+  
   # Update schema based on database type
   if [ "$DB_TYPE" = "sqlite" ]; then
     # Get database path from .env
@@ -361,16 +365,6 @@ update_database_schema() {
     if ! command -v sqlite3 &> /dev/null; then
       print_error "sqlite3 command not found. Please install sqlite3."
       return 1
-    fi
-    
-    # Check if SQLite schema file exists
-    if [ -f "$install_dir/schema.sqlite.sql" ]; then
-      print_info "Using SQLite-specific schema file: schema.sqlite.sql"
-      SCHEMA_FILE="$install_dir/schema.sqlite.sql"
-    else
-      print_warning "SQLite-specific schema file not found, using generic schema.sql"
-      print_warning "This may cause errors if the schema is not SQLite-compatible"
-      SCHEMA_FILE="$install_dir/schema.sql"
     fi
     
     # Apply schema
@@ -409,15 +403,6 @@ update_database_schema() {
     if ! command -v mysql &> /dev/null; then
       print_error "mysql command not found. Please install MySQL client."
       return 1
-    fi
-    
-    # Check if MySQL schema file exists
-    if [ -f "$install_dir/schema.mysql.sql" ]; then
-      print_info "Using MySQL-specific schema file: schema.mysql.sql"
-      SCHEMA_FILE="$install_dir/schema.mysql.sql"
-    else
-      print_info "Using generic schema file: schema.sql"
-      SCHEMA_FILE="$install_dir/schema.sql"
     fi
     
     # Apply schema
