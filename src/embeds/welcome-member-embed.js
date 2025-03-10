@@ -12,63 +12,92 @@ const { EmbedBuilder } = require('discord.js');
 const config = require('../../config.json');
 
 /**
- * Creates a welcome embed for when a user joins the server
+ * Create a welcome embed for a new member
  * @param {GuildMember} member - The member who joined
  * @returns {EmbedBuilder} The welcome embed
  */
 function createWelcomeMemberEmbed(member) {
-  const { user, guild } = member;
+  const { guild, user } = member;
   
-  // Get welcome message from config or use default
-  const welcomeMessage = config.welcomeSystem?.message || 
-    `Welcome to the server, ${member}! We're glad to have you here.`;
+  // Get configuration
+  const welcomeConfig = config.welcomeSystem || {};
+  const embedColor = welcomeConfig.embedColor || config.embedColor || '#00FF00';
+  
+  // Get important channels
+  const rulesChannel = guild.channels.cache.find(
+    channel => channel.name === (config.channels?.rules || '📜︱rules') || 
+              channel.id === config.channels?.rules
+  );
+  
+  const generalChannel = guild.channels.cache.find(
+    channel => channel.name === (config.channels?.general || '💬︱general') || 
+              channel.id === config.channels?.general
+  );
+  
+  const verificationChannel = guild.channels.cache.find(
+    channel => channel.name === (config.channels?.verification || '🔐︱verification') || 
+              channel.id === config.channels?.verification
+  );
+  
+  // Create welcome message with channel mentions
+  let welcomeMessage = welcomeConfig.message || 
+    `Welcome to the ${guild.name} Discord server, {user}! We're glad to have you here.`;
+  
+  // Replace placeholders
+  welcomeMessage = welcomeMessage
+    .replace('{user}', `<@${user.id}>`)
+    .replace('{server}', guild.name)
+    .replace('{memberCount}', guild.memberCount)
+    .replace('{rules}', rulesChannel ? `<#${rulesChannel.id}>` : 'rules channel')
+    .replace('{general}', generalChannel ? `<#${generalChannel.id}>` : 'general channel')
+    .replace('{verification}', verificationChannel ? `<#${verificationChannel.id}>` : 'verification channel')
+    .replace('{RULES_CHANNEL_ID}', rulesChannel ? rulesChannel.id : '');
   
   // Create the embed
   const welcomeEmbed = new EmbedBuilder()
-    .setTitle('👋 New Member Joined')
-    .setDescription(welcomeMessage.replace('{user}', member.toString())
-      .replace('{server}', guild.name)
-      .replace('{memberCount}', guild.memberCount.toString()))
-    .setColor(config.welcomeSystem?.embedColor || config.embedColor || '#00FF00')
+    .setTitle(`Welcome to ${guild.name}!`)
+    .setDescription(welcomeMessage)
+    .setColor(embedColor)
     .setThumbnail(user.displayAvatarURL({ dynamic: true, size: 256 }))
     .addFields(
-      { 
-        name: '📊 Member Count', 
-        value: `You are our ${guild.memberCount}${getNumberSuffix(guild.memberCount)} member!`, 
-        inline: true 
-      },
       { 
         name: '📅 Account Created', 
         value: `<t:${Math.floor(user.createdTimestamp / 1000)}:R>`, 
         inline: true 
+      },
+      { 
+        name: '👥 Member Count', 
+        value: `${guild.memberCount}`, 
+        inline: true 
       }
     );
   
-  // Add server rules mention if configured
-  if (config.channels?.rules) {
-    welcomeEmbed.addFields({
-      name: '📜 Server Rules',
-      value: `Please read our rules in <#${config.channels.rules}> to ensure a great experience for everyone.`,
-      inline: false
-    });
+  // Add useful links section with channel mentions
+  let usefulLinks = '';
+  
+  if (rulesChannel) {
+    usefulLinks += `📜 Rules: <#${rulesChannel.id}>\n`;
   }
   
-  // Add verification mention if enabled
-  if (config.verification?.enabled && config.channels?.verification) {
-    welcomeEmbed.addFields({
-      name: '🔐 Verification',
-      value: `Please verify yourself in <#${config.channels.verification}> to access all channels.`,
-      inline: false
-    });
+  if (generalChannel) {
+    usefulLinks += `💬 Chat: <#${generalChannel.id}>\n`;
   }
   
-  // Add footer and timestamp
-  welcomeEmbed
-    .setFooter({ 
-      text: config.footerText || 'JMF Hosting | Game Server Solutions',
-      iconURL: guild.iconURL({ dynamic: true })
-    })
-    .setTimestamp();
+  if (verificationChannel && config.verification?.enabled) {
+    usefulLinks += `🔐 Verification: <#${verificationChannel.id}>\n`;
+  }
+  
+  if (usefulLinks) {
+    welcomeEmbed.addFields({ name: '🔗 Useful Channels', value: usefulLinks, inline: false });
+  }
+  
+  // Add footer
+  welcomeEmbed.setFooter({ 
+    text: config.footerText || 'JMF Hosting | Game Server Solutions',
+    iconURL: guild.iconURL({ dynamic: true })
+  });
+  
+  welcomeEmbed.setTimestamp();
   
   return welcomeEmbed;
 }

@@ -76,13 +76,32 @@ async function sendLeaveMessage(member) {
   try {
     // Check if leave system is enabled
     if (config.leaveSystem && config.leaveSystem.enabled) {
-      // Get leave channel
-      const leaveChannelName = config.leaveSystem.channelName || config.channels?.joinLeave || 'welcome';
-      const leaveChannel = guild.channels.cache.find(
-        channel => channel.name === leaveChannelName || 
-                  channel.id === leaveChannelName ||
-                  channel.id === config.leaveSystem.channelId
-      );
+      // Get leave channel - prioritize channel ID over channel name
+      let leaveChannel;
+      
+      // First try to get the channel by ID from leaveSystem.channelId
+      if (config.leaveSystem.channelId) {
+        leaveChannel = guild.channels.cache.get(config.leaveSystem.channelId);
+      }
+      
+      // If not found, try the channels.leave ID
+      if (!leaveChannel && config.channels?.leave) {
+        leaveChannel = guild.channels.cache.get(config.channels.leave);
+      }
+      
+      // If not found, try the channels.joinLeave ID
+      if (!leaveChannel && config.channels?.joinLeave) {
+        leaveChannel = guild.channels.cache.get(config.channels.joinLeave);
+      }
+      
+      // If still not found, try by name
+      if (!leaveChannel) {
+        const leaveChannelName = config.leaveSystem.channelName || 'join-leave';
+        leaveChannel = guild.channels.cache.find(
+          channel => channel.name === leaveChannelName || 
+                    channel.name.includes(leaveChannelName)
+        );
+      }
       
       if (leaveChannel) {
         // Create leave embed

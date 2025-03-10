@@ -12,68 +12,84 @@ const { EmbedBuilder } = require('discord.js');
 const config = require('../../config.json');
 
 /**
- * Creates a leave embed for when a user leaves the server
+ * Create a leave embed for a member who left
  * @param {GuildMember} member - The member who left
  * @returns {EmbedBuilder} The leave embed
  */
 function createLeaveMemberEmbed(member) {
-  const { user, guild } = member;
+  const { guild, user } = member;
   
-  // Get leave message from config or use default
-  const leaveMessage = config.leaveSystem?.message || 
-    `**${user.tag}** has left the server.`;
+  // Get configuration
+  const leaveConfig = config.leaveSystem || {};
+  const embedColor = leaveConfig.embedColor || config.embedColor || '#FF0000';
+  
+  // Create leave message
+  let leaveMessage = leaveConfig.message || 
+    `**{user}** has left the server. We hope to see them again soon!`;
+  
+  // Replace placeholders
+  leaveMessage = leaveMessage
+    .replace('{user}', user.tag)
+    .replace('{server}', guild.name)
+    .replace('{memberCount}', guild.memberCount);
   
   // Create the embed
   const leaveEmbed = new EmbedBuilder()
     .setTitle('👋 Member Left')
-    .setDescription(leaveMessage.replace('{user}', user.tag)
-      .replace('{server}', guild.name)
-      .replace('{memberCount}', guild.memberCount.toString()))
-    .setColor(config.leaveSystem?.embedColor || '#FF0000')
+    .setDescription(leaveMessage)
+    .setColor(embedColor)
     .setThumbnail(user.displayAvatarURL({ dynamic: true, size: 256 }))
     .addFields(
       { 
-        name: '📊 Member Count', 
-        value: `We now have ${guild.memberCount} members`, 
+        name: '👤 User', 
+        value: `${user.tag} (${user.id})`, 
+        inline: true 
+      },
+      { 
+        name: '👥 Member Count', 
+        value: `${guild.memberCount}`, 
         inline: true 
       }
     );
   
   // Add join date if available
-  if (member.joinedAt) {
-    const joinDuration = Math.floor((Date.now() - member.joinedAt) / (1000 * 60 * 60 * 24));
+  if (member.joinedTimestamp) {
+    const joinDuration = Date.now() - member.joinedTimestamp;
+    const days = Math.floor(joinDuration / (1000 * 60 * 60 * 24));
+    const hours = Math.floor((joinDuration % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    const minutes = Math.floor((joinDuration % (1000 * 60 * 60)) / (1000 * 60));
+    
     leaveEmbed.addFields({ 
       name: '📅 Member Since', 
-      value: `<t:${Math.floor(member.joinedAt.getTime() / 1000)}:D> (${joinDuration} days)`,
-      inline: true 
+      value: `<t:${Math.floor(member.joinedTimestamp / 1000)}:R> (${days}d ${hours}h ${minutes}m)`, 
+      inline: false 
     });
   }
   
-  // Add roles if available and configured
-  if (config.leaveSystem?.showRoles && member.roles.cache.size > 1) {
+  // Add roles if configured
+  if (leaveConfig.showRoles && member.roles.cache.size > 1) {
     const roles = member.roles.cache
       .filter(role => role.id !== guild.id) // Filter out @everyone role
       .sort((a, b) => b.position - a.position) // Sort by position (highest first)
-      .map(role => role.toString())
-      .slice(0, 10) // Limit to 10 roles
+      .map(role => `<@&${role.id}>`)
       .join(', ');
     
     if (roles) {
       leaveEmbed.addFields({ 
         name: '🏷️ Roles', 
-        value: roles.length > 1024 ? roles.substring(0, 1021) + '...' : roles,
+        value: roles, 
         inline: false 
       });
     }
   }
   
-  // Add footer and timestamp
-  leaveEmbed
-    .setFooter({ 
-      text: config.footerText || 'JMF Hosting | Game Server Solutions',
-      iconURL: guild.iconURL({ dynamic: true })
-    })
-    .setTimestamp();
+  // Add footer
+  leaveEmbed.setFooter({ 
+    text: config.footerText || 'JMF Hosting | Game Server Solutions',
+    iconURL: guild.iconURL({ dynamic: true })
+  });
+  
+  leaveEmbed.setTimestamp();
   
   return leaveEmbed;
 }

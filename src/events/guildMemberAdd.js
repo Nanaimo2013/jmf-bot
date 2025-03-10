@@ -191,20 +191,38 @@ async function sendWelcomeMessage(member) {
   try {
     // Check if welcome system is enabled
     if (config.welcomeSystem?.enabled) {
-      // Get welcome channel
-      const welcomeChannelName = config.welcomeSystem.channelName || config.channels?.welcome || 'welcome';
-      const welcomeChannel = guild.channels.cache.find(
-        channel => channel.name === welcomeChannelName || 
-                  channel.id === welcomeChannelName ||
-                  channel.id === config.welcomeSystem.channelId
-      );
+      // Get welcome channel - prioritize channel ID over channel name
+      let welcomeChannel;
+      
+      // First try to get the channel by ID from welcomeSystem.channelId
+      if (config.welcomeSystem.channelId) {
+        welcomeChannel = guild.channels.cache.get(config.welcomeSystem.channelId);
+      }
+      
+      // If not found, try the channels.welcome ID
+      if (!welcomeChannel && config.channels?.welcome) {
+        welcomeChannel = guild.channels.cache.get(config.channels.welcome);
+      }
+      
+      // If still not found, try by name
+      if (!welcomeChannel) {
+        const welcomeChannelName = config.welcomeSystem.channelName || 'welcome';
+        welcomeChannel = guild.channels.cache.find(
+          channel => channel.name === welcomeChannelName || 
+                    channel.name.includes(welcomeChannelName)
+        );
+      }
       
       if (welcomeChannel) {
         // Create welcome embed
         const welcomeEmbed = createWelcomeMemberEmbed(member);
         
         // Send welcome message
-        await welcomeChannel.send({ embeds: [welcomeEmbed] });
+        await welcomeChannel.send({ 
+          content: config.welcomeSystem.mentionUser ? `<@${member.id}>` : null,
+          embeds: [welcomeEmbed] 
+        });
+        
         logger.info(`Sent welcome message for ${member.user.tag} in ${guild.name}`);
       } else {
         logger.warn(`Welcome channel not found in guild: ${guild.name}`);
