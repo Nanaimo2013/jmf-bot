@@ -164,7 +164,41 @@ update_from_github() {
   # Check if .git directory exists
   if [ ! -d "$install_dir/.git" ]; then
     print_error "Not a git repository: $install_dir"
-    return 1
+    print_status "Attempting to clone the repository instead"
+    
+    # Backup the current directory
+    local backup_dir="${install_dir}_backup_$(date +%Y%m%d%H%M%S)"
+    print_status "Creating backup of current installation to $backup_dir"
+    mv "$install_dir" "$backup_dir"
+    mkdir -p "$install_dir"
+    
+    # Clone the repository
+    print_status "Cloning the JMF Hosting Discord Bot repository"
+    git clone https://github.com/Nanaimo2013/Jmf-Bot.git "$install_dir" >> "$LOG_FILE" 2>&1
+    
+    if [ $? -ne 0 ]; then
+      print_error "Failed to clone repository"
+      print_info "Restoring from backup"
+      rm -rf "$install_dir"
+      mv "$backup_dir" "$install_dir"
+      return 1
+    fi
+    
+    print_success "Repository cloned successfully"
+    
+    # Copy .env file from backup if it exists
+    if [ -f "$backup_dir/.env" ]; then
+      print_status "Restoring .env file from backup"
+      cp "$backup_dir/.env" "$install_dir/.env"
+    fi
+    
+    # Copy data directory from backup if it exists
+    if [ -d "$backup_dir/data" ]; then
+      print_status "Restoring data directory from backup"
+      cp -r "$backup_dir/data" "$install_dir/"
+    fi
+    
+    return 0
   fi
   
   # Fetch latest changes
@@ -259,7 +293,7 @@ update_database_schema() {
   if [ ! -f "$install_dir/schema.sql" ]; then
     print_error "schema.sql not found"
     return 1
-  }
+  fi
   
   # Check if .env file exists and contains database configuration
   if [ ! -f "$install_dir/.env" ]; then
@@ -271,8 +305,20 @@ update_database_schema() {
   DB_TYPE=$(grep "DB_TYPE=" "$install_dir/.env" | cut -d= -f2)
   
   if [ -z "$DB_TYPE" ]; then
-    print_warning "DB_TYPE not found in .env file, assuming sqlite"
-    DB_TYPE="sqlite"
+    print_warning "DB_TYPE not found in .env file, checking for other database indicators"
+    
+    # Check if DB_PATH exists (indicates SQLite)
+    if grep -q "DB_PATH=" "$install_dir/.env"; then
+      print_info "Found DB_PATH in .env, assuming SQLite database"
+      DB_TYPE="sqlite"
+    # Check if DB_HOST exists (indicates MySQL)
+    elif grep -q "DB_HOST=" "$install_dir/.env"; then
+      print_info "Found DB_HOST in .env, assuming MySQL database"
+      DB_TYPE="mysql"
+    else
+      print_warning "No database indicators found, defaulting to SQLite"
+      DB_TYPE="sqlite"
+    fi
   fi
   
   # Update schema based on database type
@@ -352,6 +398,7 @@ update_database_schema() {
     fi
   else
     print_error "Unsupported database type: $DB_TYPE"
+    print_warning "Supported types are 'sqlite' and 'mysql'"
     return 1
   fi
 }
@@ -378,14 +425,14 @@ deploy_commands() {
   if [ ! -f "$install_dir/.env" ]; then
     print_error ".env file not found"
     return 1
-  }
+  fi
   
   # Check for DISCORD_TOKEN and CLIENT_ID in .env
   if ! grep -q "DISCORD_TOKEN=" "$install_dir/.env" || ! grep -q "CLIENT_ID=" "$install_dir/.env"; then
     print_error "DISCORD_TOKEN or CLIENT_ID not found in .env file"
     print_info "Please make sure your .env file contains both DISCORD_TOKEN and CLIENT_ID"
     return 1
-  }
+  fi
   
   # Deploy commands
   node src/deploy-commands.js --guild >> "$LOG_FILE" 2>&1
