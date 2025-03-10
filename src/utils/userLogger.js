@@ -146,11 +146,13 @@ class UserLogger {
   }
 
   /**
-   * Log a user leave event
-   * @param {Object} member - The GuildMember object
-   * @returns {Promise<void>}
+   * Log a user leaving the server
+   * @param {GuildMember} member - The member who left
+   * @param {Client} client - The Discord client
+   * @param {Object} options - Options for logging
+   * @param {boolean} options.skipMessage - Whether to skip sending a message
    */
-  async logLeave(member, client) {
+  async logLeave(member, client, options = {}) {
     try {
       // Update user data
       const userData = await this.getUserData(member.id);
@@ -170,8 +172,8 @@ class UserLogger {
       
       await this.saveUserData(member.id, userData);
       
-      // Send log to join/leave channel
-      if (this.joinLeaveChannelId && client) {
+      // Send log to join/leave channel if not skipped
+      if (!options.skipMessage && this.joinLeaveChannelId && client) {
         const channel = await client.channels.fetch(this.joinLeaveChannelId).catch(() => null);
         if (channel) {
           const leaveEmbed = new EmbedBuilder()

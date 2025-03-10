@@ -25,6 +25,11 @@ module.exports = {
   init(client) {
     logger.info('Welcome module initialized');
     
+    // NOTE: This module is currently disabled to prevent duplicate welcome/leave messages.
+    // The welcome and leave messages are now handled by the guildMemberAdd and guildMemberRemove events.
+    
+    // Uncomment the code below to re-enable this module if needed
+    /*
     // Handle new member joins
     client.on('guildMemberAdd', async (member) => {
       try {
@@ -42,8 +47,9 @@ module.exports = {
         logger.error(`Error handling member leave: ${error.message}`);
       }
     });
+    */
 
-    // Handle member bans
+    // Keep ban handling active as it's not duplicated elsewhere
     client.on('guildBanAdd', async (ban) => {
       try {
         await this.handleMemberBan(ban);

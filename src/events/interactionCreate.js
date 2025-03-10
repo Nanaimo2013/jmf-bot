@@ -345,6 +345,24 @@ module.exports = {
           await handleTestEmbedButton(interaction);
           return;
         }
+        
+        // Leaderboard pagination buttons
+        if (customId.startsWith('leaderboard_') && customId.includes('_')) {
+          // Extract user ID from the custom ID
+          const userId = customId.split('_').pop();
+          
+          // Only allow the user who ran the command to use the buttons
+          if (interaction.user.id === userId) {
+            // The actual handling is done in the collector in the leaderboard command
+            return;
+          } else {
+            await interaction.reply({ 
+              content: 'These buttons are not for you. Please run the `/leaderboard` command to see your own leaderboard.',
+              ephemeral: true 
+            });
+            return;
+          }
+        }
       }
     } catch (error) {
       logger.error(`Error handling interaction: ${error.message}`);

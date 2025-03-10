@@ -113,6 +113,9 @@ class VerificationSystem {
         );
 
         if (welcomeChannel) {
+          // Disable the welcome message to prevent duplicates
+          // The welcome message is already sent by the guildMemberAdd event
+          /*
           const welcomeEmbed = new EmbedBuilder()
             .setTitle('New Member')
             .setDescription(`Welcome to the server, ${member}! Thanks for verifying.`)
@@ -121,6 +124,7 @@ class VerificationSystem {
             .setTimestamp();
 
           await welcomeChannel.send({ embeds: [welcomeEmbed] });
+          */
         }
       }
 

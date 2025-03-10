@@ -1,197 +1,301 @@
 /**
- * Fix SQLite Database Schema Issues
+ * JMF Hosting Discord Bot
  * 
- * This script fixes the database schema issues by:
- * 1. Dropping problematic tables if they exist
- * 2. Creating them with SQLite-compatible syntax
+ * © 2025 JMFHosting. All Rights Reserved.
+ * Developed by Nanaimo2013 (https://github.com/Nanaimo2013)
+ * 
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
  */
 
-const sqlite3 = require('sqlite3').verbose();
-const path = require('path');
+require('dotenv').config();
 const fs = require('fs');
+const path = require('path');
+const sqlite3 = require('sqlite3').verbose();
+const logger = require('./src/utils/logger');
 
-// Path to the SQLite database
-const dbPath = path.join(__dirname, 'data', 'database.sqlite');
+// Get database path from environment variables or use default
+const dbPath = process.env.DATABASE_PATH || './data/database.sqlite';
 
-console.log(`Attempting to fix database at: ${dbPath}`);
-
-// Check if the database exists
-if (!fs.existsSync(dbPath)) {
-  console.error(`Database file not found at: ${dbPath}`);
-  process.exit(1);
+// Ensure the directory exists
+const dbDir = path.dirname(dbPath);
+if (!fs.existsSync(dbDir)) {
+  fs.mkdirSync(dbDir, { recursive: true });
+  logger.info(`Created database directory: ${dbDir}`);
 }
 
-// Create a backup of the database
-const backupPath = `${dbPath}.backup.${new Date().toISOString().replace(/[:.]/g, '')}`; 
-fs.copyFileSync(dbPath, backupPath);
-console.log(`Created backup at: ${backupPath}`);
-
 // Connect to the database
-const db = new sqlite3.Database(dbPath, sqlite3.OPEN_READWRITE, (err) => {
+const db = new sqlite3.Database(dbPath, (err) => {
   if (err) {
-    console.error('Error connecting to database:', err.message);
+    logger.error(`Error connecting to database: ${err.message}`);
     process.exit(1);
   }
-  console.log(`Successfully connected to the database`);
-  
-  // Begin a transaction
-  db.serialize(() => {
-    db.run('BEGIN TRANSACTION;');
-    
-    // Fix member_events table
-    console.log('Fixing member_events table...');
-    db.run('DROP TABLE IF EXISTS member_events;', (err) => {
+  logger.info(`Connected to SQLite database at ${dbPath}`);
+});
+
+// Enable foreign keys
+db.run('PRAGMA foreign_keys = ON');
+
+// Function to run a query and log the result
+function runQuery(query, params = []) {
+  return new Promise((resolve, reject) => {
+    db.run(query, params, function(err) {
       if (err) {
-        console.error('Error dropping member_events table:', err.message);
-        db.run('ROLLBACK;');
-        return;
+        logger.error(`Error executing query: ${query}`);
+        logger.error(`Error message: ${err.message}`);
+        reject(err);
+      } else {
+        logger.info(`Query executed successfully: ${query.split('\n')[0]}...`);
+        resolve({ changes: this.changes, lastID: this.lastID });
       }
-      
-      const createMemberEventsTable = `
-      CREATE TABLE IF NOT EXISTS member_events (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id TEXT NOT NULL,
-        guild_id TEXT NOT NULL,
-        event_type TEXT NOT NULL CHECK(event_type IN ('join', 'leave')),
-        timestamp TIMESTAMP NOT NULL
-      );
-      
-      CREATE INDEX IF NOT EXISTS idx_member_events_user_id ON member_events(user_id);
-      CREATE INDEX IF NOT EXISTS idx_member_events_guild_id ON member_events(guild_id);
-      `;
-      
-      db.exec(createMemberEventsTable, (err) => {
-        if (err) {
-          console.error('Error creating member_events table:', err.message);
-          db.run('ROLLBACK;');
-          return;
-        }
-        
-        console.log('Successfully fixed member_events table');
-        
-        // Fix select_menu_interactions table
-        console.log('Fixing select_menu_interactions table...');
-        db.run('DROP TABLE IF EXISTS select_menu_interactions;', (err) => {
-          if (err) {
-            console.error('Error dropping select_menu_interactions table:', err.message);
-            db.run('ROLLBACK;');
-            return;
-          }
-          
-          const createSelectMenuTable = `
-          CREATE TABLE IF NOT EXISTS select_menu_interactions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            custom_id TEXT,
-            user_id TEXT,
-            guild_id TEXT,
-            channel_id TEXT,
-            message_id TEXT,
-            selected_values TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
-            FOREIGN KEY (guild_id) REFERENCES guilds(guild_id) ON DELETE CASCADE,
-            FOREIGN KEY (channel_id) REFERENCES channels(channel_id) ON DELETE CASCADE
-          );
-          `;
-          
-          db.exec(createSelectMenuTable, (err) => {
-            if (err) {
-              console.error('Error creating select_menu_interactions table:', err.message);
-              db.run('ROLLBACK;');
-              return;
-            }
-            
-            console.log('Successfully fixed select_menu_interactions table');
-            
-            // Fix modal_submissions table
-            console.log('Fixing modal_submissions table...');
-            db.run('DROP TABLE IF EXISTS modal_submissions;', (err) => {
-              if (err) {
-                console.error('Error dropping modal_submissions table:', err.message);
-                db.run('ROLLBACK;');
-                return;
-              }
-              
-              const createModalSubmissionsTable = `
-              CREATE TABLE IF NOT EXISTS modal_submissions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                custom_id TEXT,
-                user_id TEXT,
-                guild_id TEXT,
-                submitted_values TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
-                FOREIGN KEY (guild_id) REFERENCES guilds(guild_id) ON DELETE CASCADE
-              );
-              `;
-              
-              db.exec(createModalSubmissionsTable, (err) => {
-                if (err) {
-                  console.error('Error creating modal_submissions table:', err.message);
-                  db.run('ROLLBACK;');
-                  return;
-                }
-                
-                console.log('Successfully fixed modal_submissions table');
-                
-                // Fix account_links table
-                console.log('Fixing account_links table...');
-                db.run('DROP TABLE IF EXISTS account_links;', (err) => {
-                  if (err) {
-                    console.error('Error dropping account_links table:', err.message);
-                    db.run('ROLLBACK;');
-                    return;
-                  }
-                  
-                  const createAccountLinksTable = `
-                  CREATE TABLE IF NOT EXISTS account_links (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id TEXT UNIQUE,
-                    pterodactyl_id INTEGER,
-                    pterodactyl_username TEXT,
-                    linked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
-                  );
-                  
-                  CREATE INDEX IF NOT EXISTS idx_account_links_user_id ON account_links(user_id);
-                  CREATE INDEX IF NOT EXISTS idx_account_links_pterodactyl_id ON account_links(pterodactyl_id);
-                  `;
-                  
-                  db.exec(createAccountLinksTable, (err) => {
-                    if (err) {
-                      console.error('Error creating account_links table:', err.message);
-                      db.run('ROLLBACK;');
-                      return;
-                    }
-                    
-                    console.log('Successfully fixed account_links table');
-                    
-                    // Commit the transaction
-                    db.run('COMMIT;', (err) => {
-                      if (err) {
-                        console.error('Error committing transaction:', err.message);
-                        db.run('ROLLBACK;');
-                      } else {
-                        console.log('All fixes applied successfully');
-                      }
-                      
-                      // Close the database connection
-                      db.close((err) => {
-                        if (err) {
-                          console.error('Error closing database:', err.message);
-                        } else {
-                          console.log('Database connection closed successfully');
-                          console.log('Please restart the bot to apply the changes');
-                        }
-                      });
-                    });
-                  });
-                });
-              });
-            });
-          });
-        });
-      });
     });
   });
-}); 
+}
+
+// Function to check if a table exists
+function tableExists(tableName) {
+  return new Promise((resolve, reject) => {
+    db.get(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`, [tableName], (err, row) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(!!row);
+      }
+    });
+  });
+}
+
+// Function to check if a column exists in a table
+function columnExists(tableName, columnName) {
+  return new Promise((resolve, reject) => {
+    db.get(`PRAGMA table_info(${tableName})`, (err, rows) => {
+      if (err) {
+        reject(err);
+      } else {
+        const columns = Array.isArray(rows) ? rows : [rows];
+        const column = columns.find(col => col && col.name === columnName);
+        resolve(!!column);
+      }
+    });
+  });
+}
+
+// Fix database schema
+async function fixDatabaseSchema() {
+  try {
+    logger.info('Starting database schema fix...');
+
+    // Create command_usage table if it doesn't exist
+    const commandUsageExists = await tableExists('command_usage');
+    if (!commandUsageExists) {
+      await runQuery(`
+        CREATE TABLE IF NOT EXISTS command_usage (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id VARCHAR(20),
+          guild_id VARCHAR(20),
+          command VARCHAR(50),
+          channel_id VARCHAR(20),
+          timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await runQuery(`CREATE INDEX IF NOT EXISTS idx_command_usage_user ON command_usage(user_id)`);
+      await runQuery(`CREATE INDEX IF NOT EXISTS idx_command_usage_guild ON command_usage(guild_id)`);
+      await runQuery(`CREATE INDEX IF NOT EXISTS idx_command_usage_command ON command_usage(command)`);
+      logger.info('Created command_usage table');
+    } else {
+      // Check if command column exists
+      const commandColumnExists = await columnExists('command_usage', 'command');
+      if (!commandColumnExists) {
+        // SQLite doesn't support dropping columns, so we need to recreate the table
+        logger.info('command_usage table exists but missing command column, recreating...');
+        
+        // Begin transaction
+        await runQuery('BEGIN TRANSACTION');
+        
+        // Rename the old table
+        await runQuery('ALTER TABLE command_usage RENAME TO command_usage_old');
+        
+        // Create the new table with the correct schema
+        await runQuery(`
+          CREATE TABLE command_usage (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id VARCHAR(20),
+            guild_id VARCHAR(20),
+            command VARCHAR(50),
+            channel_id VARCHAR(20),
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          )
+        `);
+        
+        // Copy data from old table to new table
+        await runQuery(`
+          INSERT INTO command_usage (id, user_id, guild_id, command, channel_id, timestamp)
+          SELECT id, user_id, guild_id, NULL as command, channel_id, timestamp FROM command_usage_old
+        `);
+        
+        // Create indexes
+        await runQuery(`CREATE INDEX IF NOT EXISTS idx_command_usage_user ON command_usage(user_id)`);
+        await runQuery(`CREATE INDEX IF NOT EXISTS idx_command_usage_guild ON command_usage(guild_id)`);
+        await runQuery(`CREATE INDEX IF NOT EXISTS idx_command_usage_command ON command_usage(command)`);
+        
+        // Drop the old table
+        await runQuery('DROP TABLE command_usage_old');
+        
+        // Commit transaction
+        await runQuery('COMMIT');
+        
+        logger.info('Recreated command_usage table with command column');
+      }
+    }
+
+    // Create button_usage table if it doesn't exist
+    const buttonUsageExists = await tableExists('button_usage');
+    if (!buttonUsageExists) {
+      await runQuery(`
+        CREATE TABLE IF NOT EXISTS button_usage (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id VARCHAR(20),
+          guild_id VARCHAR(20),
+          button_id VARCHAR(100),
+          channel_id VARCHAR(20),
+          timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await runQuery(`CREATE INDEX IF NOT EXISTS idx_button_usage_user ON button_usage(user_id)`);
+      await runQuery(`CREATE INDEX IF NOT EXISTS idx_button_usage_guild ON button_usage(guild_id)`);
+      await runQuery(`CREATE INDEX IF NOT EXISTS idx_button_usage_button ON button_usage(button_id)`);
+      logger.info('Created button_usage table');
+    } else {
+      // Check if button_id column exists
+      const buttonIdColumnExists = await columnExists('button_usage', 'button_id');
+      if (!buttonIdColumnExists) {
+        // SQLite doesn't support dropping columns, so we need to recreate the table
+        logger.info('button_usage table exists but missing button_id column, recreating...');
+        
+        // Begin transaction
+        await runQuery('BEGIN TRANSACTION');
+        
+        // Rename the old table
+        await runQuery('ALTER TABLE button_usage RENAME TO button_usage_old');
+        
+        // Create the new table with the correct schema
+        await runQuery(`
+          CREATE TABLE button_usage (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id VARCHAR(20),
+            guild_id VARCHAR(20),
+            button_id VARCHAR(100),
+            channel_id VARCHAR(20),
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          )
+        `);
+        
+        // Copy data from old table to new table
+        await runQuery(`
+          INSERT INTO button_usage (id, user_id, guild_id, button_id, channel_id, timestamp)
+          SELECT id, user_id, guild_id, NULL as button_id, channel_id, timestamp FROM button_usage_old
+        `);
+        
+        // Create indexes
+        await runQuery(`CREATE INDEX IF NOT EXISTS idx_button_usage_user ON button_usage(user_id)`);
+        await runQuery(`CREATE INDEX IF NOT EXISTS idx_button_usage_guild ON button_usage(guild_id)`);
+        await runQuery(`CREATE INDEX IF NOT EXISTS idx_button_usage_button ON button_usage(button_id)`);
+        
+        // Drop the old table
+        await runQuery('DROP TABLE button_usage_old');
+        
+        // Commit transaction
+        await runQuery('COMMIT');
+        
+        logger.info('Recreated button_usage table with button_id column');
+      }
+    }
+
+    // Create command_errors table if it doesn't exist
+    const commandErrorsExists = await tableExists('command_errors');
+    if (!commandErrorsExists) {
+      await runQuery(`
+        CREATE TABLE IF NOT EXISTS command_errors (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id VARCHAR(20),
+          guild_id VARCHAR(20),
+          command VARCHAR(50),
+          error_message TEXT,
+          stack_trace TEXT,
+          timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await runQuery(`CREATE INDEX IF NOT EXISTS idx_command_errors_user ON command_errors(user_id)`);
+      await runQuery(`CREATE INDEX IF NOT EXISTS idx_command_errors_guild ON command_errors(guild_id)`);
+      await runQuery(`CREATE INDEX IF NOT EXISTS idx_command_errors_command ON command_errors(command)`);
+      logger.info('Created command_errors table');
+    } else {
+      // Check if command column exists
+      const commandColumnExists = await columnExists('command_errors', 'command');
+      if (!commandColumnExists) {
+        // SQLite doesn't support dropping columns, so we need to recreate the table
+        logger.info('command_errors table exists but missing command column, recreating...');
+        
+        // Begin transaction
+        await runQuery('BEGIN TRANSACTION');
+        
+        // Rename the old table
+        await runQuery('ALTER TABLE command_errors RENAME TO command_errors_old');
+        
+        // Create the new table with the correct schema
+        await runQuery(`
+          CREATE TABLE command_errors (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id VARCHAR(20),
+            guild_id VARCHAR(20),
+            command VARCHAR(50),
+            error_message TEXT,
+            stack_trace TEXT,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          )
+        `);
+        
+        // Copy data from old table to new table
+        await runQuery(`
+          INSERT INTO command_errors (id, user_id, guild_id, command, error_message, stack_trace, timestamp)
+          SELECT id, user_id, guild_id, NULL as command, error_message, stack_trace, timestamp FROM command_errors_old
+        `);
+        
+        // Create indexes
+        await runQuery(`CREATE INDEX IF NOT EXISTS idx_command_errors_user ON command_errors(user_id)`);
+        await runQuery(`CREATE INDEX IF NOT EXISTS idx_command_errors_guild ON command_errors(guild_id)`);
+        await runQuery(`CREATE INDEX IF NOT EXISTS idx_command_errors_command ON command_errors(command)`);
+        
+        // Drop the old table
+        await runQuery('DROP TABLE command_errors_old');
+        
+        // Commit transaction
+        await runQuery('COMMIT');
+        
+        logger.info('Recreated command_errors table with command column');
+      }
+    }
+
+    logger.info('Database schema fix completed successfully');
+  } catch (error) {
+    logger.error(`Error fixing database schema: ${error.message}`);
+    // If we're in a transaction, roll it back
+    try {
+      await runQuery('ROLLBACK');
+    } catch (rollbackError) {
+      logger.error(`Error rolling back transaction: ${rollbackError.message}`);
+    }
+  } finally {
+    // Close the database connection
+    db.close((err) => {
+      if (err) {
+        logger.error(`Error closing database connection: ${err.message}`);
+      } else {
+        logger.info('Database connection closed');
+      }
+    });
+  }
+}
+
+// Run the fix
+fixDatabaseSchema(); 

@@ -23,7 +23,9 @@ module.exports = {
       
       // Log the leave event
       logger.info(`User ${user.tag} left guild: ${guild.name}`);
-      await userLogger.logLeave(member, client);
+      
+      // Log to database but don't send a message from userLogger
+      await userLogger.logLeave(member, client, { skipMessage: true });
       
       // Send leave message if enabled
       await sendLeaveMessage(member);

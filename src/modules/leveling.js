@@ -822,6 +822,46 @@ class LevelingSystem {
   async processMessage(message) {
     await this.handleMessage(message);
   }
+
+  /**
+   * Get the total number of ranked users in a guild
+   * @param {string} guildId - The guild ID
+   * @returns {Promise<number>} - The total number of ranked users
+   */
+  async getTotalRankedUsers(guildId) {
+    try {
+      if (this.db && this.db.isConnected) {
+        // Use database
+        const result = await this.db.query(
+          'SELECT COUNT(*) as count FROM user_levels WHERE guild_id = ? AND level > 0',
+          [guildId]
+        );
+        
+        return result[0]?.count || 0;
+      } else {
+        // Use file system
+        const userFiles = await fs.readdir(this.userDataPath).catch(() => []);
+        
+        // Filter files for this guild and count them
+        let count = 0;
+        for (const file of userFiles) {
+          if (!file.endsWith('.json')) continue;
+          
+          const userId = file.replace('.json', '');
+          const userData = await this.getUserData(userId, guildId);
+          
+          if (userData && userData.level > 0) {
+            count++;
+          }
+        }
+        
+        return count;
+      }
+    } catch (error) {
+      logger.error(`Error getting total ranked users: ${error.message}`);
+      return 0;
+    }
+  }
 }
 
 module.exports = new LevelingSystem(); 
