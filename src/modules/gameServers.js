@@ -164,7 +164,7 @@ module.exports = {
       }
       
       // Send start signal to Pterodactyl
-      const response = await fetch(`${process.env.PTERODACTYL_API_URL}/application/servers/${serverId}/power`, {
+      const response = await fetch(`${process.env.PTERODACTYL_API_URL}/servers/${serverId}/power`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${process.env.PTERODACTYL_API_KEY}`,
@@ -212,7 +212,7 @@ module.exports = {
       }
       
       // Send stop signal to Pterodactyl
-      const response = await fetch(`${process.env.PTERODACTYL_API_URL}/application/servers/${serverId}/power`, {
+      const response = await fetch(`${process.env.PTERODACTYL_API_URL}/servers/${serverId}/power`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${process.env.PTERODACTYL_API_KEY}`,
@@ -260,7 +260,7 @@ module.exports = {
       }
       
       // Send restart signal to Pterodactyl
-      const response = await fetch(`${process.env.PTERODACTYL_API_URL}/application/servers/${serverId}/power`, {
+      const response = await fetch(`${process.env.PTERODACTYL_API_URL}/servers/${serverId}/power`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${process.env.PTERODACTYL_API_KEY}`,
@@ -362,7 +362,7 @@ module.exports = {
    */
   async fetchAllServers() {
     try {
-      const response = await fetch(`${process.env.PTERODACTYL_API_URL}/application/servers`, {
+      const response = await fetch(`${process.env.PTERODACTYL_API_URL}/servers`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${process.env.PTERODACTYL_API_KEY}`,
@@ -389,7 +389,7 @@ module.exports = {
    */
   async fetchServer(serverId) {
     try {
-      const response = await fetch(`${process.env.PTERODACTYL_API_URL}/application/servers/${serverId}`, {
+      const response = await fetch(`${process.env.PTERODACTYL_API_URL}/servers/${serverId}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${process.env.PTERODACTYL_API_KEY}`,
@@ -417,7 +417,7 @@ module.exports = {
    */
   async fetchServerUtilization(serverId) {
     try {
-      const response = await fetch(`${process.env.PTERODACTYL_API_URL}/application/servers/${serverId}/resources`, {
+      const response = await fetch(`${process.env.PTERODACTYL_API_URL}/servers/${serverId}/resources`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${process.env.PTERODACTYL_API_KEY}`,

@@ -8,8 +8,8 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-// Using node-fetch v2 which is compatible with CommonJS
-const fetch = require('node-fetch');
+// Using dynamic import for node-fetch v3 (ESM module)
+const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
 const logger = require('./logger');
 
 /**
