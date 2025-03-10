@@ -44,22 +44,37 @@ client.cooldowns = new Collection();
 
 // Load commands
 const foldersPath = path.join(__dirname, 'commands');
-const commandFolders = fs.readdirSync(foldersPath);
+const commandItems = fs.readdirSync(foldersPath);
 
-for (const folder of commandFolders) {
-  const commandsPath = path.join(foldersPath, folder);
-  const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
+for (const item of commandItems) {
+  const itemPath = path.join(foldersPath, item);
+  const itemStat = fs.statSync(itemPath);
   
-  for (const file of commandFiles) {
-    const filePath = path.join(commandsPath, file);
-    const command = require(filePath);
+  if (itemStat.isDirectory()) {
+    // Handle folders
+    const commandFiles = fs.readdirSync(itemPath).filter(file => file.endsWith('.js'));
     
-    // Set a new item in the Collection with the key as the command name and the value as the exported module
+    for (const file of commandFiles) {
+      const filePath = path.join(itemPath, file);
+      const command = require(filePath);
+      
+      // Set a new item in the Collection with the key as the command name and the value as the exported module
+      if ('data' in command && 'execute' in command) {
+        client.commands.set(command.data.name, command);
+        logger.debug(`Loaded command from folder: ${command.data.name}`);
+      } else {
+        logger.warn(`The command at ${filePath} is missing a required "data" or "execute" property.`);
+      }
+    }
+  } else if (item.endsWith('.js')) {
+    // Handle JS files directly in the commands folder
+    const command = require(itemPath);
+    
     if ('data' in command && 'execute' in command) {
       client.commands.set(command.data.name, command);
       logger.debug(`Loaded command: ${command.data.name}`);
     } else {
-      logger.warn(`The command at ${filePath} is missing a required "data" or "execute" property.`);
+      logger.warn(`The command at ${itemPath} is missing a required "data" or "execute" property.`);
     }
   }
 }
