@@ -14,7 +14,7 @@
 # This script updates the JMF Hosting Discord Bot from GitHub
 
 # Version
-VERSION="1.2.0"
+VERSION="1.2.1"
 
 # Text colors and formatting
 BOLD='\033[1m'
@@ -293,133 +293,84 @@ update_database_schema() {
     return 1
   }
   
-  # Check if unified schema file exists
-  if [ ! -f "$install_dir/src/database/schema/unified-schema.sql" ]; then
-    print_error "unified-schema.sql not found at $install_dir/src/database/schema/unified-schema.sql"
-    return 1
-  }
-  
-  # Check if .env file exists and contains database configuration
-  if [ ! -f "$install_dir/.env" ]; then
-    print_error ".env file not found"
-    return 1
-  }
-  
-  # Get database type from .env
-  DB_TYPE=$(grep "DB_TYPE=" "$install_dir/.env" | cut -d= -f2)
-  
-  if [ -z "$DB_TYPE" ]; then
-    print_warning "DB_TYPE not found in .env file, checking for other database indicators"
-    
-    # Check if DB_PATH exists (indicates SQLite)
-    if grep -q "DB_PATH=" "$install_dir/.env"; then
-      print_info "Found DB_PATH in .env, assuming SQLite database"
-      DB_TYPE="sqlite"
-    # Check if DB_HOST exists (indicates MySQL)
-    elif grep -q "DB_HOST=" "$install_dir/.env"; then
-      print_info "Found DB_HOST in .env, assuming MySQL database"
-      DB_TYPE="mysql"
-    else
-      print_warning "No database indicators found, defaulting to SQLite"
-      DB_TYPE="sqlite"
-    fi
-  else
-    # Clean up the DB_TYPE value to ensure it's just 'sqlite' or 'mysql'
-    if [[ "$DB_TYPE" == *"sqlite"* ]]; then
-      DB_TYPE="sqlite"
-      print_info "Database type set to: sqlite"
-    elif [[ "$DB_TYPE" == *"mysql"* ]]; then
-      DB_TYPE="mysql"
-      print_info "Database type set to: mysql"
-    else
-      print_warning "Unrecognized database type: $DB_TYPE, defaulting to SQLite"
-      DB_TYPE="sqlite"
+  # Determine database type from .env file
+  DB_TYPE="sqlite"
+  if [ -f "$install_dir/.env" ]; then
+    DB_TYPE_FROM_ENV=$(grep "DB_TYPE" "$install_dir/.env" | cut -d '=' -f2)
+    if [ ! -z "$DB_TYPE_FROM_ENV" ]; then
+      DB_TYPE=$(echo "$DB_TYPE_FROM_ENV" | tr -d '[:space:]')
     fi
   fi
   
-  # Set schema file path
-  SCHEMA_FILE="$install_dir/src/database/schema/unified-schema.sql"
-  print_info "Using unified schema file: $SCHEMA_FILE"
+  print_info "Database type set to: $DB_TYPE"
   
-  # Update schema based on database type
-  if [ "$DB_TYPE" = "sqlite" ]; then
-    # Get database path from .env
-    DB_PATH=$(grep "DB_PATH=" "$install_dir/.env" | cut -d= -f2)
-    
-    if [ -z "$DB_PATH" ]; then
-      print_warning "DB_PATH not found in .env file, using default path"
-      DB_PATH="./data/database.sqlite"
-    fi
-    
-    # Resolve relative path
-    if [[ "$DB_PATH" == ./* ]]; then
-      DB_PATH="$install_dir/${DB_PATH#./}"
-    fi
-    
-    # Create directory if it doesn't exist
-    mkdir -p "$(dirname "$DB_PATH")" >> "$LOG_FILE" 2>&1
-    
-    print_status "Updating SQLite database at $DB_PATH"
-    
-    # Check if sqlite3 is installed
-    if ! command -v sqlite3 &> /dev/null; then
-      print_error "sqlite3 command not found. Please install sqlite3."
-      return 1
-    fi
-    
-    # Apply schema
-    sqlite3 "$DB_PATH" < "$SCHEMA_FILE" >> "$LOG_FILE" 2>&1
-    
-    if [ $? -eq 0 ]; then
-      print_success "Database schema updated successfully"
-      return 0
+  # Ask which schema to use
+  echo "Available schema options:"
+  echo "1) Unified schema (MySQL compatible)"
+  echo "2) SQLite schema (SQLite optimized)"
+  read -p "? Choose schema [1-2] (Default: 2 for SQLite, 1 for MySQL): " SCHEMA_CHOICE
+  
+  # Set default based on DB_TYPE
+  if [ -z "$SCHEMA_CHOICE" ]; then
+    if [ "$DB_TYPE" == "mysql" ]; then
+      SCHEMA_CHOICE="1"
     else
-      print_error "Failed to update database schema"
-      print_info "Detailed error log: $LOG_FILE"
-      return 1
+      SCHEMA_CHOICE="2"
     fi
-  elif [ "$DB_TYPE" = "mysql" ]; then
-    # Get MySQL configuration from .env
-    DB_HOST=$(grep "DB_HOST=" "$install_dir/.env" | cut -d= -f2)
-    DB_PORT=$(grep "DB_PORT=" "$install_dir/.env" | cut -d= -f2)
-    DB_DATABASE=$(grep "DB_DATABASE=" "$install_dir/.env" | cut -d= -f2)
-    DB_USERNAME=$(grep "DB_USERNAME=" "$install_dir/.env" | cut -d= -f2)
-    DB_PASSWORD=$(grep "DB_PASSWORD=" "$install_dir/.env" | cut -d= -f2)
+  fi
+  
+  # Set schema file based on choice
+  if [ "$SCHEMA_CHOICE" == "1" ]; then
+    SCHEMA_FILE="$install_dir/src/database/schema/unified-schema.sql"
+    print_info "Using unified schema file: $SCHEMA_FILE"
+  else
+    SCHEMA_FILE="$install_dir/src/database/schema/sqlite-schema.sql"
+    print_info "Using SQLite schema file: $SCHEMA_FILE"
+  fi
+  
+  # Check if schema file exists
+  if [ ! -f "$SCHEMA_FILE" ]; then
+    print_error "Schema file not found: $SCHEMA_FILE"
+    return 1
+  fi
+  
+  # Update database based on type
+  if [ "$DB_TYPE" == "mysql" ]; then
+    # MySQL update logic
+    print_status "Updating MySQL database"
     
-    # Check if all required variables are set
-    if [ -z "$DB_HOST" ] || [ -z "$DB_DATABASE" ] || [ -z "$DB_USERNAME" ] || [ -z "$DB_PASSWORD" ]; then
-      print_error "MySQL configuration incomplete in .env file"
-      return 1
-    fi
-    
-    # Set default port if not specified
-    if [ -z "$DB_PORT" ]; then
-      DB_PORT="3306"
-    fi
-    
-    print_status "Updating MySQL database at $DB_HOST:$DB_PORT/$DB_DATABASE"
-    
-    # Check if mysql client is installed
-    if ! command -v mysql &> /dev/null; then
-      print_error "mysql command not found. Please install MySQL client."
-      return 1
-    fi
+    # Get MySQL credentials from .env
+    DB_HOST=$(grep "DB_HOST" "$install_dir/.env" | cut -d '=' -f2 | tr -d '[:space:]')
+    DB_PORT=$(grep "DB_PORT" "$install_dir/.env" | cut -d '=' -f2 | tr -d '[:space:]')
+    DB_DATABASE=$(grep "DB_DATABASE" "$install_dir/.env" | cut -d '=' -f2 | tr -d '[:space:]')
+    DB_USERNAME=$(grep "DB_USERNAME" "$install_dir/.env" | cut -d '=' -f2 | tr -d '[:space:]')
+    DB_PASSWORD=$(grep "DB_PASSWORD" "$install_dir/.env" | cut -d '=' -f2 | tr -d '[:space:]')
     
     # Apply schema
     mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USERNAME" -p"$DB_PASSWORD" "$DB_DATABASE" < "$SCHEMA_FILE" >> "$LOG_FILE" 2>&1
     
     if [ $? -eq 0 ]; then
       print_success "Database schema updated successfully"
-      return 0
     else
       print_error "Failed to update database schema"
       print_info "Detailed error log: $LOG_FILE"
-      return 1
     fi
   else
-    print_error "Unsupported database type: $DB_TYPE"
-    print_warning "Supported types are 'sqlite' and 'mysql'"
-    return 1
+    # SQLite update logic
+    print_status "Updating SQLite database at $install_dir/data/database.sqlite"
+    
+    # Create data directory if it doesn't exist
+    mkdir -p "$install_dir/data"
+    
+    # Apply schema
+    sqlite3 "$install_dir/data/database.sqlite" < "$SCHEMA_FILE" >> "$LOG_FILE" 2>&1
+    
+    if [ $? -eq 0 ]; then
+      print_success "Database schema updated successfully"
+    else
+      print_error "Failed to update database schema"
+      print_info "Detailed error log: $LOG_FILE"
+    fi
   fi
 }
 

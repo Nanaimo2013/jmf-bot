@@ -62,6 +62,19 @@ for (const item of commandItems) {
       for (const file of commandFiles) {
         const filePath = path.join(itemPath, file);
         try {
+          // Check for BOM and other invalid characters at the beginning of the file
+          let fileContent = fs.readFileSync(filePath, 'utf8');
+          if (fileContent.charCodeAt(0) === 0xFEFF || fileContent.charCodeAt(0) < 32) {
+            logger.warn(`Found invalid characters at the beginning of ${filePath}, attempting to fix...`);
+            // Remove BOM and any other control characters at the beginning
+            fileContent = fileContent.replace(/^\uFEFF/, ''); // Remove BOM
+            fileContent = fileContent.replace(/^[\x00-\x1F\x7F-\x9F]+/, ''); // Remove control characters
+            
+            // Write the fixed content back to the file
+            fs.writeFileSync(filePath, fileContent, 'utf8');
+            logger.info(`Fixed invalid characters in ${filePath}`);
+          }
+          
           const command = require(filePath);
           
           // Set a new item in the Collection with the key as the command name and the value as the exported module
@@ -193,6 +206,25 @@ async function gracefulShutdown(signal) {
 // Initialize database
 (async () => {
   try {
+    // Create database schema directories if they don't exist
+    const schemaDir = path.join(__dirname, 'database', 'schema');
+    if (!fs.existsSync(schemaDir)) {
+      logger.info(`Creating schema directory: ${schemaDir}`);
+      fs.mkdirSync(schemaDir, { recursive: true });
+    }
+    
+    // Check for schema files
+    const unifiedSchemaPath = path.join(schemaDir, 'unified-schema.sql');
+    const sqliteSchemaPath = path.join(schemaDir, 'sqlite-schema.sql');
+    
+    if (!fs.existsSync(unifiedSchemaPath) && !fs.existsSync(sqliteSchemaPath)) {
+      logger.warn('Schema files not found. Creating empty schema files.');
+      
+      // Create basic unified schema file if it doesn't exist
+      fs.writeFileSync(unifiedSchemaPath, '-- JMF Hosting Discord Bot Unified Schema\n-- © 2025 JMFHosting\n\n-- Add your schema here\n', 'utf8');
+      logger.info(`Created empty schema file: ${unifiedSchemaPath}`);
+    }
+    
     const dbInitialized = await database.initialize();
     if (dbInitialized) {
       // Attach database to client for easy access
