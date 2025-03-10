@@ -51,12 +51,12 @@ jobs:
           args: --severity-threshold=high
           
       - name: Run CodeQL Analysis
-        uses: github/codeql-action/init@v2
+        uses: github/codeql-action/init@v3
         with:
           languages: javascript
           
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v2
+        uses: github/codeql-action/analyze@v3
 
   docker:
     needs: [test, security]
@@ -92,7 +92,7 @@ jobs:
           type=sha,format=long
           
     - name: Build and push
-      uses: docker/build-push-action@v5
+      uses: docker/build-push-action@v6
       with:
         context: .
         push: true
