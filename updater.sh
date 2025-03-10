@@ -161,6 +161,10 @@ update_from_github() {
     return 1
   }
   
+  # Add the directory to Git's safe.directory to handle ownership issues
+  print_status "Configuring Git safe directory"
+  git config --global --add safe.directory "$install_dir" >> "$LOG_FILE" 2>&1
+  
   # Check if .git directory exists
   if [ ! -d "$install_dir/.git" ]; then
     print_error "Not a git repository: $install_dir"
@@ -299,7 +303,7 @@ update_database_schema() {
   if [ ! -f "$install_dir/.env" ]; then
     print_error ".env file not found"
     return 1
-  }
+  fi
   
   # Get database type from .env
   DB_TYPE=$(grep "DB_TYPE=" "$install_dir/.env" | cut -d= -f2)
@@ -317,6 +321,18 @@ update_database_schema() {
       DB_TYPE="mysql"
     else
       print_warning "No database indicators found, defaulting to SQLite"
+      DB_TYPE="sqlite"
+    fi
+  else
+    # Clean up the DB_TYPE value to ensure it's just 'sqlite' or 'mysql'
+    if [[ "$DB_TYPE" == *"sqlite"* ]]; then
+      DB_TYPE="sqlite"
+      print_info "Database type set to: sqlite"
+    elif [[ "$DB_TYPE" == *"mysql"* ]]; then
+      DB_TYPE="mysql"
+      print_info "Database type set to: mysql"
+    else
+      print_warning "Unrecognized database type: $DB_TYPE, defaulting to SQLite"
       DB_TYPE="sqlite"
     fi
   fi
@@ -419,7 +435,7 @@ deploy_commands() {
   if [ ! -f "$install_dir/src/deploy-commands.js" ]; then
     print_error "deploy-commands.js not found"
     return 1
-  }
+  fi
   
   # Check if .env file exists and contains DISCORD_TOKEN and CLIENT_ID
   if [ ! -f "$install_dir/.env" ]; then
