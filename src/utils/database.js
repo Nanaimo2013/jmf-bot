@@ -391,10 +391,13 @@ class Database {
         channel_id VARCHAR(20) NOT NULL,
         message_id VARCHAR(20),
         violations TEXT NOT NULL,
-        action ENUM('warn', 'delete', 'mute') NOT NULL,
+        action ENUM('warn', 'delete', 'mute', 'timeout') NOT NULL,
         message_content TEXT,
         timestamp DATETIME NOT NULL,
-        PRIMARY KEY (id)
+        duration INT,
+        PRIMARY KEY (id),
+        INDEX idx_user_guild (user_id, guild_id),
+        INDEX idx_timestamp (timestamp)
       )
     `);
     

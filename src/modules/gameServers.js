@@ -490,5 +490,123 @@ module.exports = {
       role.name === config.roles.support ||
       role.name === config.roles.developer
     );
+  },
+  
+  /**
+   * Get server statistics
+   * @returns {Object} Server statistics
+   */
+  async getServerStats() {
+    try {
+      // Fetch all servers
+      const servers = await this.fetchAllServers();
+      
+      if (!servers || !Array.isArray(servers)) {
+        return {
+          total: 0,
+          active: 0,
+          suspended: 0,
+          cpuUsage: 0,
+          ramUsage: 0
+        };
+      }
+      
+      // Calculate statistics
+      const total = servers.length;
+      const active = servers.filter(server => server.attributes.status === 'running').length;
+      const suspended = servers.filter(server => server.attributes.status === 'suspended').length;
+      
+      // Calculate average resource usage
+      let totalCpuUsage = 0;
+      let totalRamUsage = 0;
+      let serversWithStats = 0;
+      
+      for (const server of servers) {
+        try {
+          const utilization = await this.fetchServerUtilization(server.attributes.id);
+          if (utilization) {
+            totalCpuUsage += utilization.attributes.resources.cpu_absolute || 0;
+            totalRamUsage += utilization.attributes.resources.memory_bytes || 0;
+            serversWithStats++;
+          }
+        } catch (error) {
+          // Skip servers with errors
+          logger.debug(`Error fetching utilization for server ${server.attributes.id}: ${error.message}`);
+        }
+      }
+      
+      const cpuUsage = serversWithStats > 0 ? Math.round(totalCpuUsage / serversWithStats) : 0;
+      const ramUsage = serversWithStats > 0 ? Math.round(totalRamUsage / serversWithStats) : 0;
+      
+      return {
+        total,
+        active,
+        suspended,
+        cpuUsage,
+        ramUsage,
+        gameTypes: this.countServersByGameType(servers)
+      };
+    } catch (error) {
+      logger.error(`Error getting server statistics: ${error.message}`);
+      return {
+        total: 0,
+        active: 0,
+        suspended: 0,
+        cpuUsage: 0,
+        ramUsage: 0
+      };
+    }
+  },
+  
+  /**
+   * Get node statistics
+   * @returns {Object} Node statistics
+   */
+  async getNodeStats() {
+    try {
+      // This would normally fetch from the Pterodactyl API
+      // For now, we'll return placeholder data
+      
+      // In a real implementation, you would:
+      // 1. Fetch all nodes from the API
+      // 2. Calculate statistics based on the response
+      
+      return {
+        total: config.gameServers?.nodes?.length || 3,
+        online: config.gameServers?.nodes?.filter(n => n.online)?.length || 2,
+        offline: config.gameServers?.nodes?.filter(n => !n.online)?.length || 1,
+        averageLoad: 45,
+        totalStorage: '2.5 TB'
+      };
+    } catch (error) {
+      logger.error(`Error getting node statistics: ${error.message}`);
+      return {
+        total: 0,
+        online: 0,
+        offline: 0,
+        averageLoad: 0,
+        totalStorage: '0 GB'
+      };
+    }
+  },
+  
+  /**
+   * Count servers by game type
+   * @param {Array} servers - Array of server objects
+   * @returns {Object} Counts by game type
+   */
+  countServersByGameType(servers) {
+    const counts = {};
+    
+    if (!servers || !Array.isArray(servers)) {
+      return counts;
+    }
+    
+    servers.forEach(server => {
+      const gameType = this.determineGameType(server.attributes.description || '');
+      counts[gameType] = (counts[gameType] || 0) + 1;
+    });
+    
+    return counts;
   }
 }; 

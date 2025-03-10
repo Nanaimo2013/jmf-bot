@@ -106,6 +106,35 @@ By JMFHosting
 </tr>
 </table>
 
+## 🌐 API Integration
+
+<table>
+<tr>
+<td width="50%">
+
+### 🔌 REST API
+[![API](https://img.shields.io/badge/API-RESTful-blue.svg)](https://github.com/Nanaimo2013/Jmf-Bot)
+- Authentication with API keys
+- Rate limiting protection
+- Comprehensive endpoint documentation
+- Error handling with standard HTTP codes
+- JSON response format
+
+</td>
+<td width="50%">
+
+### 🦅 Pterodactyl Integration
+[![Pterodactyl](https://img.shields.io/badge/Pterodactyl-v1.0-blue.svg)](https://github.com/Nanaimo2013/Jmf-Bot)
+- Server management endpoints
+- User management endpoints
+- Node and allocation management
+- Database management
+- Proxy authentication handling
+
+</td>
+</tr>
+</table>
+
 ## 💾 Data Management
 
 ### 🗺️ Database Schema
@@ -136,6 +165,26 @@ By JMFHosting
 | active         |       |                |       | balance_after  |
 +----------------+       +----------------+       +----------------+
 ```
+
+### 📑 Unified Schema Approach
+[![Schema](https://img.shields.io/badge/Schema-Unified-blue.svg)](https://github.com/Nanaimo2013/Jmf-Bot)
+
+The bot uses a unified database schema approach that works with both SQLite and MySQL:
+
+- Single schema file (`unified-schema.sql`) for all database types
+- Automatic handling of database-specific syntax differences
+- Comprehensive table structure with all required columns
+- Optimized indexes for better performance
+- Support for all bot features in one schema
+
+Key tables include:
+- `users`: User information and tracking
+- `tickets`: Support ticket management
+- `user_balances`: Economy system
+- `user_mining_data`: Mining game data
+- `user_levels`: Leveling system
+- `moderation_actions`: Moderation records
+- `guild_settings`: Server configuration
 
 ### 📑 Caching Strategy
 [![Caching](https://img.shields.io/badge/Caching-In--Memory-blue.svg)](https://github.com/Nanaimo2013/Jmf-Bot)

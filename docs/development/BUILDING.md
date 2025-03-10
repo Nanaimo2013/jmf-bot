@@ -363,6 +363,17 @@ tail -f logs/bot.log
    - Run with proper privileges
    - Check directory ownership
 
+4. Initialize the database:
+```bash
+# For SQLite (default)
+node scripts/database/apply-unified-schema.js
+
+# For MySQL
+# First, create a database and update .env with your MySQL credentials
+# Then run:
+DB_TYPE=mysql node scripts/database/apply-unified-schema.js
+```
+
 </td>
 <td width="50%">
 
@@ -390,6 +401,17 @@ tail -f logs/bot.log
    - Run `npm run deploy` to register commands
    - Check command structure
    - Verify bot has applications.commands scope
+
+5. Register commands with Discord:
+```bash
+# For SQLite (default)
+node scripts/deploy-commands.js
+
+# For MySQL
+# First, create a database and update .env with your MySQL credentials
+# Then run:
+DB_TYPE=mysql node scripts/deploy-commands.js
+```
 
 </td>
 </tr>

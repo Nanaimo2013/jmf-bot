@@ -98,11 +98,22 @@ async function handleAutoMod(message, client) {
     const autoModConfig = config.autoMod;
     let violations = [];
     let deleteMessage = false;
+    let timeoutUser = false;
+    let timeoutDuration = 0;
+    
+    // Store original message content for logging
+    const originalContent = message.content;
     
     // Check for excessive mentions
     if (autoModConfig.maxMentions && message.mentions.users.size > autoModConfig.maxMentions) {
       violations.push(`Excessive mentions: ${message.mentions.users.size}/${autoModConfig.maxMentions}`);
       deleteMessage = true;
+      
+      // Apply timeout for excessive mentions if configured
+      if (autoModConfig.timeoutForExcessiveMentions) {
+        timeoutUser = true;
+        timeoutDuration = autoModConfig.timeoutDuration || 300000; // Default 5 minutes
+      }
     }
     
     // Check for excessive emojis
@@ -112,6 +123,10 @@ async function handleAutoMod(message, client) {
       
       if (emojiCount > autoModConfig.maxEmojis) {
         violations.push(`Excessive emojis: ${emojiCount}/${autoModConfig.maxEmojis}`);
+        
+        if (autoModConfig.deleteExcessiveEmojis) {
+          deleteMessage = true;
+        }
       }
     }
     
@@ -123,6 +138,10 @@ async function handleAutoMod(message, client) {
       
       if (capsPercentage > autoModConfig.maxCaps) {
         violations.push(`Excessive caps: ${capsPercentage.toFixed(1)}%/${autoModConfig.maxCaps}%`);
+        
+        if (autoModConfig.deleteExcessiveCaps) {
+          deleteMessage = true;
+        }
       }
     }
     
@@ -153,6 +172,12 @@ async function handleAutoMod(message, client) {
         if (hasDisallowedInvite) {
           violations.push('Discord invite link');
           deleteMessage = true;
+          
+          // Apply timeout for invite links if configured
+          if (autoModConfig.timeoutForInvites) {
+            timeoutUser = true;
+            timeoutDuration = autoModConfig.timeoutDuration || 300000; // Default 5 minutes
+          }
         }
       }
     }
@@ -196,7 +221,45 @@ async function handleAutoMod(message, client) {
         if (lowerContent.includes(word.toLowerCase())) {
           violations.push('Banned word/phrase');
           deleteMessage = true;
+          
+          // Apply timeout for banned words if configured
+          if (autoModConfig.timeoutForBannedWords) {
+            timeoutUser = true;
+            timeoutDuration = autoModConfig.timeoutDuration || 300000; // Default 5 minutes
+          }
+          
           break;
+        }
+      }
+    }
+    
+    // Check for spam (repeated characters)
+    if (autoModConfig.antiSpam) {
+      const repeatedCharsRegex = /(.)\1{7,}/g;
+      if (repeatedCharsRegex.test(message.content)) {
+        violations.push('Excessive repeated characters (spam)');
+        deleteMessage = true;
+      }
+    }
+    
+    // Check for message length
+    if (autoModConfig.maxMessageLength && message.content.length > autoModConfig.maxMessageLength) {
+      violations.push(`Message too long: ${message.content.length}/${autoModConfig.maxMessageLength} characters`);
+      
+      if (autoModConfig.deleteLongMessages) {
+        deleteMessage = true;
+      }
+    }
+    
+    // Check for newlines
+    if (autoModConfig.maxNewlines) {
+      const newlineCount = (message.content.match(/\n/g) || []).length;
+      
+      if (newlineCount > autoModConfig.maxNewlines) {
+        violations.push(`Excessive newlines: ${newlineCount}/${autoModConfig.maxNewlines}`);
+        
+        if (autoModConfig.deleteExcessiveNewlines) {
+          deleteMessage = true;
         }
       }
     }
@@ -215,6 +278,16 @@ async function handleAutoMod(message, client) {
         }
       }
       
+      // Apply timeout if needed
+      if (timeoutUser && message.member && message.member.moderatable) {
+        try {
+          await message.member.timeout(timeoutDuration, 'AutoMod: ' + violations.join(', '));
+          logger.warn(`AutoMod: Applied timeout to ${message.author.tag} for ${timeoutDuration/1000} seconds`);
+        } catch (error) {
+          logger.error(`Failed to timeout user: ${error.message}`);
+        }
+      }
+      
       // Send warning to user
       try {
         const warningEmbed = new EmbedBuilder()
@@ -223,6 +296,13 @@ async function handleAutoMod(message, client) {
           .setColor('#FF9900')
           .setTimestamp();
           
+        if (timeoutUser) {
+          warningEmbed.addFields({
+            name: '🔇 Timeout Applied',
+            value: `You have been timed out for ${timeoutDuration/1000/60} minutes.`
+          });
+        }
+        
         await message.author.send({ embeds: [warningEmbed] });
       } catch (error) {
         logger.warn(`Could not send warning DM to ${message.author.tag}: ${error.message}`);
@@ -234,13 +314,23 @@ async function handleAutoMod(message, client) {
         
         if (logChannel) {
           const logEmbed = new EmbedBuilder()
-            .setTitle('AutoMod Action')
-            .setDescription(`**User:** ${message.author.tag} (${message.author.id})\n**Channel:** <#${message.channel.id}>\n**Action:** ${deleteMessage ? 'Message Deleted' : 'Warning'}\n**Violations:** ${violations.join(', ')}`)
+            .setTitle('🛡️ AutoMod Action')
+            .setDescription(`**User:** ${message.author.tag} (${message.author.id})\n**Channel:** <#${message.channel.id}>\n**Action:** ${deleteMessage ? 'Message Deleted' : 'Warning'}${timeoutUser ? ' + Timeout' : ''}\n**Violations:** ${violations.join(', ')}`)
             .setColor('#FF9900')
             .setTimestamp();
             
-          if (!deleteMessage) {
-            logEmbed.addFields({ name: 'Message Content', value: message.content.length > 1024 ? message.content.substring(0, 1021) + '...' : message.content });
+          if (originalContent) {
+            logEmbed.addFields({ 
+              name: 'Message Content', 
+              value: originalContent.length > 1024 ? originalContent.substring(0, 1021) + '...' : originalContent 
+            });
+          }
+          
+          if (timeoutUser) {
+            logEmbed.addFields({
+              name: 'Timeout Duration',
+              value: `${timeoutDuration/1000/60} minutes`
+            });
           }
           
           await logChannel.send({ embeds: [logEmbed] });
@@ -258,13 +348,58 @@ async function handleAutoMod(message, client) {
               message.channel.id,
               message.id,
               violations.join(', '),
-              deleteMessage ? 'delete' : 'warn',
-              message.content,
+              timeoutUser ? 'timeout' : (deleteMessage ? 'delete' : 'warn'),
+              originalContent,
               new Date()
             ]
           );
         } catch (error) {
           logger.error(`Failed to record automod action in database: ${error.message}`);
+        }
+      }
+      
+      // Check for repeat offenders
+      if (client.db && autoModConfig.escalateRepeatOffenders) {
+        try {
+          // Get recent violations in the last hour
+          const recentViolations = await client.db.query(
+            'SELECT COUNT(*) as count FROM automod_actions WHERE user_id = ? AND guild_id = ? AND timestamp > DATE_SUB(NOW(), INTERVAL 1 HOUR)',
+            [message.author.id, message.guild.id]
+          );
+          
+          const violationCount = recentViolations[0]?.count || 0;
+          
+          // Escalate if threshold exceeded
+          if (violationCount >= autoModConfig.repeatOffenderThreshold) {
+            // Apply longer timeout
+            if (message.member && message.member.moderatable) {
+              const escalatedDuration = autoModConfig.escalatedTimeoutDuration || 3600000; // Default 1 hour
+              await message.member.timeout(escalatedDuration, 'AutoMod: Repeat offender');
+              
+              // Log escalation
+              logger.warn(`AutoMod: Escalated action against repeat offender ${message.author.tag} (${violationCount} violations in the last hour)`);
+              
+              // Notify moderators
+              if (autoModConfig.logChannel) {
+                const logChannel = client.channels.cache.get(autoModConfig.logChannel);
+                
+                if (logChannel) {
+                  const escalationEmbed = new EmbedBuilder()
+                    .setTitle('⚠️ AutoMod Escalation')
+                    .setDescription(`**Repeat Offender:** ${message.author.tag} (${message.author.id})\n**Violations:** ${violationCount} in the last hour\n**Action:** Extended timeout (${escalatedDuration/1000/60} minutes)`)
+                    .setColor('#FF0000')
+                    .setTimestamp();
+                    
+                  await logChannel.send({ 
+                    content: autoModConfig.pingModRole ? `<@&${autoModConfig.modRoleId}>` : null,
+                    embeds: [escalationEmbed] 
+                  });
+                }
+              }
+            }
+          }
+        } catch (error) {
+          logger.error(`Failed to check for repeat offenders: ${error.message}`);
         }
       }
     }

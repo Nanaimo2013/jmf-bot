@@ -16,271 +16,221 @@ const leveling = require('../../modules/leveling');
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('leaderboard')
-    .setDescription('View the server\'s XP leaderboard')
-    .addIntegerOption(option => 
-      option
-        .setName('page')
-        .setDescription('The page of the leaderboard to view')
+    .setDescription('View the server\'s leaderboards')
+    .addStringOption(option =>
+      option.setName('category')
+        .setDescription('The leaderboard category to view')
         .setRequired(false)
-        .setMinValue(1)
-    )
-    .addIntegerOption(option => 
-      option
-        .setName('limit')
-        .setDescription('Number of users to show per page (default: 10)')
-        .setRequired(false)
-        .setMinValue(5)
-        .setMaxValue(25)
-    ),
+        .addChoices(
+          { name: 'Economy', value: 'economy' },
+          { name: 'Mining', value: 'mining' },
+          { name: 'Levels', value: 'levels' }
+        )),
 
   async execute(interaction) {
     try {
       await interaction.deferReply();
       
-      // Get options
-      const page = interaction.options.getInteger('page') || 1;
-      const limit = interaction.options.getInteger('limit') || 10;
+      const category = interaction.options.getString('category') || 'economy';
+      const economy = interaction.client.economy;
+      const mining = interaction.client.mining;
+      const leveling = interaction.client.leveling;
       
-      // Calculate offset
-      const offset = (page - 1) * limit;
+      let embed;
       
-      // Get leaderboard data
-      let leaderboardData;
-      try {
-        leaderboardData = await leveling.getLeaderboard(interaction.guild.id, limit, offset);
-      } catch (error) {
-        logger.error(`Error fetching leaderboard data: ${error.message}`);
-        return interaction.editReply('An error occurred while fetching leaderboard data. Please try again later.');
-      }
-      
-      // If no data, return message
-      if (!leaderboardData || leaderboardData.length === 0) {
-        return interaction.editReply('No leaderboard data available yet. Start chatting to earn XP!');
-      }
-      
-      // Get total number of ranked users for pagination
-      let totalUsers;
-      try {
-        totalUsers = await leveling.getTotalRankedUsers(interaction.guild.id);
-      } catch (error) {
-        logger.error(`Error fetching total ranked users: ${error.message}`);
-        totalUsers = leaderboardData.length; // Fallback to current page count
-      }
-      
-      const totalPages = Math.ceil(totalUsers / limit);
-      
-      // Create embed
-      const embed = new EmbedBuilder()
-        .setTitle(`🏆 XP Leaderboard - ${interaction.guild.name}`)
-        .setDescription(`Showing the top XP earners in the server.\nPage ${page} of ${totalPages}`)
-        .setColor(config.embedColor || '#00AAFF')
-        .setThumbnail(interaction.guild.iconURL({ dynamic: true, size: 256 }))
-        .setFooter({ text: `${config.footerText || 'JMF Hosting'} • Use the buttons to navigate` })
-        .setTimestamp();
-      
-      // Add leaderboard entries
-      let leaderboardText = '';
-      
-      for (let i = 0; i < leaderboardData.length; i++) {
-        const entry = leaderboardData[i];
-        if (!entry) continue; // Skip if entry is undefined
-        
-        const rank = offset + i + 1;
-        const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `${rank}.`;
-        
-        // Format the entry with proper spacing
-        const username = entry.username || 'Unknown User';
-        const level = entry.level || 0;
-        const xp = entry.xp || 0;
-        
-        leaderboardText += `${medal} **${username}** • Level ${level} • ${xp.toLocaleString()} XP\n`;
-      }
-      
-      // If no entries were added, show a message
-      if (!leaderboardText) {
-        leaderboardText = 'No data available for this page.';
-      }
-      
-      embed.setDescription(`Showing the top XP earners in the server.\nPage ${page} of ${totalPages}\n\n${leaderboardText}`);
-      
-      // Create pagination buttons
-      const paginationRow = new ActionRowBuilder()
+      // Create buttons for switching between leaderboard types
+      const row = new ActionRowBuilder()
         .addComponents(
           new ButtonBuilder()
-            .setCustomId(`leaderboard_first_${interaction.id}`)
-            .setLabel('First')
-            .setStyle(ButtonStyle.Secondary)
-            .setDisabled(page === 1),
+            .setCustomId('economy_leaderboard')
+            .setLabel('Economy')
+            .setStyle(category === 'economy' ? ButtonStyle.Primary : ButtonStyle.Secondary)
+            .setEmoji('💰'),
           new ButtonBuilder()
-            .setCustomId(`leaderboard_prev_${interaction.id}`)
-            .setLabel('Previous')
-            .setStyle(ButtonStyle.Primary)
-            .setDisabled(page === 1),
+            .setCustomId('mining_leaderboard')
+            .setLabel('Mining')
+            .setStyle(category === 'mining' ? ButtonStyle.Primary : ButtonStyle.Secondary)
+            .setEmoji('⛏️'),
           new ButtonBuilder()
-            .setCustomId(`leaderboard_next_${interaction.id}`)
-            .setLabel('Next')
-            .setStyle(ButtonStyle.Primary)
-            .setDisabled(page === totalPages),
-          new ButtonBuilder()
-            .setCustomId(`leaderboard_last_${interaction.id}`)
-            .setLabel('Last')
-            .setStyle(ButtonStyle.Secondary)
-            .setDisabled(page === totalPages)
+            .setCustomId('levels_leaderboard')
+            .setLabel('Levels')
+            .setStyle(category === 'levels' ? ButtonStyle.Primary : ButtonStyle.Secondary)
+            .setEmoji('🏆')
         );
       
-      // Send the embed with pagination buttons
-      const message = await interaction.editReply({
-        embeds: [embed],
-        components: [paginationRow]
-      });
+      // Get the appropriate leaderboard based on category
+      switch (category) {
+        case 'economy':
+          embed = await economy.createLeaderboardEmbed(interaction.guild);
+          break;
+        case 'mining':
+          if (mining && mining.isInitialized) {
+            embed = await this.createMiningLeaderboard(interaction.guild, mining);
+          } else {
+            embed = new EmbedBuilder()
+              .setTitle('Mining Leaderboard')
+              .setDescription('Mining module is not initialized')
+              .setColor(config.embedColor || '#0099ff')
+              .setTimestamp();
+          }
+          break;
+        case 'levels':
+          if (leveling && leveling.isInitialized) {
+            embed = await leveling.createLeaderboardEmbed(interaction.guild);
+          } else {
+            embed = new EmbedBuilder()
+              .setTitle('Levels Leaderboard')
+              .setDescription('Leveling module is not initialized')
+              .setColor(config.embedColor || '#0099ff')
+              .setTimestamp();
+          }
+          break;
+        default:
+          embed = await economy.createLeaderboardEmbed(interaction.guild);
+      }
       
-      // Create a collector for button interactions
-      const collector = message.createMessageComponentCollector({
-        filter: i => i.user.id === interaction.user.id && i.customId.startsWith(`leaderboard_`),
-        time: 300000 // 5 minutes
-      });
+      await interaction.editReply({ embeds: [embed], components: [row] });
+      
+      // Set up collector for button interactions
+      const filter = i => i.user.id === interaction.user.id;
+      const collector = interaction.channel.createMessageComponentCollector({ filter, time: 60000 });
       
       collector.on('collect', async i => {
         try {
-          // Extract the action from the custom ID
-          const [, action, interactionId] = i.customId.split('_');
+          let newEmbed;
           
-          // Verify this is for the correct interaction
-          if (interactionId !== interaction.id) return;
-          
-          // Calculate the new page based on the button clicked
-          let newPage = page;
-          
-          switch (action) {
-            case 'first':
-              newPage = 1;
-              break;
-            case 'prev':
-              newPage = Math.max(1, page - 1);
-              break;
-            case 'next':
-              newPage = Math.min(totalPages, page + 1);
-              break;
-            case 'last':
-              newPage = totalPages;
-              break;
-          }
-          
-          // If the page hasn't changed, do nothing
-          if (newPage === page) {
-            await i.deferUpdate();
-            return;
-          }
-          
-          // Acknowledge the interaction
-          await i.deferUpdate();
-          
-          // Execute the command with the new page
-          const newInteraction = {
-            ...interaction,
-            options: {
-              getInteger: (name) => {
-                if (name === 'page') return newPage;
-                if (name === 'limit') return limit;
-                return null;
-              }
+          if (i.customId === 'economy_leaderboard') {
+            newEmbed = await economy.createLeaderboardEmbed(interaction.guild);
+            
+            // Update button styles
+            row.components.forEach(button => {
+              button.setStyle(button.data.custom_id === 'economy_leaderboard' ? ButtonStyle.Primary : ButtonStyle.Secondary);
+            });
+          } else if (i.customId === 'mining_leaderboard') {
+            if (mining && mining.isInitialized) {
+              newEmbed = await this.createMiningLeaderboard(interaction.guild, mining);
+            } else {
+              newEmbed = new EmbedBuilder()
+                .setTitle('Mining Leaderboard')
+                .setDescription('Mining module is not initialized')
+                .setColor(config.embedColor || '#0099ff')
+                .setTimestamp();
             }
-          };
-          
-          await this.execute(newInteraction);
-          
-          // Stop the collector since we're creating a new one
-          collector.stop();
-        } catch (error) {
-          logger.error(`Error handling leaderboard pagination: ${error.message}`);
-          
-          // Try to respond to the interaction if it hasn't been acknowledged
-          try {
-            if (!i.deferred && !i.replied) {
-              await i.reply({
-                content: 'An error occurred while navigating the leaderboard. Please try again.',
-                ephemeral: true
-              });
+            
+            // Update button styles
+            row.components.forEach(button => {
+              button.setStyle(button.data.custom_id === 'mining_leaderboard' ? ButtonStyle.Primary : ButtonStyle.Secondary);
+            });
+          } else if (i.customId === 'levels_leaderboard') {
+            if (leveling && leveling.isInitialized) {
+              newEmbed = await leveling.createLeaderboardEmbed(interaction.guild);
+            } else {
+              newEmbed = new EmbedBuilder()
+                .setTitle('Levels Leaderboard')
+                .setDescription('Leveling module is not initialized')
+                .setColor(config.embedColor || '#0099ff')
+                .setTimestamp();
             }
-          } catch (replyError) {
-            logger.error(`Error replying to interaction: ${replyError.message}`);
-          }
-        }
-      });
-      
-      collector.on('end', collected => {
-        // Remove buttons when collector ends if the message still exists
-        try {
-          if (message) {
-            interaction.editReply({
-              embeds: [embed],
-              components: []
-            }).catch(err => {
-              // Ignore errors from editing old messages
-              logger.debug(`Could not remove buttons: ${err.message}`);
+            
+            // Update button styles
+            row.components.forEach(button => {
+              button.setStyle(button.data.custom_id === 'levels_leaderboard' ? ButtonStyle.Primary : ButtonStyle.Secondary);
             });
           }
+          
+          await i.update({ embeds: [newEmbed], components: [row] });
         } catch (error) {
-          logger.debug(`Error removing buttons: ${error.message}`);
+          logger.error(`Error handling button interaction: ${error.message}`);
         }
       });
       
-      // Record command usage
-      try {
-        await this.recordCommandUsage(interaction, 'leaderboard');
-      } catch (error) {
-        logger.error(`Failed to record command usage in database: ${error.message}`);
-      }
+      collector.on('end', () => {
+        interaction.editReply({ components: [] }).catch(() => {});
+      });
+      
     } catch (error) {
       logger.error(`Error executing leaderboard command: ${error.message}`);
-      
-      // Try to respond if the interaction hasn't been replied to
-      try {
-        if (interaction.deferred && !interaction.replied) {
-          await interaction.editReply('An error occurred while fetching leaderboard data. Please try again later.');
-        } else if (!interaction.replied) {
-          await interaction.reply({
-            content: 'An error occurred while fetching leaderboard data. Please try again later.',
-            ephemeral: true
-          });
-        }
-      } catch (replyError) {
-        logger.error(`Error handling interaction: ${replyError.message}`);
+      if (interaction.deferred) {
+        await interaction.editReply({ content: 'An error occurred while fetching the leaderboard.' });
+      } else {
+        await interaction.reply({ content: 'An error occurred while fetching the leaderboard.', ephemeral: true });
       }
     }
   },
   
   /**
-   * Record command usage in the database
-   * @param {CommandInteraction} interaction - The interaction
-   * @param {string} command - The command name
+   * Create mining leaderboard embed
+   * @param {Guild} guild - Discord guild
+   * @param {Object} mining - Mining module
+   * @returns {EmbedBuilder} Mining leaderboard embed
    */
-  async recordCommandUsage(interaction, command) {
+  async createMiningLeaderboard(guild, mining) {
     try {
-      // Try to insert into command_usage table
-      try {
-        await interaction.client.db.query(
-          'INSERT INTO command_usage (user_id, guild_id, command, channel_id, timestamp) VALUES (?, ?, ?, ?, ?)',
-          [interaction.user.id, interaction.guild.id, command, interaction.channel.id, new Date()]
-        );
-      } catch (error) {
-        // If the error is about missing command column, try without it
-        if (error.message.includes('no column named command')) {
-          logger.error(`Database query error: ${error.message}`);
-          logger.error(`Query: INSERT INTO command_usage (user_id, guild_id, command, channel_id, timestamp) VALUES (?, ?, ?, ?, ?)`);
-          logger.error(`Failed to record command usage in database: ${error.message}`);
-          
-          // Try to insert without the command column
-          await interaction.client.db.query(
-            'INSERT INTO command_usage (user_id, guild_id, channel_id, timestamp) VALUES (?, ?, ?, ?)',
-            [interaction.user.id, interaction.guild.id, interaction.channel.id, new Date()]
-          );
-        } else {
-          throw error;
-        }
+      const db = mining.db;
+      
+      if (!db || !db.isConnected) {
+        return new EmbedBuilder()
+          .setTitle('Mining Leaderboard')
+          .setDescription('No mining data available')
+          .setColor(config.embedColor || '#0099ff')
+          .setTimestamp();
       }
+      
+      // Get top miners by level and XP
+      const miners = await db.query(
+        'SELECT user_id, level, xp FROM user_mining_data ORDER BY level DESC, xp DESC LIMIT 10'
+      );
+      
+      if (!miners || miners.length === 0) {
+        return new EmbedBuilder()
+          .setTitle('Mining Leaderboard')
+          .setDescription('No miners found in the leaderboard')
+          .setColor(config.embedColor || '#0099ff')
+          .setTimestamp();
+      }
+      
+      // Format leaderboard entries
+      let description = '';
+      const medals = ['🥇', '🥈', '🥉'];
+      
+      for (let i = 0; i < miners.length; i++) {
+        const entry = miners[i];
+        const user = await guild.members.fetch(entry.user_id).catch(() => null);
+        const username = user ? user.user.username : 'Unknown User';
+        const rank = i < 3 ? medals[i] : `${i + 1}.`;
+        
+        description += `${rank} **${username}** - Level ${entry.level} (${entry.xp} XP)\n`;
+      }
+      
+      // Get total resources mined
+      const totalResources = await db.query(
+        'SELECT SUM(quantity) as total FROM user_mining_inventory'
+      );
+      
+      const totalMined = totalResources[0]?.total || 0;
+      
+      const embed = new EmbedBuilder()
+        .setTitle('⛏️ Mining Leaderboard')
+        .setDescription(description)
+        .setColor(config.embedColor || '#0099ff')
+        .addFields(
+          { name: '🧱 Total Resources Mined', value: `${totalMined.toLocaleString()}`, inline: true },
+          { name: '👥 Total Miners', value: `${miners.length}`, inline: true }
+        )
+        .setFooter({ 
+          text: `${config.footerText || 'JMF Hosting Bot'} • Updated`,
+          iconURL: guild.iconURL({ dynamic: true })
+        })
+        .setTimestamp();
+      
+      return embed;
     } catch (error) {
-      logger.error(`Error recording command usage: ${error.message}`);
+      logger.error(`Error creating mining leaderboard: ${error.message}`);
+      return new EmbedBuilder()
+        .setTitle('Mining Leaderboard')
+        .setDescription('An error occurred while creating the mining leaderboard')
+        .setColor(config.embedColor || '#0099ff')
+        .setTimestamp();
     }
   }
 }; 

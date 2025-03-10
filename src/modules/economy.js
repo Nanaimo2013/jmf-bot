@@ -635,6 +635,139 @@ class Economy {
     
     return embed;
   }
+
+  /**
+   * Get recent transactions for a user
+   * @param {string} userId - User ID
+   * @param {number} limit - Maximum number of transactions to return
+   * @returns {Array} Array of recent transactions
+   */
+  async getRecentTransactions(userId, limit = 5) {
+    try {
+      if (!this.db || !this.db.isConnected) {
+        return [];
+      }
+      
+      const transactions = await this.db.query(
+        'SELECT * FROM transactions WHERE user_id = ? ORDER BY timestamp DESC LIMIT ?',
+        [userId, limit]
+      );
+      
+      return transactions.map(t => ({
+        id: t.id,
+        userId: t.user_id,
+        amount: t.amount,
+        reason: t.reason,
+        timestamp: t.timestamp
+      }));
+    } catch (error) {
+      logger.error(`Error getting recent transactions: ${error.message}`);
+      return [];
+    }
+  }
+
+  /**
+   * Get user's rank in the economy leaderboard
+   * @param {string} userId - User ID
+   * @returns {string} User's rank
+   */
+  async getUserRank(userId) {
+    try {
+      if (!this.db || !this.db.isConnected) {
+        return 'Unknown';
+      }
+      
+      const leaderboard = await this.db.query(
+        'SELECT user_id, balance FROM user_balances ORDER BY balance DESC'
+      );
+      
+      const userIndex = leaderboard.findIndex(entry => entry.user_id === userId);
+      
+      if (userIndex === -1) {
+        return 'Unranked';
+      }
+      
+      return `#${userIndex + 1}`;
+    } catch (error) {
+      logger.error(`Error getting user rank: ${error.message}`);
+      return 'Unknown';
+    }
+  }
+
+  /**
+   * Create a leaderboard embed
+   * @param {Guild} guild - Discord guild
+   * @returns {EmbedBuilder} Leaderboard embed
+   */
+  async createLeaderboardEmbed(guild) {
+    try {
+      if (!this.db || !this.db.isConnected) {
+        const embed = new EmbedBuilder()
+          .setTitle('Economy Leaderboard')
+          .setDescription('No leaderboard data available')
+          .setColor(config.embedColor || '#0099ff')
+          .setTimestamp();
+        return embed;
+      }
+      
+      const leaderboard = await this.db.query(
+        'SELECT user_id, balance FROM user_balances ORDER BY balance DESC LIMIT 10'
+      );
+      
+      if (!leaderboard || leaderboard.length === 0) {
+        const embed = new EmbedBuilder()
+          .setTitle('Economy Leaderboard')
+          .setDescription('No users found in the leaderboard')
+          .setColor(config.embedColor || '#0099ff')
+          .setTimestamp();
+        return embed;
+      }
+      
+      // Get total economy value
+      const totalEconomy = await this.db.query(
+        'SELECT SUM(balance) as total FROM user_balances'
+      );
+      
+      const totalValue = totalEconomy[0]?.total || 0;
+      
+      // Format leaderboard entries
+      let description = '';
+      const medals = ['🥇', '🥈', '🥉'];
+      
+      for (let i = 0; i < leaderboard.length; i++) {
+        const entry = leaderboard[i];
+        const user = await guild.members.fetch(entry.user_id).catch(() => null);
+        const username = user ? user.user.username : 'Unknown User';
+        const rank = i < 3 ? medals[i] : `${i + 1}.`;
+        
+        description += `${rank} **${username}** - ${entry.balance.toLocaleString()} coins\n`;
+      }
+      
+      const embed = new EmbedBuilder()
+        .setTitle('💰 Economy Leaderboard')
+        .setDescription(description)
+        .setColor(config.embedColor || '#0099ff')
+        .addFields(
+          { name: '💵 Total Economy Value', value: `${totalValue.toLocaleString()} coins`, inline: true },
+          { name: '👥 Total Users', value: `${leaderboard.length}`, inline: true }
+        )
+        .setFooter({ 
+          text: `${config.footerText || 'JMF Hosting Bot'} • Updated`,
+          iconURL: guild.iconURL({ dynamic: true })
+        })
+        .setTimestamp();
+      
+      return embed;
+    } catch (error) {
+      logger.error(`Error creating leaderboard embed: ${error.message}`);
+      const embed = new EmbedBuilder()
+        .setTitle('Economy Leaderboard')
+        .setDescription('An error occurred while creating the leaderboard')
+        .setColor(config.embedColor || '#0099ff')
+        .setTimestamp();
+      return embed;
+    }
+  }
 }
 
 module.exports = new Economy(); 

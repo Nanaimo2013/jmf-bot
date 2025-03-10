@@ -1,0 +1,67 @@
+version: '3'
+
+services:
+  jmf-bot:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: jmf-bot
+    volumes:
+      - ./.env:/usr/src/app/.env
+      - ./config.json:/usr/src/app/config.json
+      - ./logs:/usr/src/app/logs
+      - ./data:/usr/src/app/data
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+    # Uncomment the following lines if you need to expose ports for a web dashboard
+    # ports:
+    #   - "3000:3000"
+    networks:
+      - jmf-network
+    depends_on:
+      - mongo
+    healthcheck:
+      test: ["CMD", "node", "-e", "try { require('http').get('http://localhost:3000/health', (r) => r.statusCode === 200 ? process.exit(0) : process.exit(1)); } catch (e) { process.exit(1); }"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 500M
+
+  mongo:
+    image: mongo:6
+    container_name: jmf-mongo
+    restart: unless-stopped
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_ROOT_USER:-jmfadmin}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD:-changeme}
+      - MONGO_INITDB_DATABASE=${MONGO_DATABASE:-jmfbot}
+    volumes:
+      - mongo-data:/data/db
+      - ./mongo-init:/docker-entrypoint-initdb.d
+    networks:
+      - jmf-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.3'
+          memory: 300M
+
+networks:
+  jmf-network:
+    driver: bridge
+
+volumes:
+  mongo-data:
+    name: jmf-bot-mongo-data 

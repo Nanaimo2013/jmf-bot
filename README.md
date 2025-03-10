@@ -19,10 +19,9 @@
 [![Discord.js](https://img.shields.io/badge/discord.js-v14-blue.svg?style=for-the-badge)](https://discord.js.org/)
 [![Node.js](https://img.shields.io/badge/node.js-%3E%3D16.9.0-brightgreen.svg?style=for-the-badge)](https://nodejs.org/)
 [![MySQL](https://img.shields.io/badge/mysql-v8-orange.svg?style=for-the-badge)](https://www.mysql.com/)
+[![SQLite](https://img.shields.io/badge/sqlite-v3-blue.svg?style=for-the-badge)](https://www.sqlite.org/)
 [![Version](https://img.shields.io/badge/VERSION-1.0.0-blue.svg?style=for-the-badge)](https://github.com/Nanaimo2013/Jmf-Bot/releases)
-[![Build](https://img.shields.io/badge/BUILD-in_progress-yellow.svg?style=for-the-badge)](https://github.com/Nanaimo2013/Jmf-Bot/actions)
 [![Docker](https://img.shields.io/badge/docker-supported-2496ED.svg?style=for-the-badge&logo=docker)](https://github.com/Nanaimo2013/Jmf-Bot/pkgs/container/jmf-bot)
-[![GitHub Actions](https://img.shields.io/badge/CI%2FCD-GitHub_Actions-2088FF.svg?style=for-the-badge&logo=github-actions)](https://github.com/Nanaimo2013/Jmf-Bot/actions)
 
 <br/>
 
@@ -77,6 +76,44 @@
 </tr>
 </table>
 
+### 🔌 Integrations
+- **Pterodactyl Panel**: Game server management
+- **Server Status**: Real-time server monitoring
+- **Server Control**: Start, stop, and restart servers
+- **API Integration**: Comprehensive REST API with Pterodactyl support
+
+## 📂 Project Structure
+
+The project is organized into the following directories:
+
+```
+jmf-bot/
+├── docs/                # Documentation
+│   ├── api/             # API documentation
+│   ├── configuration/   # Configuration guides
+│   ├── deployment/      # Deployment guides
+│   ├── development/     # Development guides
+│   ├── installation/    # Installation guides
+│   └── troubleshooting/ # Troubleshooting guides
+├── scripts/             # Scripts for installation, updates, etc.
+│   ├── database/        # Database management scripts
+│   ├── docker/          # Docker-related scripts
+│   ├── install/         # Installation scripts
+│   ├── monitor/         # Monitoring scripts
+│   ├── test/            # Testing scripts
+│   └── update/          # Update scripts
+├── src/                 # Source code
+│   ├── commands/        # Bot commands
+│   ├── database/        # Database utilities and schemas
+│   ├── embeds/          # Embed templates
+│   ├── events/          # Event handlers
+│   ├── modules/         # Feature modules
+│   └── utils/           # Utility functions
+└── data/                # Data storage (created at runtime)
+```
+
+For more information about the scripts, see [Scripts Documentation](docs/scripts.md).
+
 ## 🚀 Getting Started
 
 ### Prerequisites
@@ -96,7 +133,7 @@ git clone https://github.com/Nanaimo2013/Jmf-Bot.git
 cd Jmf-Bot
 
 # Run the installer script
-bash install.sh
+bash scripts/install/install.sh
 ```
 
 The installer will guide you through the setup process, including:
@@ -130,21 +167,21 @@ cp .env.example .env
 5. Initialize the database:
 ```bash
 # For SQLite (default)
-node fix-database.js
+node scripts/database/fix-schema.js
 
 # For MySQL
 # First, create a database and update .env with your MySQL credentials
 # Then run:
-mysql -u your_username -p your_database < schema.mysql.sql
+node scripts/database/schema-manager.js apply 01-initial-schema.mysql.sql
 ```
 
 6. Register commands with Discord:
 ```bash
 # Register commands globally (takes up to an hour to propagate)
-npm run deploy:global
+npm run register:global
 
 # OR register commands for a specific guild (instant)
-npm run deploy:guild
+npm run register:guild
 ```
 
 7. Start the bot:
@@ -169,19 +206,19 @@ cp .env.example .env
 
 4. Start the bot with Docker Compose:
 ```bash
-docker-compose up -d
+npm run docker:start
 ```
 
 5. View logs:
 ```bash
-docker-compose logs -f
+npm run docker:logs
 ```
 
 ### Using Dockerfile
 
 1. Build the Docker image:
 ```bash
-docker build -t jmf-bot .
+npm run docker:build
 ```
 
 2. Run the container:
@@ -195,7 +232,7 @@ docker run -d \
   jmf-bot
 ```
 
-For more detailed instructions, see [DOCKER-USAGE.md](DOCKER-USAGE.md).
+For more detailed instructions, see [Docker Usage](docs/deployment/DOCKER-USAGE.md).
 
 ## 📝 Configuration
 
@@ -237,6 +274,39 @@ Key configuration sections:
 - `ticketSystem`: Support ticket settings
 - `moderationSystem`: Moderation settings
 
+## 🗄️ Database Schema
+
+The bot uses a unified database schema that works with both SQLite and MySQL. The schema includes tables for:
+
+- User management and tracking
+- Command usage and error logging
+- Ticket system
+- Economy system
+- Mining game
+- Leveling system
+- Moderation actions
+- Server settings
+
+You can apply the unified schema using the provided script:
+
+```bash
+# For SQLite (default)
+node scripts/database/apply-unified-schema.js
+
+# For MySQL (set DB_TYPE=mysql in .env)
+DB_TYPE=mysql node scripts/database/apply-unified-schema.js
+```
+
+If you're upgrading from a previous version, you can migrate your existing database to the unified schema:
+
+```bash
+# For SQLite (default)
+node scripts/database/migrate-to-unified-schema.js
+
+# For MySQL (set DB_TYPE=mysql in .env)
+DB_TYPE=mysql node scripts/database/migrate-to-unified-schema.js
+```
+
 ## 🔧 Troubleshooting
 
 ### Database Issues
@@ -245,22 +315,22 @@ If you encounter database-related errors, you can use the database fix script:
 
 ```bash
 # Run the database update script
-bash update-database.sh
+npm run db:fix
 ```
 
 Common database errors and solutions:
 
 1. **Missing columns in tables**:
    - Error: `table account_links has no column named created_at`
-   - Solution: Run `node fix-database.js` to add missing columns
+   - Solution: Run `node scripts/database/fix-schema.js` to add missing columns
 
 2. **Command usage tracking errors**:
    - Error: `table command_usage has no column named command`
-   - Solution: Run `node fix-database.js` to fix the command_usage table
+   - Solution: Run `node scripts/database/fix-schema.js` to fix the command_usage table
 
 3. **Button usage tracking errors**:
    - Error: `table button_usage has no column named button_id`
-   - Solution: Run `node fix-database.js` to fix the button_usage table
+   - Solution: Run `node scripts/database/fix-schema.js` to fix the button_usage table
 
 ### Command Registration Issues
 
@@ -269,7 +339,7 @@ If slash commands are not appearing:
 1. Make sure your bot has the `applications.commands` scope in the OAuth2 URL
 2. Try registering commands for a specific guild first:
    ```bash
-   npm run deploy:guild
+   npm run register:guild
    ```
 3. Check the bot's permissions in the Discord server
 
@@ -285,12 +355,12 @@ If you're having trouble with the bot staying online:
 
 2. Set up the systemd service (Linux only):
    ```bash
-   sudo bash install-service.sh
+   sudo bash scripts/install/install-service.sh
    ```
 
 3. Use Docker for containerized deployment:
    ```bash
-   docker-compose up -d
+   npm run docker:start
    ```
 
 ## 🔄 Updating
@@ -305,7 +375,7 @@ git pull
 npm install
 
 # Update the database schema
-bash update-database.sh
+npm run db:update
 
 # Restart the bot
 npm start
@@ -318,12 +388,12 @@ If using Docker:
 git pull
 
 # Rebuild and restart the container
-docker-compose up -d --build
+npm run docker:start
 ```
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+Contributions are welcome! Please see [Contributing Guide](CONTRIBUTING.md) for guidelines.
 
 ## 📜 License
 

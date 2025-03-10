@@ -18,10 +18,12 @@ const {
   Collection,
   ModalBuilder,
   TextInputBuilder,
-  TextInputStyle
+  TextInputStyle,
+  StringSelectMenuBuilder
 } = require('discord.js');
 const config = require('../../config.json');
 const logger = require('../utils/logger');
+const db = require('../utils/database');
 
 /**
  * Ticket system module for handling support tickets
@@ -44,8 +46,18 @@ module.exports = {
     client.on('interactionCreate', async (interaction) => {
       if (!interaction.isButton()) return;
       
+      // Record button usage in database
+      try {
+        await db.query(
+          'INSERT INTO button_usage (user_id, guild_id, custom_id, button_id, channel_id, timestamp) VALUES (?, ?, ?, ?, ?, ?)',
+          [interaction.user.id, interaction.guild?.id, interaction.customId, interaction.customId, interaction.channelId, new Date()]
+        );
+      } catch (error) {
+        logger.error(`Failed to record button usage in database: ${error.message}`);
+      }
+      
       const handlers = {
-        'create_ticket': this.createTicket,
+        'create_ticket': this.handleTicketButton,
         'close_ticket': this.closeTicket,
         'delete_ticket': this.deleteTicket,
         'reopen_ticket': this.reopenTicket,
@@ -58,6 +70,54 @@ module.exports = {
           await handler.call(this, interaction);
         } catch (error) {
           logger.error(`Error handling ticket interaction: ${error.message}`);
+          await this.handleError(interaction, error);
+        }
+      }
+    });
+    
+    // Handle select menu interactions for ticket categories
+    client.on('interactionCreate', async (interaction) => {
+      if (!interaction.isStringSelectMenu()) return;
+      
+      // Record select menu usage in database
+      try {
+        await db.query(
+          'INSERT INTO select_menu_usage (user_id, guild_id, custom_id, values, channel_id, timestamp) VALUES (?, ?, ?, ?, ?, ?)',
+          [interaction.user.id, interaction.guild?.id, interaction.customId, JSON.stringify(interaction.values), interaction.channelId, new Date()]
+        );
+      } catch (error) {
+        logger.error(`Failed to record select menu usage in database: ${error.message}`);
+      }
+      
+      if (interaction.customId === 'ticket_category') {
+        try {
+          await this.handleTicketCategorySelect(interaction);
+        } catch (error) {
+          logger.error(`Error handling ticket category selection: ${error.message}`);
+          await this.handleError(interaction, error);
+        }
+      }
+    });
+    
+    // Handle modal submissions for tickets
+    client.on('interactionCreate', async (interaction) => {
+      if (!interaction.isModalSubmit()) return;
+      
+      // Record modal submission in database
+      try {
+        await db.query(
+          'INSERT INTO modal_submissions (user_id, guild_id, custom_id, channel_id, timestamp) VALUES (?, ?, ?, ?, ?)',
+          [interaction.user.id, interaction.guild?.id, interaction.customId, interaction.channelId, new Date()]
+        );
+      } catch (error) {
+        logger.error(`Failed to record modal submission in database: ${error.message}`);
+      }
+      
+      if (interaction.customId.startsWith('ticket_modal_')) {
+        try {
+          await this.handleTicketModal(interaction);
+        } catch (error) {
+          logger.error(`Error handling ticket modal: ${error.message}`);
           await this.handleError(interaction, error);
         }
       }
@@ -138,66 +198,84 @@ module.exports = {
   },
   
   /**
-   * Create a ticket creation message in the specified channel
-   * @param {TextChannel} channel - The channel to send the ticket creation message to
+   * Create ticket message in channel
+   * @param {TextChannel} channel - Discord text channel
+   * @param {Object} ticketData - Ticket data
    */
-  async createTicketMessage(channel) {
+  async createTicketMessage(channel, ticketData = {}) {
     try {
-      // Create ticket embed
-      const ticketEmbed = new EmbedBuilder()
-        .setColor(config.embedColor)
-        .setTitle('🎫 JMF Hosting Support Center')
-        .setDescription([
-          "## Need Help with Your Game Server?",
-          "",
-          "Our support team is here to assist you with any questions or issues you might have with your JMF Hosting services.",
-          "",
-          "**Before creating a ticket, please check:**",
-          "• Our [Knowledge Base](https://docs.jmfhosting.com)",
-          "• [Common Issues](https://jmfhosting.com/support/common-issues)",
-          "• [Server Status](https://status.jmfhosting.com)",
-          "",
-          "If you still need help, click below to create a ticket."
-        ].join('\n'))
-        .setThumbnail('https://i.imgur.com/XaFYhoO.png')
-        .addFields(
-          { 
-            name: '🎮 Game Server Issues', 
-            value: "```• Server not starting\n• Connection problems\n• Plugin/mod installation\n• Performance issues\n• Configuration help```", 
-            inline: true 
-          },
-          { 
-            name: '💰 Billing Questions', 
-            value: "```• Subscription management\n• Payment issues\n• Invoices and receipts\n• Plan upgrades/downgrades\n• Refund requests```", 
-            inline: true 
-          },
-          { 
-            name: '🛠️ Technical Support', 
-            value: "```• FTP access\n• Control panel issues\n• Server migration\n• Backups and restores\n• Custom configurations```" 
-          },
-          { 
-            name: '📝 General Inquiries', 
-            value: "```• Service information\n• Feature requests\n• Account management\n• Partnership opportunities\n• Other questions```" 
-          }
+      const { 
+        ticketId, 
+        user, 
+        subject, 
+        description, 
+        category = 'general',
+        categoryDetails = { label: 'General Support', emoji: '❓' },
+        priority = 'Medium',
+        contactInfo = ''
+      } = ticketData;
+
+      // Get guild and support role
+      const guild = channel.guild;
+      const supportRoleId = config.tickets?.supportRoleId;
+      const supportRole = supportRoleId ? guild.roles.cache.get(supportRoleId) : null;
+
+      // Create ticket embed with enhanced design
+      const embed = new EmbedBuilder()
+        .setTitle(`${categoryDetails.emoji || '🎫'} Ticket #${ticketId}`)
+        .setDescription(
+          `**Thank you for creating a ticket!**\n` +
+          `Our support team will assist you as soon as possible.\n\n` +
+          `**Subject:** ${subject}\n` +
+          `**Category:** ${categoryDetails.label || category}\n` +
+          `**Priority:** ${priority}\n` +
+          (contactInfo ? `**Contact:** ${contactInfo}\n\n` : '\n') +
+          `**Description:**\n${description}`
         )
-        .setTimestamp()
-        .setFooter({ text: `${config.footerText} • Average Response Time: 30 minutes` });
-      
-      // Create ticket button
-      const row = new ActionRowBuilder()
+        .setColor(config.tickets?.embedColor || '#0099ff')
+        .addFields(
+          { name: 'Created By', value: `${user}`, inline: true },
+          { name: 'Created At', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true }
+        )
+        .setFooter({ 
+          text: `Ticket ID: ${ticketId}`,
+          iconURL: guild.iconURL({ dynamic: true }) 
+        })
+        .setTimestamp();
+
+      // Create ticket control buttons
+      const buttonRow = new ActionRowBuilder()
         .addComponents(
           new ButtonBuilder()
-            .setCustomId('create_ticket')
-            .setLabel('Create Support Ticket')
-            .setStyle(ButtonStyle.Primary)
-            .setEmoji('🎫')
+            .setCustomId('claim_ticket')
+            .setLabel(config.tickets?.claimButtonText || 'Claim Ticket')
+            .setStyle(ButtonStyle.Success)
+            .setEmoji('✋'),
+          new ButtonBuilder()
+            .setCustomId('close_ticket')
+            .setLabel(config.tickets?.closeButtonText || 'Close Ticket')
+            .setStyle(ButtonStyle.Danger)
+            .setEmoji('🔒')
         );
-      
-      // Send the ticket creation message
-      await channel.send({ embeds: [ticketEmbed], components: [row] });
-      logger.info(`Ticket creation message created in channel: ${channel.name}`);
+
+      // Send initial message in ticket channel
+      const message = await channel.send({ 
+        content: `${user} ${supportRole ? `| ${supportRole}` : ''}`,
+        embeds: [embed],
+        components: [buttonRow]
+      });
+
+      // Pin the message
+      await message.pin().catch(err => logger.warn(`Could not pin ticket message: ${err.message}`));
+
+      // Set channel topic
+      await channel.setTopic(`Ticket for ${user.tag} | Subject: ${subject} | Category: ${categoryDetails.label} | Priority: ${priority}`);
+
+      // Return the message
+      return message;
     } catch (error) {
       logger.error(`Error creating ticket message: ${error.message}`);
+      return null;
     }
   },
 
@@ -524,20 +602,38 @@ module.exports = {
    */
   async createTicketPanel(channel) {
     try {
-      // Create ticket panel embed
+      // Create ticket panel embed with improved design
       const embed = new EmbedBuilder()
-        .setTitle(config.tickets?.panelTitle || 'Support Tickets')
-        .setDescription(config.tickets?.panelMessage || 'Need help? Click the button below to create a support ticket.')
+        .setTitle(config.tickets?.panelTitle || '🎫 Support Ticket System')
+        .setDescription(config.tickets?.panelMessage || 
+          '**Need assistance? We\'re here to help!**\n\n' +
+          '• Select a ticket category that best matches your issue\n' +
+          '• Provide a clear description of what you need help with\n' +
+          '• Our support team will respond as soon as possible\n\n' +
+          '*Please be patient and provide as much detail as possible to help us assist you better.*')
         .setColor(config.tickets?.embedColor || '#0099ff')
         .setTimestamp();
 
+      // Add thumbnail if configured
+      if (config.tickets?.panelThumbnail) {
+        embed.setThumbnail(config.tickets?.panelThumbnail);
+      }
+
+      // Add image if configured
+      if (config.tickets?.panelImage) {
+        embed.setImage(config.tickets?.panelImage);
+      }
+
       // Add footer if configured
       if (config.footerText) {
-        embed.setFooter({ text: config.footerText });
+        embed.setFooter({ 
+          text: config.footerText,
+          iconURL: config.footerIcon || null
+        });
       }
 
       // Create ticket button
-      const row = new ActionRowBuilder()
+      const buttonRow = new ActionRowBuilder()
         .addComponents(
           new ButtonBuilder()
             .setCustomId('create_ticket')
@@ -546,24 +642,67 @@ module.exports = {
             .setEmoji('🎫')
         );
 
+      // Create ticket category select menu if categories are configured
+      let components = [buttonRow];
+      
+      if (config.tickets?.categories && Array.isArray(config.tickets.categories) && config.tickets.categories.length > 0) {
+        const selectMenu = new StringSelectMenuBuilder()
+          .setCustomId('ticket_category')
+          .setPlaceholder('Select ticket category')
+          .setMinValues(1)
+          .setMaxValues(1);
+          
+        // Add options from config or use defaults
+        const categories = config.tickets.categories.length > 0 ? 
+          config.tickets.categories : 
+          [
+            { label: 'General Support', value: 'general', emoji: '❓', description: 'General questions and assistance' },
+            { label: 'Technical Support', value: 'technical', emoji: '🔧', description: 'Technical issues and troubleshooting' },
+            { label: 'Billing Support', value: 'billing', emoji: '💰', description: 'Billing and payment related issues' },
+            { label: 'Report Issue', value: 'report', emoji: '🚨', description: 'Report bugs or other issues' }
+          ];
+          
+        categories.forEach(category => {
+          selectMenu.addOptions({
+            label: category.label,
+            value: category.value,
+            emoji: category.emoji,
+            description: category.description
+          });
+        });
+        
+        const selectRow = new ActionRowBuilder().addComponents(selectMenu);
+        components = [selectRow, buttonRow];
+      }
+
       // Send ticket panel message
-      await channel.send({ embeds: [embed], components: [row] });
-      logger.info(`Ticket panel created in channel: ${channel.name}`);
+      await channel.send({ embeds: [embed], components });
     } catch (error) {
       logger.error(`Error creating ticket panel: ${error.message}`);
     }
   },
 
   /**
-   * Handle ticket creation button
-   * @param {ButtonInteraction} interaction - Button interaction
+   * Handle ticket category selection
+   * @param {StringSelectMenuInteraction} interaction - Select menu interaction
    */
-  async handleTicketButton(interaction) {
+  async handleTicketCategorySelect(interaction) {
     try {
+      const selectedCategory = interaction.values[0];
+      
+      // Get category details from config or use default
+      let categoryDetails = { label: 'General Support', emoji: '❓' };
+      if (config.tickets?.categories) {
+        const foundCategory = config.tickets.categories.find(c => c.value === selectedCategory);
+        if (foundCategory) {
+          categoryDetails = foundCategory;
+        }
+      }
+      
       // Create and show modal for ticket creation
       const modal = new ModalBuilder()
-        .setCustomId('ticket_modal')
-        .setTitle('Create a Support Ticket');
+        .setCustomId(`ticket_modal_${selectedCategory}`)
+        .setTitle(`${categoryDetails.emoji || '🎫'} ${categoryDetails.label || 'Support Ticket'}`);
 
       // Add ticket subject input
       const subjectInput = new TextInputBuilder()
@@ -582,20 +721,49 @@ module.exports = {
         .setStyle(TextInputStyle.Paragraph)
         .setRequired(true)
         .setMaxLength(1000);
+        
+      // Add priority input if enabled
+      const priorityInput = new TextInputBuilder()
+        .setCustomId('ticket_priority')
+        .setLabel('Priority')
+        .setPlaceholder('Low, Medium, High, or Urgent')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(false)
+        .setMaxLength(10);
+        
+      // Add contact info input
+      const contactInput = new TextInputBuilder()
+        .setCustomId('ticket_contact')
+        .setLabel('Contact Information (optional)')
+        .setPlaceholder('Additional contact info (email, etc.)')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(false)
+        .setMaxLength(100);
 
       // Add inputs to modal
       const firstActionRow = new ActionRowBuilder().addComponents(subjectInput);
       const secondActionRow = new ActionRowBuilder().addComponents(descriptionInput);
+      const thirdActionRow = new ActionRowBuilder().addComponents(priorityInput);
+      const fourthActionRow = new ActionRowBuilder().addComponents(contactInput);
+      
+      // Add all components to modal
       modal.addComponents(firstActionRow, secondActionRow);
+      
+      // Add optional components if configured
+      if (config.tickets?.enablePriority !== false) {
+        modal.addComponents(thirdActionRow);
+      }
+      
+      if (config.tickets?.enableContactInfo !== false) {
+        modal.addComponents(fourthActionRow);
+      }
 
-      // Show modal to user
+      // Show the modal
       await interaction.showModal(modal);
+      
     } catch (error) {
-      logger.error(`Error handling ticket button: ${error.message}`);
-      await interaction.reply({ 
-        content: 'An error occurred while creating the ticket. Please try again later.', 
-        ephemeral: true 
-      });
+      logger.error(`Error handling ticket category selection: ${error.message}`);
+      await this.handleError(interaction, error);
     }
   },
 
@@ -608,11 +776,32 @@ module.exports = {
       // Defer reply to prevent timeout
       await interaction.deferReply({ ephemeral: true });
 
-      const { guild, user } = interaction;
+      const { guild, user, customId } = interaction;
+      
+      // Extract category from customId (format: ticket_modal_categoryName)
+      const category = customId.startsWith('ticket_modal_') 
+        ? customId.replace('ticket_modal_', '') 
+        : 'general';
       
       // Get ticket information from modal
       const subject = interaction.fields.getTextInputValue('ticket_subject');
       const description = interaction.fields.getTextInputValue('ticket_description');
+      
+      // Get optional fields if they exist
+      let priority = 'Medium';
+      let contactInfo = '';
+      
+      try {
+        priority = interaction.fields.getTextInputValue('ticket_priority') || 'Medium';
+      } catch (e) {
+        // Field not present, use default
+      }
+      
+      try {
+        contactInfo = interaction.fields.getTextInputValue('ticket_contact') || '';
+      } catch (e) {
+        // Field not present, ignore
+      }
 
       // Check if user already has an open ticket
       const hasOpenTicket = Array.from(this.activeTickets.values()).some(
@@ -628,138 +817,124 @@ module.exports = {
 
       // Create ticket channel
       const ticketId = this.generateTicketId();
-      const channelName = `ticket-${user.username.toLowerCase().replace(/[^a-z0-9]/g, '')}-${ticketId}`;
       
-      // Get support role
-      const supportRole = guild.roles.cache.find(
-        role => role.name === (config.tickets?.supportRole || 'Support')
-      );
-
-      // Create channel permissions
-      const channelPermissions = [
-        {
-          id: guild.id,
-          deny: [PermissionFlagsBits.ViewChannel],
-        },
-        {
-          id: user.id,
-          allow: [
-            PermissionFlagsBits.ViewChannel,
-            PermissionFlagsBits.SendMessages,
-            PermissionFlagsBits.ReadMessageHistory,
-          ],
-        },
-        {
-          id: this.client.user.id,
-          allow: [
-            PermissionFlagsBits.ViewChannel,
-            PermissionFlagsBits.SendMessages,
-            PermissionFlagsBits.ReadMessageHistory,
-            PermissionFlagsBits.ManageChannels,
-          ],
+      // Get category details from config or use default
+      let categoryDetails = { label: 'General Support', emoji: '❓' };
+      if (config.tickets?.categories) {
+        const foundCategory = config.tickets.categories.find(c => c.value === category);
+        if (foundCategory) {
+          categoryDetails = foundCategory;
         }
-      ];
-
-      // Add support role permissions if it exists
-      if (supportRole) {
-        channelPermissions.push({
-          id: supportRole.id,
-          allow: [
-            PermissionFlagsBits.ViewChannel,
-            PermissionFlagsBits.SendMessages,
-            PermissionFlagsBits.ReadMessageHistory,
-          ],
-        });
       }
-
-      // Get ticket category if configured
-      let parent = null;
-      if (config.tickets?.categoryId) {
-        parent = guild.channels.cache.get(config.tickets.categoryId);
-      }
+      
+      // Format ticket channel name
+      const ticketChannelName = config.tickets?.channelNameFormat
+        ? config.tickets.channelNameFormat
+            .replace('{id}', ticketId)
+            .replace('{username}', user.username.replace(/[^a-z0-9]/gi, '').toLowerCase())
+            .replace('{category}', category)
+        : `ticket-${ticketId}`;
 
       // Create ticket channel
       const ticketChannel = await guild.channels.create({
-        name: channelName,
+        name: ticketChannelName,
         type: ChannelType.GuildText,
-        parent: parent || undefined,
-        permissionOverwrites: channelPermissions,
-        topic: `Ticket for ${user.tag} | Subject: ${subject}`,
+        parent: config.tickets?.categoryId,
+        permissionOverwrites: [
+          {
+            id: guild.id,
+            deny: [PermissionFlagsBits.ViewChannel]
+          },
+          {
+            id: user.id,
+            allow: [
+              PermissionFlagsBits.ViewChannel,
+              PermissionFlagsBits.SendMessages,
+              PermissionFlagsBits.ReadMessageHistory
+            ]
+          },
+          {
+            id: this.client.user.id,
+            allow: [
+              PermissionFlagsBits.ViewChannel,
+              PermissionFlagsBits.SendMessages,
+              PermissionFlagsBits.ReadMessageHistory,
+              PermissionFlagsBits.ManageChannels
+            ]
+          }
+        ]
       });
 
-      // Create ticket embed
-      const ticketEmbed = new EmbedBuilder()
-        .setTitle(`Ticket #${ticketId}: ${subject}`)
-        .setDescription('Thank you for creating a ticket. Support staff will assist you shortly.')
-        .addFields(
-          { name: 'Created By', value: `${user}`, inline: true },
-          { name: 'Subject', value: subject, inline: true },
-          { name: 'Description', value: description }
-        )
-        .setColor(config.tickets?.embedColor || '#0099ff')
-        .setTimestamp();
+      // Add support role permissions if configured
+      if (config.tickets?.supportRoleId) {
+        await ticketChannel.permissionOverwrites.create(config.tickets.supportRoleId, {
+          ViewChannel: true,
+          SendMessages: true,
+          ReadMessageHistory: true
+        });
+      }
 
-      // Create ticket control buttons
-      const buttonRow = new ActionRowBuilder()
-        .addComponents(
-          new ButtonBuilder()
-            .setCustomId('close_ticket')
-            .setLabel('Close Ticket')
-            .setStyle(ButtonStyle.Danger)
-            .setEmoji('🔒'),
-          new ButtonBuilder()
-            .setCustomId('claim_ticket')
-            .setLabel('Claim Ticket')
-            .setStyle(ButtonStyle.Success)
-            .setEmoji('✋')
+      // Store ticket in database
+      try {
+        await this.client.db.query(
+          'INSERT INTO tickets (ticket_id, guild_id, channel_id, user_id, subject, status, category, priority, contact_info) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          [ticketId, guild.id, ticketChannel.id, user.id, subject, 'open', category, priority, contactInfo]
         );
-
-      // Send initial message in ticket channel
-      const message = await ticketChannel.send({ 
-        content: `${user} ${supportRole ? `| ${supportRole}` : ''}`,
-        embeds: [ticketEmbed],
-        components: [buttonRow]
-      });
-
-      // Pin the message
-      await message.pin();
-
-      // Store ticket in active tickets map
-      const ticketData = {
-        userId: user.id,
-        guildId: guild.id,
-        channelId: ticketChannel.id,
-        ticketId: ticketId,
-        createdAt: new Date(),
-        subject: subject,
-        category: 'support'
-      };
-      
-      this.activeTickets.set(ticketChannel.id, ticketData);
-
-      // Store ticket in database if connected
-      if (this.client.db && this.client.db.isConnected) {
+      } catch (dbError) {
+        logger.error(`Database error creating ticket: ${dbError.message}`);
+        // If the database has an older schema without the new columns, try with the old schema
         try {
           await this.client.db.query(
-            'INSERT INTO tickets (ticket_id, user_id, guild_id, channel_id, subject, description, status, created_at, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            [ticketId, user.id, guild.id, ticketChannel.id, subject, description, 'open', new Date(), 'support']
+            'INSERT INTO tickets (ticket_id, guild_id, channel_id, user_id, subject, status) VALUES (?, ?, ?, ?, ?, ?)',
+            [ticketId, guild.id, ticketChannel.id, user.id, subject, 'open']
           );
-        } catch (error) {
-          logger.error(`Failed to store ticket in database: ${error.message}`);
+        } catch (fallbackError) {
+          logger.error(`Fallback database error creating ticket: ${fallbackError.message}`);
         }
       }
 
-      // Send confirmation to user
-      return interaction.editReply({ 
-        content: `Your ticket has been created! Please check ${ticketChannel} to continue.`, 
+      // Store ticket in memory
+      this.activeTickets.set(ticketChannel.id, {
+        id: ticketId,
+        channelId: ticketChannel.id,
+        userId: user.id,
+        guildId: guild.id,
+        subject,
+        category,
+        priority,
+        contactInfo,
+        createdAt: new Date()
+      });
+
+      // Create welcome message in ticket channel
+      await this.createTicketMessage(ticketChannel, {
+        ticketId,
+        user,
+        subject,
+        description,
+        category,
+        categoryDetails,
+        priority,
+        contactInfo
+      });
+
+      // Log ticket creation
+      await this.logTicketAction(guild, {
+        action: 'create',
+        ticketId,
+        user,
+        channel: ticketChannel
+      });
+
+      // Reply to user
+      await interaction.editReply({ 
+        content: `Your ticket has been created! Please go to ${ticketChannel} to continue.`, 
         ephemeral: true 
       });
+
     } catch (error) {
-      logger.error(`Error creating ticket: ${error.message}`);
-      return interaction.editReply({ 
-        content: 'An error occurred while creating your ticket. Please try again or contact an administrator.', 
-        ephemeral: true 
-      });
+      logger.error(`Error handling ticket modal: ${error.message}`);
+      await this.handleError(interaction, error);
     }
   },
 
@@ -830,5 +1005,161 @@ module.exports = {
    */
   generateTicketId() {
     return Math.floor(1000 + Math.random() * 9000).toString();
-  }
+  },
+
+  /**
+   * Handle ticket button interaction
+   * @param {ButtonInteraction} interaction - Button interaction
+   */
+  async handleTicketButton(interaction) {
+    try {
+      // Create and show modal for ticket creation
+      const modal = new ModalBuilder()
+        .setCustomId('ticket_modal_general')
+        .setTitle('🎫 Create a Support Ticket');
+
+      // Add ticket subject input
+      const subjectInput = new TextInputBuilder()
+        .setCustomId('ticket_subject')
+        .setLabel('Subject')
+        .setPlaceholder('Briefly describe your issue')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true)
+        .setMaxLength(100);
+
+      // Add ticket description input
+      const descriptionInput = new TextInputBuilder()
+        .setCustomId('ticket_description')
+        .setLabel('Description')
+        .setPlaceholder('Please provide details about your issue')
+        .setStyle(TextInputStyle.Paragraph)
+        .setRequired(true)
+        .setMaxLength(1000);
+        
+      // Add priority input if enabled
+      const priorityInput = new TextInputBuilder()
+        .setCustomId('ticket_priority')
+        .setLabel('Priority')
+        .setPlaceholder('Low, Medium, High, or Urgent')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(false)
+        .setMaxLength(10);
+        
+      // Add contact info input
+      const contactInput = new TextInputBuilder()
+        .setCustomId('ticket_contact')
+        .setLabel('Contact Information (optional)')
+        .setPlaceholder('Additional contact info (email, etc.)')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(false)
+        .setMaxLength(100);
+
+      // Add inputs to modal
+      const firstActionRow = new ActionRowBuilder().addComponents(subjectInput);
+      const secondActionRow = new ActionRowBuilder().addComponents(descriptionInput);
+      const thirdActionRow = new ActionRowBuilder().addComponents(priorityInput);
+      const fourthActionRow = new ActionRowBuilder().addComponents(contactInput);
+      
+      // Add all components to modal
+      modal.addComponents(firstActionRow, secondActionRow);
+      
+      // Add optional components if configured
+      if (config.tickets?.enablePriority !== false) {
+        modal.addComponents(thirdActionRow);
+      }
+      
+      if (config.tickets?.enableContactInfo !== false) {
+        modal.addComponents(fourthActionRow);
+      }
+
+      // Show the modal
+      await interaction.showModal(modal);
+      
+    } catch (error) {
+      logger.error(`Error handling ticket button: ${error.message}`);
+      await this.handleError(interaction, error);
+    }
+  },
+
+  /**
+   * Get ticket statistics
+   * @returns {Object} Ticket statistics
+   */
+  async getTicketStats() {
+    try {
+      // Get active tickets count
+      const activeTickets = this.activeTickets.size;
+      
+      // Get tickets from database if available
+      let totalTickets = activeTickets;
+      let closedTickets = 0;
+      let averageResponseTime = 0;
+      let ticketsToday = 0;
+      
+      if (this.db && this.db.isConnected) {
+        try {
+          // Get total tickets
+          const totalResult = await this.db.query('SELECT COUNT(*) as count FROM tickets');
+          totalTickets = totalResult[0]?.count || activeTickets;
+          
+          // Get closed tickets
+          const closedResult = await this.db.query('SELECT COUNT(*) as count FROM tickets WHERE status = ?', ['closed']);
+          closedTickets = closedResult[0]?.count || 0;
+          
+          // Get tickets created today
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          
+          const todayResult = await this.db.query(
+            'SELECT COUNT(*) as count FROM tickets WHERE created_at >= ?', 
+            [today]
+          );
+          ticketsToday = todayResult[0]?.count || 0;
+          
+          // Calculate average response time (if claimed_at data is available)
+          const responseTimeResult = await this.db.query(
+            'SELECT AVG(TIMESTAMPDIFF(MINUTE, created_at, claimed_at)) as avg_time FROM tickets WHERE claimed_at IS NOT NULL'
+          );
+          averageResponseTime = Math.round(responseTimeResult[0]?.avg_time || 0);
+        } catch (error) {
+          logger.error(`Error fetching ticket statistics from database: ${error.message}`);
+        }
+      }
+      
+      return {
+        activeTickets,
+        totalTickets,
+        closedTickets,
+        ticketsToday,
+        averageResponseTime,
+        categories: {
+          general: this.countTicketsByCategory('general'),
+          technical: this.countTicketsByCategory('technical'),
+          billing: this.countTicketsByCategory('billing'),
+          report: this.countTicketsByCategory('report')
+        }
+      };
+    } catch (error) {
+      logger.error(`Error getting ticket statistics: ${error.message}`);
+      return {
+        activeTickets: this.activeTickets.size,
+        totalTickets: this.activeTickets.size,
+        closedTickets: 0,
+        ticketsToday: 0,
+        averageResponseTime: 0,
+        categories: {}
+      };
+    }
+  },
+  
+  /**
+   * Count tickets by category
+   * @param {string} category - Ticket category
+   * @returns {number} Number of tickets in the category
+   */
+  countTicketsByCategory(category) {
+    return Array.from(this.activeTickets.values()).filter(ticket => 
+      ticket.category === category
+    ).length;
+  },
 }; 

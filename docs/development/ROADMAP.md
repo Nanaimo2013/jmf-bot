@@ -23,6 +23,7 @@ By JMFHosting
   - [x] Error handling
   - [x] Logging system
   - [x] Configuration management
+  - [x] Unified database schema
 - [x] User Management
   - [x] Verification system
   - [x] Role management

@@ -17,11 +17,21 @@ const database = require('../utils/database');
 
 class LevelingSystem {
   constructor() {
-    this.userDataPath = path.join(__dirname, '../../data/levels');
+    this.userDataPath = path.join(process.cwd(), 'data', 'users');
     this.messageCooldowns = new Map();
-    this.voiceStates = new Map();
+    this.voiceTimeTracking = new Map();
     this.db = null;
+    this.client = null;
     this.isInitialized = false;
+    
+    // Add locks for synchronization
+    this.userLocks = new Map();
+    this.lockTimeout = 10000; // 10 seconds timeout for locks
+    
+    // Cache for user data to reduce database calls
+    this.userDataCache = new Map();
+    this.cacheTTL = 60000; // 1 minute cache TTL
+    
     this.init();
   }
 
@@ -193,17 +203,17 @@ class LevelingSystem {
       
       // User joined a voice channel
       if (!oldState.channelId && newState.channelId) {
-        this.voiceStates.set(key, {
+        this.voiceTimeTracking.set(key, {
           joinTime: Date.now(),
           channelId: newState.channelId
         });
       }
       // User left a voice channel
       else if (oldState.channelId && !newState.channelId) {
-        const state = this.voiceStates.get(key);
+        const state = this.voiceTimeTracking.get(key);
         if (state) {
           const duration = (Date.now() - state.joinTime) / 60000; // minutes
-          this.voiceStates.delete(key);
+          this.voiceTimeTracking.delete(key);
           
           // Update total voice minutes
           this.updateUserStat(userId, guildId, 'total_voice_minutes', Math.floor(duration), true)
@@ -212,7 +222,7 @@ class LevelingSystem {
       }
       // User switched channels
       else if (oldState.channelId !== newState.channelId) {
-        const state = this.voiceStates.get(key);
+        const state = this.voiceTimeTracking.get(key);
         if (state) {
           const duration = (Date.now() - state.joinTime) / 60000; // minutes
           
@@ -221,12 +231,12 @@ class LevelingSystem {
             .catch(err => logger.error(`Error updating voice minutes: ${err.message}`));
           
           // Reset join time for new channel
-          this.voiceStates.set(key, {
+          this.voiceTimeTracking.set(key, {
             joinTime: Date.now(),
             channelId: newState.channelId
           });
         } else {
-          this.voiceStates.set(key, {
+          this.voiceTimeTracking.set(key, {
             joinTime: Date.now(),
             channelId: newState.channelId
           });
@@ -247,7 +257,7 @@ class LevelingSystem {
       const now = Date.now();
       const xpPerMinute = config.levelSystem.voiceXpPerMinute || 2;
       
-      for (const [key, state] of this.voiceStates.entries()) {
+      for (const [key, state] of this.voiceTimeTracking.entries()) {
         const [userId, guildId] = key.split('-');
         
         // Skip if user has been in voice for less than a minute
@@ -262,7 +272,7 @@ class LevelingSystem {
         
         // Check if user is still in the voice channel
         if (!member.voice.channelId) {
-          this.voiceStates.delete(key);
+          this.voiceTimeTracking.delete(key);
           continue;
         }
         
@@ -314,31 +324,50 @@ class LevelingSystem {
       const userId = user.id;
       const guildId = guild.id;
       
-      // Get current user data
-      const userData = await this.getUserData(userId, guildId);
-      const oldLevel = userData.level;
-      
-      // Add XP
-      userData.xp += amount;
-      
-      // Check for level up
-      while (userData.xp >= this.calculateRequiredXP(userData.level)) {
-        userData.xp -= this.calculateRequiredXP(userData.level);
-        userData.level++;
+      // Check if user is already being processed (has a lock)
+      const lockKey = `${userId}-${guildId}`;
+      if (this.userLocks.has(lockKey)) {
+        logger.debug(`Skipping XP add for ${user.tag} - already being processed`);
+        return;
       }
       
-      // Update last message timestamp
-      userData.lastMessageTimestamp = new Date();
+      // Set a lock for this user
+      this.userLocks.set(lockKey, Date.now());
       
-      // Save user data
-      await this.saveUserData(userId, guildId, userData);
-      
-      // Handle level up
-      if (userData.level > oldLevel) {
-        await this.handleLevelUp(user, oldLevel, userData.level, guild, channel);
+      try {
+        // Get current user data
+        const userData = await this.getUserData(userId, guildId);
+        const oldLevel = userData.level;
+        
+        // Add XP
+        userData.xp += amount;
+        
+        // Check for level up
+        while (userData.xp >= this.calculateRequiredXP(userData.level)) {
+          userData.xp -= this.calculateRequiredXP(userData.level);
+          userData.level++;
+        }
+        
+        // Update last message timestamp
+        userData.lastMessageTimestamp = new Date();
+        
+        // Save user data
+        await this.saveUserData(userId, guildId, userData);
+        
+        // Handle level up
+        if (userData.level > oldLevel) {
+          await this.handleLevelUp(user, oldLevel, userData.level, guild, channel);
+        }
+      } finally {
+        // Release the lock
+        this.userLocks.delete(lockKey);
       }
     } catch (error) {
       logger.error(`Error adding XP: ${error.message}`);
+      
+      // Make sure to release the lock in case of error
+      const lockKey = `${userId}-${guildId}`;
+      this.userLocks.delete(lockKey);
     }
   }
 
@@ -564,6 +593,14 @@ class LevelingSystem {
    */
   async getUserData(userId, guildId) {
     try {
+      // Check cache first
+      const cacheKey = `${userId}-${guildId}`;
+      const cachedData = this.userDataCache.get(cacheKey);
+      
+      if (cachedData && (Date.now() - cachedData.timestamp) < this.cacheTTL) {
+        return cachedData.data;
+      }
+      
       // Try to get from database first
       if (this.db && this.db.isConnected) {
         const results = await this.db.query(`
@@ -572,7 +609,7 @@ class LevelingSystem {
         
         if (results && results.length > 0) {
           const dbData = results[0];
-          return {
+          const userData = {
             level: dbData.level || 1,
             xp: dbData.xp || 0,
             lastMessageTimestamp: dbData.last_message_timestamp,
@@ -580,6 +617,14 @@ class LevelingSystem {
             totalMessages: dbData.total_messages || 0,
             totalVoiceMinutes: dbData.total_voice_minutes || 0
           };
+          
+          // Cache the data
+          this.userDataCache.set(cacheKey, {
+            data: userData,
+            timestamp: Date.now()
+          });
+          
+          return userData;
         }
         
         // If not found, create a new record
@@ -589,7 +634,7 @@ class LevelingSystem {
           VALUES (?, ?, 1, 0, 0, 0)
         `, [userId, guildId]);
         
-        return {
+        const newUserData = {
           level: 1,
           xp: 0,
           lastMessageTimestamp: null,
@@ -597,6 +642,14 @@ class LevelingSystem {
           totalMessages: 0,
           totalVoiceMinutes: 0
         };
+        
+        // Cache the data
+        this.userDataCache.set(cacheKey, {
+          data: newUserData,
+          timestamp: Date.now()
+        });
+        
+        return newUserData;
       }
       
       // Fallback to file-based storage
@@ -618,6 +671,12 @@ class LevelingSystem {
           
           await fs.writeFile(filePath, JSON.stringify(userData, null, 2));
         }
+        
+        // Cache the data
+        this.userDataCache.set(cacheKey, {
+          data: userData[guildId],
+          timestamp: Date.now()
+        });
         
         return userData[guildId];
       } catch (error) {
@@ -657,28 +716,29 @@ class LevelingSystem {
    */
   async saveUserData(userId, guildId, userData) {
     try {
+      // Update cache
+      const cacheKey = `${userId}-${guildId}`;
+      this.userDataCache.set(cacheKey, {
+        data: userData,
+        timestamp: Date.now()
+      });
+      
       // Save to database if available
       if (this.db && this.db.isConnected) {
         await this.db.query(`
-          INSERT INTO user_levels 
-          (user_id, guild_id, level, xp, last_message_timestamp, last_voice_timestamp, total_messages, total_voice_minutes) 
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-          ON DUPLICATE KEY UPDATE 
-          level = VALUES(level),
-          xp = VALUES(xp),
-          last_message_timestamp = VALUES(last_message_timestamp),
-          last_voice_timestamp = VALUES(last_voice_timestamp),
-          total_messages = VALUES(total_messages),
-          total_voice_minutes = VALUES(total_voice_minutes)
+          UPDATE user_levels 
+          SET level = ?, xp = ?, last_message_timestamp = ?, last_voice_timestamp = ?, 
+              total_messages = ?, total_voice_minutes = ?
+          WHERE user_id = ? AND guild_id = ?
         `, [
-          userId,
-          guildId,
           userData.level,
           userData.xp,
           userData.lastMessageTimestamp,
           userData.lastVoiceTimestamp,
-          userData.totalMessages || 0,
-          userData.totalVoiceMinutes || 0
+          userData.totalMessages,
+          userData.totalVoiceMinutes,
+          userId,
+          guildId
         ]);
         
         return;
@@ -860,6 +920,20 @@ class LevelingSystem {
     } catch (error) {
       logger.error(`Error getting total ranked users: ${error.message}`);
       return 0;
+    }
+  }
+
+  /**
+   * Clean up expired locks
+   * This should be called periodically to prevent deadlocks
+   */
+  cleanupExpiredLocks() {
+    const now = Date.now();
+    for (const [key, timestamp] of this.userLocks.entries()) {
+      if (now - timestamp > this.lockTimeout) {
+        logger.warn(`Removing expired lock for ${key}`);
+        this.userLocks.delete(key);
+      }
     }
   }
 }

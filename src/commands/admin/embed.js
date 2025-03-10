@@ -8,7 +8,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 const { createRulesEmbed } = require('../../embeds/rules-embed');
 const { createFAQEmbed } = require('../../embeds/faq-embed');
 const { createWelcomeEmbed } = require('../../embeds/welcome-embed');
@@ -20,6 +20,22 @@ const { createServerStatusEmbed } = require('../../embeds/server-status-embed');
 const { createVerifyEmbed } = require('../../embeds/verify-embed');
 const config = require('../../../config.json');
 const logger = require('../../utils/logger');
+
+// Store embed templates for quick access
+const embedTemplates = {
+  rules: { create: createRulesEmbed, name: 'Rules' },
+  faq: { create: createFAQEmbed, name: 'FAQ' },
+  welcome: { create: createWelcomeEmbed, name: 'Welcome' },
+  roles: { create: createRolesEmbed, name: 'Roles' },
+  announcement: { create: () => createAnnouncementEmbed('announcement'), name: 'Announcement' },
+  update: { create: () => createAnnouncementEmbed('update'), name: 'Update' },
+  maintenance: { create: () => createAnnouncementEmbed('maintenance'), name: 'Maintenance' },
+  game: { create: () => createAnnouncementEmbed('game'), name: 'Game Info' },
+  'server-setup': { create: createServerSetupEmbed, name: 'Server Setup' },
+  'node-status': { create: createNodeStatusEmbed, name: 'Node Status' },
+  'server-status': { create: createServerStatusEmbed, name: 'Server Status' },
+  verify: { create: createVerifyEmbed, name: 'Verification' }
+};
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -57,94 +73,10 @@ module.exports = {
             .setDescription('Channel to send the embed to')
             .setRequired(true)
         )
-        .addStringOption(option =>
-          option
-            .setName('title')
-            .setDescription('Title for custom embed (required for custom embeds)')
-            .setRequired(false)
-        )
-        .addStringOption(option =>
-          option
-            .setName('description')
-            .setDescription('Description for custom embed (required for custom embeds)')
-            .setRequired(false)
-        )
-        .addStringOption(option =>
-          option
-            .setName('color')
-            .setDescription('Color for custom embed (hex code, e.g. #00AAFF)')
-            .setRequired(false)
-        )
-        .addStringOption(option =>
-          option
-            .setName('image')
-            .setDescription('Image URL for custom embed')
-            .setRequired(false)
-        )
-        .addStringOption(option =>
-          option
-            .setName('thumbnail')
-            .setDescription('Thumbnail URL for custom embed')
-            .setRequired(false)
-        )
-        .addStringOption(option =>
-          option
-            .setName('field1_name')
-            .setDescription('Name for field 1')
-            .setRequired(false)
-        )
-        .addStringOption(option =>
-          option
-            .setName('field1_value')
-            .setDescription('Value for field 1')
-            .setRequired(false)
-        )
-        .addStringOption(option =>
-          option
-            .setName('field2_name')
-            .setDescription('Name for field 2')
-            .setRequired(false)
-        )
-        .addStringOption(option =>
-          option
-            .setName('field2_value')
-            .setDescription('Value for field 2')
-            .setRequired(false)
-        )
-        .addStringOption(option =>
-          option
-            .setName('field3_name')
-            .setDescription('Name for field 3')
-            .setRequired(false)
-        )
-        .addStringOption(option =>
-          option
-            .setName('field3_value')
-            .setDescription('Value for field 3')
-            .setRequired(false)
-        )
         .addBooleanOption(option =>
           option
-            .setName('add_timestamp')
-            .setDescription('Add timestamp to the embed')
-            .setRequired(false)
-        )
-        .addBooleanOption(option =>
-          option
-            .setName('add_button')
-            .setDescription('Add a button to the embed')
-            .setRequired(false)
-        )
-        .addStringOption(option =>
-          option
-            .setName('button_label')
-            .setDescription('Label for the button')
-            .setRequired(false)
-        )
-        .addStringOption(option =>
-          option
-            .setName('button_url')
-            .setDescription('URL for the button')
+            .setName('customize')
+            .setDescription('Customize the embed before sending')
             .setRequired(false)
         )
     )
@@ -181,17 +113,41 @@ module.exports = {
             .setDescription('Channel where the message is located')
             .setRequired(true)
         )
+        .addBooleanOption(option =>
+          option
+            .setName('customize')
+            .setDescription('Customize the embed before updating')
+            .setRequired(false)
+        )
+    )
+    .addSubcommand(subcommand =>
+      subcommand
+        .setName('custom')
+        .setDescription('Create and send a fully custom embed')
+        .addChannelOption(option =>
+          option
+            .setName('channel')
+            .setDescription('Channel to send the embed to')
+            .setRequired(true)
+        )
     ),
 
   async execute(interaction) {
     try {
-      await interaction.deferReply({ ephemeral: true });
-      
       const subcommand = interaction.options.getSubcommand();
+      
+      // Handle custom embed creation with modal
+      if (subcommand === 'custom') {
+        return this.handleCustomEmbedModal(interaction);
+      }
+      
+      // For other commands, defer the reply
+      await interaction.deferReply({ ephemeral: true });
       
       if (subcommand === 'send') {
         const type = interaction.options.getString('type');
         const channel = interaction.options.getChannel('channel');
+        const customize = interaction.options.getBoolean('customize') || false;
         
         // Check if the bot has permission to send messages in the channel
         if (!channel.permissionsFor(interaction.client.user).has('SendMessages')) {
@@ -201,134 +157,123 @@ module.exports = {
           });
         }
         
+        // If it's a custom embed and customize is true, show the modal
+        if (type === 'custom') {
+          // We need to follow up with a new interaction since we already deferred
+          await interaction.editReply({
+            content: 'Please use `/embed custom` to create a custom embed.',
+            ephemeral: true
+          });
+          return;
+        }
+        
+        // Get the embed template
         let embed;
         let components = [];
         
         // Create the appropriate embed
-        switch (type) {
-          case 'rules':
-            embed = createRulesEmbed();
-            break;
-          case 'faq':
-            embed = createFAQEmbed();
-            break;
-          case 'welcome':
-            embed = createWelcomeEmbed();
-            break;
-          case 'roles':
-            embed = createRolesEmbed();
-            break;
-          case 'announcement':
-            embed = createAnnouncementEmbed('announcement');
-            break;
-          case 'update':
-            embed = createAnnouncementEmbed('update');
-            break;
-          case 'maintenance':
-            embed = createAnnouncementEmbed('maintenance');
-            break;
-          case 'game':
-            embed = createAnnouncementEmbed('game');
-            break;
-          case 'server-setup':
-            embed = createServerSetupEmbed();
-            break;
-          case 'node-status':
-            embed = await createNodeStatusEmbed();
-            break;
-          case 'server-status':
-            embed = createServerStatusEmbed();
-            break;
-          case 'verify':
-            embed = createVerifyEmbed();
-            
-            // Add verification button
-            const verifyRow = new ActionRowBuilder()
-              .addComponents(
-                new ButtonBuilder()
-                  .setCustomId('verify')
-                  .setLabel(config.verification?.buttonText || 'Verify')
-                  .setStyle(ButtonStyle.Primary)
-                  .setEmoji('✅')
-              );
-            
-            components.push(verifyRow);
-            break;
-          case 'custom':
-            // For custom embeds, get all the options
-            const title = interaction.options.getString('title');
-            const description = interaction.options.getString('description');
-            
-            if (!title || !description) {
-              return interaction.editReply({
-                content: 'Custom embeds require at least a title and description.',
-                ephemeral: true
-              });
-            }
-            
-            const color = interaction.options.getString('color') || config.embedColor || '#00AAFF';
-            const image = interaction.options.getString('image');
-            const thumbnail = interaction.options.getString('thumbnail');
-            const addTimestamp = interaction.options.getBoolean('add_timestamp') || false;
-            
-            // Create custom embed
-            embed = new EmbedBuilder()
-              .setTitle(title)
-              .setDescription(this.replaceChannelPlaceholders(description, interaction.guild))
-              .setColor(color);
-            
-            if (image) embed.setImage(image);
-            if (thumbnail) embed.setThumbnail(thumbnail);
-            if (addTimestamp) embed.setTimestamp();
-            
-            // Add footer
-            embed.setFooter({ 
-              text: config.footerText || 'JMF Hosting | Game Server Solutions'
-            });
-            
-            // Add fields if provided
-            for (let i = 1; i <= 3; i++) {
-              const fieldName = interaction.options.getString(`field${i}_name`);
-              const fieldValue = interaction.options.getString(`field${i}_value`);
-              
-              if (fieldName && fieldValue) {
-                embed.addFields({
-                  name: fieldName,
-                  value: this.replaceChannelPlaceholders(fieldValue, interaction.guild),
-                  inline: false
-                });
-              }
-            }
-            
-            // Add button if requested
-            const addButton = interaction.options.getBoolean('add_button') || false;
-            if (addButton) {
-              const buttonLabel = interaction.options.getString('button_label');
-              const buttonUrl = interaction.options.getString('button_url');
-              
-              if (buttonLabel && buttonUrl) {
-                const row = new ActionRowBuilder()
-                  .addComponents(
-                    new ButtonBuilder()
-                      .setLabel(buttonLabel)
-                      .setURL(buttonUrl)
-                      .setStyle(ButtonStyle.Link)
-                  );
-                
-                components.push(row);
-              }
-            }
-            break;
-          default:
-            return interaction.editReply({
-              content: 'Invalid embed type.',
-              ephemeral: true
-            });
+        if (type === 'node-status') {
+          embed = await createNodeStatusEmbed();
+        } else if (embedTemplates[type]) {
+          embed = embedTemplates[type].create();
+        } else {
+          return interaction.editReply({
+            content: 'Invalid embed type.',
+            ephemeral: true
+          });
+        }
+        
+        // Add components for special embeds
+        if (type === 'verify') {
+          // Add verification button
+          const verifyRow = new ActionRowBuilder()
+            .addComponents(
+              new ButtonBuilder()
+                .setCustomId('verify')
+                .setLabel(config.verification?.buttonText || 'Verify')
+                .setStyle(ButtonStyle.Primary)
+                .setEmoji('✅')
+            );
+          
+          components.push(verifyRow);
         }
         
         // Process any channel references in the embed
-        if (type !== 'custom') {
-          embed = this.processEmbed(embed, interaction.guild);
+        embed = this.processEmbed(embed, interaction.guild);
+        
+        // If customize is true, store the embed data and show customization options
+        if (customize) {
+          // Store the embed data in a temporary object
+          const embedData = {
+            type,
+            channel: channel.id,
+            embed: embed.toJSON(),
+            components
+          };
+          
+          // Store in the client's temporary storage
+          if (!interaction.client.embedStorage) {
+            interaction.client.embedStorage = new Map();
+          }
+          
+          const storageKey = `${interaction.user.id}-${Date.now()}`;
+          interaction.client.embedStorage.set(storageKey, embedData);
+          
+          // Create customization buttons
+          const customizeRow = new ActionRowBuilder()
+            .addComponents(
+              new ButtonBuilder()
+                .setCustomId(`edit_title_${storageKey}`)
+                .setLabel('Edit Title')
+                .setStyle(ButtonStyle.Primary),
+              new ButtonBuilder()
+                .setCustomId(`edit_description_${storageKey}`)
+                .setLabel('Edit Description')
+                .setStyle(ButtonStyle.Primary),
+              new ButtonBuilder()
+                .setCustomId(`edit_color_${storageKey}`)
+                .setLabel('Edit Color')
+                .setStyle(ButtonStyle.Primary)
+            );
+          
+          const fieldsRow = new ActionRowBuilder()
+            .addComponents(
+              new ButtonBuilder()
+                .setCustomId(`add_field_${storageKey}`)
+                .setLabel('Add Field')
+                .setStyle(ButtonStyle.Secondary),
+              new ButtonBuilder()
+                .setCustomId(`add_image_${storageKey}`)
+                .setLabel('Add Image')
+                .setStyle(ButtonStyle.Secondary),
+              new ButtonBuilder()
+                .setCustomId(`add_button_${storageKey}`)
+                .setLabel('Add Button')
+                .setStyle(ButtonStyle.Secondary)
+            );
+          
+          const actionRow = new ActionRowBuilder()
+            .addComponents(
+              new ButtonBuilder()
+                .setCustomId(`send_embed_${storageKey}`)
+                .setLabel('Send Embed')
+                .setStyle(ButtonStyle.Success),
+              new ButtonBuilder()
+                .setCustomId(`preview_embed_${storageKey}`)
+                .setLabel('Preview')
+                .setStyle(ButtonStyle.Secondary),
+              new ButtonBuilder()
+                .setCustomId(`cancel_embed_${storageKey}`)
+                .setLabel('Cancel')
+                .setStyle(ButtonStyle.Danger)
+            );
+          
+          return interaction.editReply({
+            content: `Customize your ${embedTemplates[type]?.name || type} embed before sending:`,
+            embeds: [embed],
+            components: [customizeRow, fieldsRow, actionRow],
+            ephemeral: true
+          });
         }
         
         // Send the embed
@@ -349,6 +294,7 @@ module.exports = {
         const type = interaction.options.getString('type');
         const messageId = interaction.options.getString('message_id');
         const channel = interaction.options.getChannel('channel');
+        const customize = interaction.options.getBoolean('customize') || false;
         
         // Check if the bot has permission to view and send messages in the channel
         if (!channel.permissionsFor(interaction.client.user).has(['ViewChannel', 'SendMessages'])) {
@@ -381,55 +327,111 @@ module.exports = {
           let components = [];
           
           // Create the appropriate embed
-          switch (type) {
-            case 'rules':
-              embed = createRulesEmbed();
-              break;
-            case 'faq':
-              embed = createFAQEmbed();
-              break;
-            case 'welcome':
-              embed = createWelcomeEmbed();
-              break;
-            case 'roles':
-              embed = createRolesEmbed();
-              break;
-            case 'announcement':
-              embed = createAnnouncementEmbed('announcement');
-              break;
-            case 'server-setup':
-              embed = createServerSetupEmbed();
-              break;
-            case 'node-status':
-              embed = await createNodeStatusEmbed();
-              break;
-            case 'server-status':
-              embed = createServerStatusEmbed();
-              break;
-            case 'verify':
-              embed = createVerifyEmbed();
-              
-              // Add verification button
-              const verifyRow = new ActionRowBuilder()
-                .addComponents(
-                  new ButtonBuilder()
-                    .setCustomId('verify')
-                    .setLabel(config.verification?.buttonText || 'Verify')
-                    .setStyle(ButtonStyle.Primary)
-                    .setEmoji('✅')
-                );
-              
-              components.push(verifyRow);
-              break;
-            default:
-              return interaction.editReply({
-                content: 'Invalid embed type.',
-                ephemeral: true
-              });
+          if (type === 'node-status') {
+            embed = await createNodeStatusEmbed();
+          } else if (embedTemplates[type]) {
+            embed = embedTemplates[type].create();
+          } else {
+            return interaction.editReply({
+              content: 'Invalid embed type.',
+              ephemeral: true
+            });
+          }
+          
+          // Add components for special embeds
+          if (type === 'verify') {
+            // Add verification button
+            const verifyRow = new ActionRowBuilder()
+              .addComponents(
+                new ButtonBuilder()
+                  .setCustomId('verify')
+                  .setLabel(config.verification?.buttonText || 'Verify')
+                  .setStyle(ButtonStyle.Primary)
+                  .setEmoji('✅')
+              );
+            
+            components.push(verifyRow);
           }
           
           // Process any channel references in the embed
           embed = this.processEmbed(embed, interaction.guild);
+          
+          // If customize is true, store the embed data and show customization options
+          if (customize) {
+            // Store the embed data in a temporary object
+            const embedData = {
+              type,
+              channel: channel.id,
+              messageId,
+              embed: embed.toJSON(),
+              components,
+              isUpdate: true
+            };
+            
+            // Store in the client's temporary storage
+            if (!interaction.client.embedStorage) {
+              interaction.client.embedStorage = new Map();
+            }
+            
+            const storageKey = `${interaction.user.id}-${Date.now()}`;
+            interaction.client.embedStorage.set(storageKey, embedData);
+            
+            // Create customization buttons
+            const customizeRow = new ActionRowBuilder()
+              .addComponents(
+                new ButtonBuilder()
+                  .setCustomId(`edit_title_${storageKey}`)
+                  .setLabel('Edit Title')
+                  .setStyle(ButtonStyle.Primary),
+                new ButtonBuilder()
+                  .setCustomId(`edit_description_${storageKey}`)
+                  .setLabel('Edit Description')
+                  .setStyle(ButtonStyle.Primary),
+                new ButtonBuilder()
+                  .setCustomId(`edit_color_${storageKey}`)
+                  .setLabel('Edit Color')
+                  .setStyle(ButtonStyle.Primary)
+              );
+            
+            const fieldsRow = new ActionRowBuilder()
+              .addComponents(
+                new ButtonBuilder()
+                  .setCustomId(`add_field_${storageKey}`)
+                  .setLabel('Add Field')
+                  .setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder()
+                  .setCustomId(`add_image_${storageKey}`)
+                  .setLabel('Add Image')
+                  .setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder()
+                  .setCustomId(`add_button_${storageKey}`)
+                  .setLabel('Add Button')
+                  .setStyle(ButtonStyle.Secondary)
+              );
+            
+            const actionRow = new ActionRowBuilder()
+              .addComponents(
+                new ButtonBuilder()
+                  .setCustomId(`update_embed_${storageKey}`)
+                  .setLabel('Update Embed')
+                  .setStyle(ButtonStyle.Success),
+                new ButtonBuilder()
+                  .setCustomId(`preview_embed_${storageKey}`)
+                  .setLabel('Preview')
+                  .setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder()
+                  .setCustomId(`cancel_embed_${storageKey}`)
+                  .setLabel('Cancel')
+                  .setStyle(ButtonStyle.Danger)
+              );
+            
+            return interaction.editReply({
+              content: `Customize your ${embedTemplates[type]?.name || type} embed before updating:`,
+              embeds: [embed],
+              components: [customizeRow, fieldsRow, actionRow],
+              ephemeral: true
+            });
+          }
           
           // Update the message
           const messageOptions = { embeds: [embed] };
@@ -453,11 +455,91 @@ module.exports = {
       }
     } catch (error) {
       logger.error(`Error in embed command: ${error.message}`);
-      return interaction.editReply({
-        content: 'An error occurred while executing this command.',
+      if (interaction.deferred) {
+        return interaction.editReply({
+          content: 'An error occurred while executing this command.',
+          ephemeral: true
+        });
+      } else {
+        return interaction.reply({
+          content: 'An error occurred while executing this command.',
+          ephemeral: true
+        });
+      }
+    }
+  },
+  
+  /**
+   * Handle custom embed creation with modal
+   * @param {Interaction} interaction - The interaction
+   */
+  async handleCustomEmbedModal(interaction) {
+    const channel = interaction.options.getChannel('channel');
+    
+    // Check if the bot has permission to send messages in the channel
+    if (!channel.permissionsFor(interaction.client.user).has('SendMessages')) {
+      return interaction.reply({
+        content: `I don't have permission to send messages in ${channel}.`,
         ephemeral: true
       });
     }
+    
+    // Create a modal for the custom embed
+    const modal = new ModalBuilder()
+      .setCustomId(`custom_embed_${channel.id}`)
+      .setTitle('Create Custom Embed');
+    
+    // Add inputs for title and description
+    const titleInput = new TextInputBuilder()
+      .setCustomId('embed_title')
+      .setLabel('Embed Title')
+      .setStyle(TextInputStyle.Short)
+      .setPlaceholder('Enter a title for your embed')
+      .setRequired(true)
+      .setMaxLength(256);
+    
+    const descriptionInput = new TextInputBuilder()
+      .setCustomId('embed_description')
+      .setLabel('Embed Description')
+      .setStyle(TextInputStyle.Paragraph)
+      .setPlaceholder('Enter a description for your embed')
+      .setRequired(true)
+      .setMaxLength(4000);
+    
+    const colorInput = new TextInputBuilder()
+      .setCustomId('embed_color')
+      .setLabel('Embed Color (hex code)')
+      .setStyle(TextInputStyle.Short)
+      .setPlaceholder('#00AAFF')
+      .setRequired(false)
+      .setMaxLength(7);
+    
+    const imageInput = new TextInputBuilder()
+      .setCustomId('embed_image')
+      .setLabel('Image URL (optional)')
+      .setStyle(TextInputStyle.Short)
+      .setPlaceholder('https://example.com/image.png')
+      .setRequired(false);
+    
+    const fieldInput = new TextInputBuilder()
+      .setCustomId('embed_field')
+      .setLabel('Field (format: name|value)')
+      .setStyle(TextInputStyle.Paragraph)
+      .setPlaceholder('Field Name|Field Value\nAnother Field|Another Value')
+      .setRequired(false);
+    
+    // Add inputs to action rows
+    const titleActionRow = new ActionRowBuilder().addComponents(titleInput);
+    const descriptionActionRow = new ActionRowBuilder().addComponents(descriptionInput);
+    const colorActionRow = new ActionRowBuilder().addComponents(colorInput);
+    const imageActionRow = new ActionRowBuilder().addComponents(imageInput);
+    const fieldActionRow = new ActionRowBuilder().addComponents(fieldInput);
+    
+    // Add action rows to the modal
+    modal.addComponents(titleActionRow, descriptionActionRow, colorActionRow, imageActionRow, fieldActionRow);
+    
+    // Show the modal
+    await interaction.showModal(modal);
   },
   
   /**

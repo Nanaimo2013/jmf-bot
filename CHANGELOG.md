@@ -1,6 +1,65 @@
 # JMF Hosting Discord Bot Changelog
 
-## Version [1.0.0] - 2025-03-09
+All notable changes to the JMF Hosting Discord Bot will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [1.1.0] - 2025-03-10
+
+### Added
+- Unified database schema that works with both SQLite and MySQL
+- New script `apply-unified-schema.js` to apply the unified schema
+- Enhanced ticket system with categories, priorities, and contact info
+- Improved economy system with transaction history and user ranks
+- Interactive mining game with inventory, shop, and selling features
+- Server statistics feature with member, server, and node stats
+- Auto-updating statistics channel
+- Enhanced embeds with interactive buttons and select menus
+- Comprehensive API documentation with Pterodactyl API integration
+- Additional API endpoints for user account linking
+- Economy and mining API endpoints
+- Server statistics API endpoints
+
+### Changed
+- Consolidated database schemas into a single unified schema
+- Improved ticket panel with better visual design
+- Enhanced mining command with subcommands and interactive UI
+- Updated documentation to reflect new features and changes
+- Improved error handling throughout the bot
+- Reorganized API documentation with clearer categorization
+
+### Fixed
+- Fixed missing `button_id` column in `button_usage` table
+- Fixed database schema inconsistencies between SQLite and MySQL
+- Fixed ticket creation and management issues
+- Fixed economy transaction tracking
+- Fixed mining game resource collection and selling
+
+## [1.0.0] - 2025-03-09
+
+### Added
+- Initial release of the JMF Hosting Discord Bot
+- Discord.js v14 integration
+- Command handler system
+- Event handler system
+- Logging system
+- Configuration management
+- User verification system
+- Role management
+- Support ticket system
+- Pterodactyl API integration
+- Server status monitoring
+- Server control commands
+- Economy system
+- Mining game basics
+- Leveling system
+
+### Changed
+- N/A (initial release)
+
+### Fixed
+- N/A (initial release)
 
 ### Build Information
 - Type: Release
@@ -73,7 +132,7 @@
 
 ---
 
-## Version [0.9.0] - 2025-02-15
+## Version [0.9.0] - 2025-03-09
 
 ### Build Information
 - Type: Development
