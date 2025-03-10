@@ -148,6 +148,48 @@ mining.init(client);
 verification.init(client);
 tickets.init(client);
 
+// Flag to track if shutdown is in progress
+let isShuttingDown = false;
+
+// Function to gracefully shutdown the bot
+async function gracefulShutdown(signal) {
+  // Prevent multiple shutdown attempts
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+  
+  logger.info(`${signal} received. Shutting down gracefully...`);
+  
+  try {
+    // Set bot status to offline before disconnecting
+    if (client && client.user) {
+      logger.info('Setting bot status to offline...');
+      await client.user.setStatus('invisible');
+      await client.user.setActivity(null);
+    }
+    
+    // Close database connection
+    if (database && database.isConnected) {
+      logger.info('Closing database connection...');
+      await database.close();
+      logger.info('Database connection closed.');
+    }
+    
+    // Destroy the client connection to Discord
+    if (client) {
+      logger.info('Destroying Discord client connection...');
+      await client.destroy();
+      logger.info('Discord client connection destroyed.');
+    }
+    
+    logger.info('Shutdown complete. Exiting process.');
+    process.exit(0);
+  } catch (error) {
+    logger.error(`Error during shutdown: ${error.message}`);
+    logger.error(error.stack);
+    process.exit(1);
+  }
+}
+
 // Initialize database
 (async () => {
   try {
@@ -172,32 +214,10 @@ tickets.init(client);
     });
 })();
 
-// Handle process termination
-process.on('SIGINT', async () => {
-  logger.info('SIGINT received. Shutting down...');
-  
-  // Close database connection
-  if (database.isConnected) {
-    await database.close();
-  }
-  
-  // Destroy client
-  client.destroy();
-  process.exit(0);
-});
-
-process.on('SIGTERM', async () => {
-  logger.info('SIGTERM received. Shutting down...');
-  
-  // Close database connection
-  if (database.isConnected) {
-    await database.close();
-  }
-  
-  // Destroy client
-  client.destroy();
-  process.exit(0);
-});
+// Handle process termination signals
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGHUP', () => gracefulShutdown('SIGHUP'));
 
 // Handle unhandled rejections
 process.on('unhandledRejection', (error) => {
@@ -210,14 +230,7 @@ process.on('uncaughtException', (error) => {
   logger.error(`Uncaught exception: ${error.message}`);
   logger.error(error.stack);
   
-  // Close database connection
-  if (database.isConnected) {
-    database.close().finally(() => {
-      process.exit(1);
-    });
-  } else {
-    process.exit(1);
-  }
+  gracefulShutdown('UNCAUGHT_EXCEPTION');
 });
 
 // When the client is ready, run this code (only once)

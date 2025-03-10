@@ -42,6 +42,11 @@ permissions:
 jobs:
   docker-build:
     runs-on: ubuntu-latest
+    env:
+      VERSION: latest
+      PUSH: true
+      IMAGE_TYPE: standard
+      REPO_OWNER_LOWER: ${{ github.repository_owner }}
     
     steps:
     - name: Checkout repository
@@ -61,7 +66,6 @@ jobs:
     
     # Set version based on input or tag
     - name: Set version
-      id: version
       run: |
         if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
           echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_ENV
@@ -74,7 +78,6 @@ jobs:
     
     # Determine if we should push
     - name: Set push flag
-      id: push
       run: |
         if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
           echo "PUSH=${{ github.event.inputs.push_image }}" >> $GITHUB_ENV
@@ -84,7 +87,6 @@ jobs:
     
     # Determine which images to build
     - name: Set image type
-      id: image_type
       run: |
         if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
           echo "IMAGE_TYPE=${{ github.event.inputs.image_type }}" >> $GITHUB_ENV
@@ -92,16 +94,22 @@ jobs:
           echo "IMAGE_TYPE=both" >> $GITHUB_ENV
         fi
     
+    # Convert repository owner to lowercase for Docker tags
+    - name: Set lowercase repository owner
+      run: |
+        REPO_OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+        echo "REPO_OWNER_LOWER=$REPO_OWNER" >> $GITHUB_ENV
+    
     # Build and push standard image if selected
     - name: Build and push standard image
-      if: env.IMAGE_TYPE == 'standard' || env.IMAGE_TYPE == 'both'
+      if: ${{ env.IMAGE_TYPE == 'standard' || env.IMAGE_TYPE == 'both' }}
       uses: docker/build-push-action@v5
       with:
         context: .
         push: ${{ env.PUSH == 'true' }}
         tags: |
-          ghcr.io/${{ github.repository_owner }}/jmf-bot:${{ env.VERSION }}
-          ghcr.io/${{ github.repository_owner }}/jmf-bot:latest
+          ghcr.io/${{ env.REPO_OWNER_LOWER }}/jmf-bot:${{ env.VERSION }}
+          ghcr.io/${{ env.REPO_OWNER_LOWER }}/jmf-bot:latest
         labels: |
           org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
           org.opencontainers.image.created=${{ github.event.repository.updated_at }}
@@ -112,15 +120,15 @@ jobs:
     
     # Build and push light image if selected
     - name: Build and push light image
-      if: env.IMAGE_TYPE == 'light' || env.IMAGE_TYPE == 'both'
+      if: ${{ env.IMAGE_TYPE == 'light' || env.IMAGE_TYPE == 'both' }}
       uses: docker/build-push-action@v5
       with:
         context: .
         file: ./Dockerfile.light
         push: ${{ env.PUSH == 'true' }}
         tags: |
-          ghcr.io/${{ github.repository_owner }}/jmf-bot:${{ env.VERSION }}-light
-          ghcr.io/${{ github.repository_owner }}/jmf-bot:light
+          ghcr.io/${{ env.REPO_OWNER_LOWER }}/jmf-bot:${{ env.VERSION }}-light
+          ghcr.io/${{ env.REPO_OWNER_LOWER }}/jmf-bot:light
         labels: |
           org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
           org.opencontainers.image.created=${{ github.event.repository.updated_at }}
@@ -133,7 +141,7 @@ jobs:
     - name: Image details
       run: |
         echo "::group::Docker Image Details"
-        echo "Repository: ghcr.io/${{ github.repository_owner }}/jmf-bot"
+        echo "Repository: ghcr.io/${{ env.REPO_OWNER_LOWER }}/jmf-bot"
         echo "Version: ${{ env.VERSION }}"
         echo "Image Type: ${{ env.IMAGE_TYPE }}"
         echo "Pushed: ${{ env.PUSH }}"
@@ -141,10 +149,10 @@ jobs:
         
         echo "::group::How to pull this image"
         if [[ "${{ env.IMAGE_TYPE }}" == "standard" || "${{ env.IMAGE_TYPE }}" == "both" ]]; then
-          echo "docker pull ghcr.io/${{ github.repository_owner }}/jmf-bot:${{ env.VERSION }}"
+          echo "docker pull ghcr.io/${{ env.REPO_OWNER_LOWER }}/jmf-bot:${{ env.VERSION }}"
         fi
         if [[ "${{ env.IMAGE_TYPE }}" == "light" || "${{ env.IMAGE_TYPE }}" == "both" ]]; then
-          echo "docker pull ghcr.io/${{ github.repository_owner }}/jmf-bot:${{ env.VERSION }}-light"
+          echo "docker pull ghcr.io/${{ env.REPO_OWNER_LOWER }}/jmf-bot:${{ env.VERSION }}-light"
         fi
         echo "::endgroup::"
         
@@ -153,5 +161,5 @@ jobs:
         echo "  -v \${PWD}/config.json:/usr/src/app/config.json \\"
         echo "  -v \${PWD}/logs:/usr/src/app/logs \\"
         echo "  --env-file .env \\"
-        echo "  ghcr.io/${{ github.repository_owner }}/jmf-bot:${{ env.VERSION }}"
+        echo "  ghcr.io/${{ env.REPO_OWNER_LOWER }}/jmf-bot:${{ env.VERSION }}"
         echo "::endgroup::" 

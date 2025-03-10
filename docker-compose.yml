@@ -1,15 +1,22 @@
-version: '3.8'
+version: '3'
 
 services:
   jmf-bot:
-    image: ghcr.io/nanaimo2013/jmf-bot:latest
-    container_name: jmf-discord-bot
-    restart: unless-stopped
-    env_file:
-      - .env
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: jmf-bot
     volumes:
+      - ./.env:/usr/src/app/.env
+      - ./config.json:/usr/src/app/config.json
       - ./logs:/usr/src/app/logs
-      - ./config.json:/usr/src/app/config.json:ro
+      - ./data:/usr/src/app/data
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+    # Uncomment the following lines if you need to expose ports for a web dashboard
+    # ports:
+    #   - "3000:3000"
     networks:
       - jmf-network
     depends_on:

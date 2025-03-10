@@ -7,6 +7,8 @@
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
     "deploy": "node src/deploy-commands.js",
+    "deploy:global": "node src/deploy-commands.js --global",
+    "deploy:guild": "node src/deploy-commands.js --guild",
     "backup": "node src/utils/backup.js",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

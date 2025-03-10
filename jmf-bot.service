@@ -1,0 +1,26 @@
+[Unit]
+Description=JMF Hosting Discord Bot
+After=network.target
+
+[Service]
+Type=simple
+User=jmf-bot
+Group=jmf-bot
+WorkingDirectory=/opt/jmf-bot
+ExecStart=/usr/bin/node /opt/jmf-bot/src/index.js
+Restart=on-failure
+RestartSec=10
+StandardOutput=syslog
+StandardError=syslog
+SyslogIdentifier=jmf-bot
+Environment=NODE_ENV=production
+
+# Proper shutdown handling
+TimeoutStartSec=30
+TimeoutStopSec=30
+KillSignal=SIGTERM
+KillMode=mixed
+
+[Install]
+WantedBy=multi-user.target 
+

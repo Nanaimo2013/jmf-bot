@@ -138,13 +138,51 @@ update_from_github() {
   if ! command -v git &> /dev/null; then
     print_error "Git is not installed. Please install git and try again."
     return 1
-  fi
+  }
   
   # Check if it's a git repository
   if [ ! -d "$install_dir/.git" ]; then
     print_error "Not a git repository. Cannot update."
-    return 1
-  fi
+    print_info "Attempting to initialize git repository..."
+    
+    # Initialize git repository
+    git init >> "$LOG_FILE" 2>&1
+    
+    if [ $? -ne 0 ]; then
+      print_error "Failed to initialize git repository."
+      return 1
+    fi
+    
+    # Add remote origin
+    git remote add origin https://github.com/nanaimo2013/jmf-bot.git >> "$LOG_FILE" 2>&1
+    
+    if [ $? -ne 0 ]; then
+      print_error "Failed to add remote origin."
+      return 1
+    }
+    
+    print_success "Git repository initialized successfully."
+  }
+  
+  # Check remote origin
+  local remote_url=$(git config --get remote.origin.url)
+  if [ -z "$remote_url" ]; then
+    print_warning "Remote origin not set. Setting it now..."
+    git remote add origin https://github.com/nanaimo2013/jmf-bot.git >> "$LOG_FILE" 2>&1
+    
+    if [ $? -ne 0 ]; then
+      print_error "Failed to add remote origin."
+      return 1
+    }
+  elif [[ "$remote_url" != *"github.com"*"/jmf-bot"* ]]; then
+    print_warning "Remote origin does not point to the JMF Bot repository. Updating..."
+    git remote set-url origin https://github.com/nanaimo2013/jmf-bot.git >> "$LOG_FILE" 2>&1
+    
+    if [ $? -ne 0 ]; then
+      print_error "Failed to update remote origin."
+      return 1
+    }
+  }
   
   # Stash any local changes
   print_status "Stashing local changes"
@@ -153,6 +191,20 @@ update_from_github() {
   # Fetch latest changes
   print_status "Fetching latest changes"
   git fetch --all >> "$LOG_FILE" 2>&1
+  
+  if [ $? -ne 0 ]; then
+    print_error "Failed to fetch latest changes. Check your internet connection."
+    print_info "Detailed error log: $LOG_FILE"
+    return 1
+  }
+  
+  # Check if branch exists
+  if ! git show-ref --verify --quiet refs/remotes/origin/$branch; then
+    print_error "Branch '$branch' does not exist on remote. Available branches:"
+    git branch -r | grep -v '\->' | sed "s,\x1B\[[0-9;]*[a-zA-Z],,g" | sed 's/origin\//  /' >> "$LOG_FILE" 2>&1
+    git branch -r | grep -v '\->' | sed "s,\x1B\[[0-9;]*[a-zA-Z],,g" | sed 's/origin\//  /'
+    return 1
+  }
   
   # Reset to the specified branch
   print_status "Resetting to origin/$branch"
@@ -173,6 +225,7 @@ update_from_github() {
     return 0
   else
     print_error "Failed to update from GitHub"
+    print_info "Detailed error log: $LOG_FILE"
     return 1
   fi
 }
@@ -227,7 +280,20 @@ deploy_commands() {
   if [ ! -f "$install_dir/src/deploy-commands.js" ]; then
     print_error "deploy-commands.js not found"
     return 1
-  fi
+  }
+  
+  # Check if .env file exists and contains DISCORD_TOKEN and CLIENT_ID
+  if [ ! -f "$install_dir/.env" ]; then
+    print_error ".env file not found"
+    return 1
+  }
+  
+  # Check for DISCORD_TOKEN and CLIENT_ID in .env
+  if ! grep -q "DISCORD_TOKEN=" "$install_dir/.env" || ! grep -q "CLIENT_ID=" "$install_dir/.env"; then
+    print_error "DISCORD_TOKEN or CLIENT_ID not found in .env file"
+    print_info "Please make sure your .env file contains both DISCORD_TOKEN and CLIENT_ID"
+    return 1
+  }
   
   # Deploy commands
   npm run deploy >> "$LOG_FILE" 2>&1
@@ -237,6 +303,7 @@ deploy_commands() {
     return 0
   else
     print_error "Failed to deploy slash commands"
+    print_info "Check the log file for details: $LOG_FILE"
     return 1
   fi
 }
