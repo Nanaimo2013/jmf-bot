@@ -138,13 +138,13 @@ update_from_github() {
   if ! command -v git &> /dev/null; then
     print_error "Git is not installed. Please install git and try again."
     return 1
-  }
+  fi
   
   # Check if it's a git repository
   if [ ! -d "$install_dir/.git" ]; then
     print_error "Not a git repository. Cannot update."
     return 1
-  }
+  fi
   
   # Stash any local changes
   print_status "Stashing local changes"
