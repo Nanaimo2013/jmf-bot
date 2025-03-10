@@ -132,17 +132,28 @@ class Database {
 
       // Check if we have schema files for the current database type
       const schemaFiles = fs.readdirSync(schemaDir)
-        .filter(file => file.endsWith(`.${dbType}.sql`) || file.endsWith('.sql'));
+        .filter(file => {
+          // Prioritize database-specific schema files
+          if (file.endsWith(`.${dbType}.sql`)) {
+            return true;
+          }
+          // Only include generic .sql files if no database-specific file exists
+          if (file.endsWith('.sql') && !file.includes('.')) {
+            // Check if there's a database-specific version of this file
+            const dbSpecificFile = file.replace('.sql', `.${dbType}.sql`);
+            return !fs.existsSync(path.join(schemaDir, dbSpecificFile));
+          }
+          return false;
+        });
       
       if (schemaFiles.length > 0) {
+        logger.info(`Found ${schemaFiles.length} schema files for ${dbType}`);
+        
         // Execute each schema file
         for (const file of schemaFiles) {
-          // Skip files for other database types
-          if (file.includes('.') && !file.includes(dbType) && !file.endsWith('.sql')) {
-            continue;
-          }
-          
           const filePath = path.join(schemaDir, file);
+          logger.info(`Executing schema file: ${file}`);
+          
           const schema = fs.readFileSync(filePath, 'utf8');
           
           // Split the schema into individual statements
@@ -150,7 +161,13 @@ class Database {
           
           for (const statement of statements) {
             if (statement.trim()) {
-              await this.query(statement);
+              try {
+                await this.query(statement);
+              } catch (error) {
+                logger.error(`Database query error: ${error.message}`);
+                logger.error(`Query: \n\n${statement}`);
+                throw error;
+              }
             }
           }
           
@@ -158,7 +175,12 @@ class Database {
         }
       } else {
         // If no schema files, create tables directly
-        await this.createDefaultTables();
+        logger.info('No schema files found, creating tables directly');
+        if (this.dbType === 'sqlite') {
+          await this.createSqliteTables();
+        } else {
+          await this.createDefaultTables();
+        }
       }
 
       logger.info('Database tables initialized successfully');
