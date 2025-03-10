@@ -101,21 +101,56 @@ jobs:
         cache-from: type=gha
         cache-to: type=gha,mode=max
         platforms: linux/amd64,linux/arm64
+        
+    # Add a step to build and push the light version as well
+    - name: Build and push light version
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./Dockerfile.light
+        push: true
+        tags: ghcr.io/nanaimo2013/jmf-bot:light
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        platforms: linux/amd64,linux/arm64
 
-# Uncomment when ready for deployment
-#  deploy:
-#    needs: docker
-#    runs-on: ubuntu-latest
-#    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
-#    
-#    steps:
-#    - name: Deploy to production
-#      uses: appleboy/ssh-action@master
-#      with:
-#        host: ${{ secrets.SSH_HOST }}
-#        username: ${{ secrets.SSH_USERNAME }}
-#        key: ${{ secrets.SSH_KEY }}
-#        script: |
-#          cd /opt/jmf-bot
-#          docker-compose pull
-#          docker-compose up -d 
+  # Deployment job using install.sh script
+  deploy:
+    needs: docker
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Deploy to production
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.SSH_HOST }}
+        username: ${{ secrets.SSH_USERNAME }}
+        key: ${{ secrets.SSH_KEY }}
+        script: |
+          # Create a temporary directory
+          TEMP_DIR=$(mktemp -d)
+          cd $TEMP_DIR
+          
+          # Clone the repository to get the latest install.sh
+          git clone https://github.com/Nanaimo2013/jmf-bot.git
+          cd jmf-bot
+          
+          # Make install.sh executable
+          chmod +x install.sh
+          
+          # Run the install script with appropriate parameters
+          sudo ./install.sh --non-interactive \
+            --installation-dir=/opt/jmf-bot \
+            --service-user=jmf-bot \
+            --cpu-quota=30% \
+            --memory-limit=500M
+          
+          # Clean up
+          cd /
+          rm -rf $TEMP_DIR
+          
+          echo "Deployment completed at $(date)" 
