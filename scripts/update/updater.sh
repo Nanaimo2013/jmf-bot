@@ -308,7 +308,7 @@ update_database_schema() {
   echo "Available schema options:"
   echo "1) Unified schema (MySQL compatible)"
   echo "2) SQLite schema (SQLite optimized)"
-  read -p "? Choose schema [1-2] (Default: 2 for SQLite, 1 for MySQL): " SCHEMA_CHOICE
+  read -p "$(echo -e "${CYAN}${BOLD}?${NC} ${CYAN}Choose schema [1-2] (Default: 2 for SQLite, 1 for MySQL):${NC} ")" SCHEMA_CHOICE
   
   # Set default based on DB_TYPE
   if [ -z "$SCHEMA_CHOICE" ]; then

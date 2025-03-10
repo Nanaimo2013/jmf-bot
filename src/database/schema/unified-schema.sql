@@ -269,11 +269,13 @@ CREATE TABLE IF NOT EXISTS user_mining_data (
 CREATE TABLE IF NOT EXISTS user_mining_inventory (
   id INTEGER PRIMARY KEY AUTO_INCREMENT,
   user_id VARCHAR(20) NOT NULL,
+  guild_id VARCHAR(20) NOT NULL,
   resource_id VARCHAR(50) NOT NULL,
   quantity INTEGER DEFAULT 0,
+  item_type VARCHAR(20) DEFAULT 'resource',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE(user_id, resource_id)
+  UNIQUE(user_id, guild_id, resource_id)
 );
 
 -- Mining actions table

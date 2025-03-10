@@ -277,7 +277,7 @@ CREATE TABLE IF NOT EXISTS user_mining_inventory (
   quantity INTEGER NOT NULL DEFAULT 0,
   item_type VARCHAR(20) DEFAULT 'resource',
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE(user_id, resource_id)
+  UNIQUE(user_id, guild_id, resource_id)
 );
 
 -- Mining actions table
