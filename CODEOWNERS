@@ -1,0 +1,13 @@
+# JMF Hosting Discord Bot CODEOWNERS
+# © 2025 JMFHosting. All Rights Reserved.
+
+# These owners will be the default owners for everything in the repo.
+* @Nanaimo2013
+
+# Specific file ownership
+/src/ @Nanaimo2013
+/docs/ @Nanaimo2013
+/config.json.example @Nanaimo2013
+/schema.sql @Nanaimo2013
+/README.md @Nanaimo2013
+/LICENSE @Nanaimo2013 

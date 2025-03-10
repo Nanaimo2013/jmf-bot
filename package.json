@@ -1,0 +1,58 @@
+{
+  "name": "jmf-bot",
+  "version": "1.0.0",
+  "description": "Custom Discord bot for JMF Hosting server",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "deploy": "node src/deploy-commands.js",
+    "backup": "node src/utils/backup.js",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "add-copyright": "node add-copyright.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "discord",
+    "bot",
+    "jmf",
+    "hosting",
+    "game",
+    "server"
+  ],
+  "author": "JMFHosting (https://github.com/Nanaimo2013)",
+  "license": "MIT",
+  "copyright": "© 2025 JMFHosting. All Rights Reserved.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Nanaimo2013/Jmf-Bot.git"
+  },
+  "homepage": "https://jmfhosting.com",
+  "bugs": {
+    "url": "https://github.com/Nanaimo2013/Jmf-Bot/issues"
+  },
+  "dependencies": {
+    "discord.js": "^14.14.1",
+    "dotenv": "^16.3.1",
+    "mysql2": "^3.6.5",
+    "node-fetch": "^3.3.2",
+    "moment": "^2.29.4",
+    "winston": "^3.11.0",
+    "winston-daily-rotate-file": "^4.7.1",
+    "cron": "^3.1.6",
+    "express": "^4.18.2",
+    "axios": "^1.6.2",
+    "canvas": "^2.11.2",
+    "chart.js": "^4.4.1",
+    "chartjs-node-canvas": "^4.1.6",
+    "fs-extra": "^11.2.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2",
+    "eslint": "^8.55.0"
+  },
+  "engines": {
+    "node": ">=16.9.0"
+  }
+} 

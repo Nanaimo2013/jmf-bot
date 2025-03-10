@@ -1,0 +1,313 @@
+{
+  "token": "YOUR_BOT_TOKEN_HERE",
+  "clientId": "YOUR_CLIENT_ID_HERE",
+  "guildId": "YOUR_GUILD_ID_HERE",
+  "prefix": "!",
+  "embedColor": "#0099ff",
+  "footerText": "JMF Hosting | Game Server Solutions",
+  "ownerIds": ["YOUR_USER_ID_HERE"],
+  "debug": false,
+  "channels": {
+    "welcome": "📌︱welcome",
+    "announcements": "📣︱announcements",
+    "rules": "📜︱rules",
+    "general": "💬︱general",
+    "createTicket": "🎫︱create-ticket",
+    "botCommands": "🤖︱bot-commands",
+    "modLogs": "📝︱mod-logs",
+    "ticketLogs": "🎫︱ticket-logs",
+    "staffChat": "💬︱staff-chat",
+    "verification": "🔐︱verification",
+    "logs": "📝︱logs",
+    "joinLeave": "👋︱join-leave",
+    "moderationLogs": "📝︱mod-logs",
+    "nodes": "🖥️︱node-status",
+    "status": "⚙️︱service-status",
+    "maintenanceAnnouncements": "🔧︱maintenance-announcements",
+    "uptime": "📈︱uptime",
+    "leveling": "⭐︱leveling",
+    "leaderboard": "🏆︱leaderboard",
+    "mining": "⛏️︱mining",
+    "shop": "🛒︱shop",
+    "inventory": "🎒︱inventory",
+    "economy": "💰︱economy"
+  },
+  "roles": {
+    "owner": "Owner",
+    "admin": "Administrator",
+    "moderator": "Moderator",
+    "support": "Support Staff",
+    "developer": "Developer",
+    "partner": "Partner",
+    "contentCreator": "Content Creator",
+    "premiumTier3": "Premium Tier 3",
+    "premiumTier2": "Premium Tier 2",
+    "premiumTier1": "Premium Tier 1",
+    "activeMember": "Active Member",
+    "member": "Member",
+    "bot": "Bot",
+    "unverified": "Unverified"
+  },
+  "categories": {
+    "information": "📢 INFORMATION",
+    "community": "🎮 COMMUNITY",
+    "support": "🎫 SUPPORT",
+    "games": "🎲 GAMES",
+    "tutorials": "🔧 TUTORIALS",
+    "voice": "💬 VOICE CHANNELS",
+    "staff": "👥 STAFF AREA",
+    "development": "💻 DEVELOPMENT",
+    "status": "📊 STATUS",
+    "economy": "💰 ECONOMY & GAMES"
+  },
+  "welcomeMessage": "Welcome to the JMF Hosting Discord server, {user}! Please read the rules in <#RULES_CHANNEL_ID> and verify yourself to gain access to the rest of the server.",
+  "sendWelcomeDM": true,
+  "welcomeDMMessage": "Thanks for joining our server! We're glad to have you here. If you need any help, feel free to create a support ticket.",
+  "autoMod": {
+    "enabled": true,
+    "maxMentions": 5,
+    "maxEmojis": 10,
+    "maxCaps": 70,
+    "inviteFilter": true,
+    "linkFilter": true,
+    "allowedLinks": ["discord.gg/jmfhosting", "jmfhosting.com"]
+  },
+  "memberCountChannels": {
+    "enabled": false,
+    "totalChannel": "TOTAL_CHANNEL_ID",
+    "humanChannel": "HUMAN_CHANNEL_ID",
+    "botChannel": "BOT_CHANNEL_ID",
+    "updateInterval": 300
+  },
+  "autoRole": {
+    "enabled": false,
+    "roles": ["Member"]
+  },
+  "levelSystem": {
+    "enabled": true,
+    "xpPerMessage": 5,
+    "xpCooldown": 60,
+    "voiceXpPerMinute": 2,
+    "levelUpMessage": "Congratulations {user}! You've reached level {level}!",
+    "levelUpChannel": "⭐︱leveling",
+    "levelRoles": {
+      "5": "Level 5",
+      "10": "Level 10",
+      "20": "Level 20",
+      "30": "Level 30",
+      "50": "Level 50"
+    },
+    "xpMultipliers": {
+      "premiumTier1": 1.1,
+      "premiumTier2": 1.25,
+      "premiumTier3": 1.5
+    },
+    "levelFormula": "100 * (level ^ 1.5)"
+  },
+  "miningGame": {
+    "enabled": true,
+    "cooldown": 60,
+    "worlds": [
+      {
+        "name": "Coal Mine",
+        "level": 1,
+        "resources": [
+          {"name": "Coal", "value": 5, "chance": 70, "xp": 2},
+          {"name": "Iron Ore", "value": 10, "chance": 25, "xp": 5},
+          {"name": "Silver Ore", "value": 25, "chance": 5, "xp": 10}
+        ],
+        "unlockCost": 0
+      },
+      {
+        "name": "Gold Mine",
+        "level": 10,
+        "resources": [
+          {"name": "Iron Ore", "value": 10, "chance": 50, "xp": 5},
+          {"name": "Gold Ore", "value": 50, "chance": 35, "xp": 15},
+          {"name": "Ruby", "value": 100, "chance": 15, "xp": 25}
+        ],
+        "unlockCost": 1000
+      },
+      {
+        "name": "Diamond Cave",
+        "level": 25,
+        "resources": [
+          {"name": "Gold Ore", "value": 50, "chance": 50, "xp": 15},
+          {"name": "Diamond", "value": 200, "chance": 30, "xp": 40},
+          {"name": "Emerald", "value": 300, "chance": 20, "xp": 60}
+        ],
+        "unlockCost": 5000
+      },
+      {
+        "name": "Ancient Ruins",
+        "level": 50,
+        "resources": [
+          {"name": "Diamond", "value": 200, "chance": 40, "xp": 40},
+          {"name": "Ancient Artifact", "value": 500, "chance": 35, "xp": 100},
+          {"name": "Mythical Gem", "value": 1000, "chance": 25, "xp": 200}
+        ],
+        "unlockCost": 25000
+      },
+      {
+        "name": "Void Realm",
+        "level": 100,
+        "resources": [
+          {"name": "Void Crystal", "value": 2000, "chance": 50, "xp": 300},
+          {"name": "Cosmic Essence", "value": 5000, "chance": 35, "xp": 500},
+          {"name": "Universe Core", "value": 10000, "chance": 15, "xp": 1000}
+        ],
+        "unlockCost": 100000
+      }
+    ],
+    "pickaxes": [
+      {"name": "Wooden Pickaxe", "power": 1, "cost": 0, "cooldownReduction": 0},
+      {"name": "Stone Pickaxe", "power": 2, "cost": 500, "cooldownReduction": 5},
+      {"name": "Iron Pickaxe", "power": 3, "cost": 2000, "cooldownReduction": 10},
+      {"name": "Gold Pickaxe", "power": 5, "cost": 7500, "cooldownReduction": 15},
+      {"name": "Diamond Pickaxe", "power": 8, "cost": 25000, "cooldownReduction": 20},
+      {"name": "Void Pickaxe", "power": 12, "cost": 75000, "cooldownReduction": 30},
+      {"name": "Cosmic Pickaxe", "power": 20, "cost": 250000, "cooldownReduction": 40}
+    ],
+    "pets": [
+      {"name": "Mining Rat", "cost": 1000, "bonusChance": 5, "description": "5% chance to find extra resources"},
+      {"name": "Cave Bat", "cost": 5000, "cooldownReduction": 10, "description": "Reduces mining cooldown by 10 seconds"},
+      {"name": "Rock Golem", "cost": 15000, "valueBuff": 10, "description": "Increases the value of mined resources by 10%"},
+      {"name": "Crystal Dragon", "cost": 50000, "rareChance": 10, "description": "10% increased chance to find rare resources"},
+      {"name": "Void Walker", "cost": 150000, "allBuff": 15, "description": "15% buff to all mining stats"}
+    ],
+    "armor": [
+      {"name": "Leather Armor", "cost": 2000, "xpBoost": 5, "description": "5% more mining XP"},
+      {"name": "Iron Armor", "cost": 10000, "cooldownReduction": 5, "description": "Reduces mining cooldown by 5 seconds"},
+      {"name": "Gold Armor", "cost": 30000, "valueBuff": 15, "description": "15% more value from mined resources"},
+      {"name": "Diamond Armor", "cost": 100000, "allBuff": 10, "description": "10% buff to all mining stats"},
+      {"name": "Void Armor", "cost": 300000, "allBuff": 25, "description": "25% buff to all mining stats"}
+    ],
+    "boosters": [
+      {"name": "XP Booster", "cost": 5000, "duration": 3600, "xpBoost": 50, "description": "50% more mining XP for 1 hour"},
+      {"name": "Value Booster", "cost": 7500, "duration": 3600, "valueBuff": 50, "description": "50% more value from mined resources for 1 hour"},
+      {"name": "Luck Booster", "cost": 10000, "duration": 3600, "rareChance": 50, "description": "50% increased chance to find rare resources for 1 hour"},
+      {"name": "Speed Booster", "cost": 7500, "duration": 3600, "cooldownReduction": 30, "description": "30 second reduction to mining cooldown for 1 hour"},
+      {"name": "Ultimate Booster", "cost": 25000, "duration": 3600, "allBuff": 30, "description": "30% buff to all mining stats for 1 hour"}
+    ]
+  },
+  "economy": {
+    "enabled": true,
+    "startingBalance": 100,
+    "currencyName": "Coins",
+    "currencySymbol": "🪙",
+    "dailyReward": {
+      "min": 50,
+      "max": 200,
+      "cooldown": 86400
+    },
+    "workReward": {
+      "min": 10,
+      "max": 50,
+      "cooldown": 3600
+    },
+    "gambleMinAmount": 10,
+    "interestRate": 0.01,
+    "interestInterval": 86400,
+    "transferFee": 0.05,
+    "transferEnabled": true,
+    "shopItems": [
+      {"name": "VIP Role (1 week)", "cost": 5000, "description": "Get the VIP role for 1 week", "duration": 604800},
+      {"name": "Custom Role", "cost": 25000, "description": "Create your own custom role with a custom color"},
+      {"name": "Server Boost", "cost": 15000, "description": "Boost your XP gain by 25% for 1 week", "duration": 604800},
+      {"name": "Voice Channel", "cost": 10000, "description": "Create your own private voice channel for 1 week", "duration": 604800}
+    ]
+  },
+  "database": {
+    "enabled": true,
+    "host": "localhost",
+    "port": 3306,
+    "user": "jmfbot",
+    "password": "your_password_here",
+    "name": "jmfbot",
+    "connectionLimit": 10,
+    "backupEnabled": true,
+    "backupInterval": 86400,
+    "backupPath": "./backups"
+  },
+  "aiChat": {
+    "enabled": true,
+    "channelId": "ai-chat",
+    "service": "openai",
+    "openai": {
+      "apiKey": "your_openai_api_key_here",
+      "model": "gpt-3.5-turbo",
+      "maxTokens": 150,
+      "temperature": 0.7,
+      "systemPrompt": "You are a helpful assistant in the JMF Hosting Discord server. You help users with questions about hosting services, game servers, and general support."
+    },
+    "huggingface": {
+      "apiKey": "your_huggingface_api_key_here",
+      "model": "gpt2",
+      "maxLength": 100,
+      "temperature": 0.7
+    },
+    "customApi": {
+      "url": "https://your-custom-api-url.com/chat",
+      "apiKey": "your_custom_api_key_here"
+    }
+  },
+  "verification": {
+    "enabled": true,
+    "verifiedRole": "Member",
+    "unverifiedRole": "Unverified",
+    "message": "Welcome to the server! Please click the button below to verify yourself and gain access to the server.",
+    "buttonText": "Verify",
+    "successMessage": "You have been successfully verified! You now have access to the server.",
+    "embedColor": "#00FF00",
+    "sendWelcomeMessage": true,
+    "welcomeChannel": "welcome",
+    "instructionsChannel": "verification"
+  },
+  "tickets": {
+    "enabled": true,
+    "supportRole": "Support Staff",
+    "categoryId": "CATEGORY_ID_HERE",
+    "panelTitle": "Support Tickets",
+    "panelMessage": "Need help? Click the button below to create a support ticket.",
+    "buttonText": "Create Ticket",
+    "embedColor": "#0099ff",
+    "allowMultipleTickets": false,
+    "saveTranscripts": true,
+    "transcriptChannel": "TRANSCRIPT_CHANNEL_ID_HERE",
+    "deleteDelay": 5000,
+    "inactivityTimeout": 86400,
+    "inactivityWarning": true,
+    "inactivityWarningMessage": "This ticket has been inactive for 24 hours. It will be automatically closed in 12 hours if there is no activity."
+  },
+  "logging": {
+    "enabled": true,
+    "level": "info",
+    "consoleLevel": "info",
+    "fileLevel": "debug",
+    "maxFiles": 30,
+    "maxSize": "10m"
+  },
+  "webDashboard": {
+    "enabled": false,
+    "port": 3000,
+    "secret": "your_secret_key_here",
+    "callbackURL": "http://localhost:3000/auth/callback"
+  },
+  "statusMonitor": {
+    "enabled": true,
+    "updateInterval": 300,
+    "statusChannelId": "STATUS_CHANNEL_ID_HERE",
+    "services": [
+      {
+        "name": "Website",
+        "url": "https://jmfhosting.com",
+        "type": "http"
+      },
+      {
+        "name": "Game Panel",
+        "url": "https://panel.jmfhosting.com",
+        "type": "http"
+      }
+    ]
+  }
+} 
