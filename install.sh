@@ -279,6 +279,43 @@ test_bot_configuration() {
     log "SUCCESS" "Discord token format looks valid"
   fi
   
+  # Ask for Pterodactyl API configuration
+  echo -e "\n${YELLOW}${BOLD}${STAR} Pterodactyl API Configuration:${NC}"
+  echo -e "${BLUE}${BOLD}${INFO} Pterodactyl has two API types:${NC}"
+  echo -e "  ${CYAN}${BOLD}1. Application API${NC} (Admin level, for managing servers, users, nodes)"
+  echo -e "  ${CYAN}${BOLD}2. Client API${NC} (User level, for controlling your own servers)"
+  echo -e "${BLUE}${BOLD}${INFO} The bot typically needs Application API access for full functionality.${NC}"
+
+  read -p "$(echo -e "${CYAN}${BOLD}?${NC} ${CYAN}Which API type do you want to use? (1=Application, 2=Client) [1]:${NC} ")" API_TYPE
+  API_TYPE=${API_TYPE:-1}
+
+  read -p "$(echo -e "${CYAN}${BOLD}?${NC} ${CYAN}Pterodactyl Panel URL (e.g., https://panel.jmfhosting.com):${NC} ")" PANEL_URL
+  log "INFO" "Pterodactyl Panel URL: $PANEL_URL"
+
+  # Remove trailing slash if present
+  PANEL_URL="${PANEL_URL%/}"
+
+  # Set the API URL based on the selected API type
+  if [ "$API_TYPE" = "1" ]; then
+    PTERODACTYL_API_URL="${PANEL_URL}/api/application"
+    print_info "$INFO" "Using Application API: $PTERODACTYL_API_URL"
+    log "INFO" "Using Application API: $PTERODACTYL_API_URL"
+    
+    echo -e "${BLUE}${BOLD}${INFO} For Application API, you need an API key with these permissions:${NC}"
+    echo -e "  ${CYAN}- Read & Write permissions for Servers${NC}"
+    echo -e "  ${CYAN}- Read permissions for Users, Nodes, and Allocations${NC}"
+  else
+    PTERODACTYL_API_URL="${PANEL_URL}/api/client"
+    print_info "$INFO" "Using Client API: $PTERODACTYL_API_URL"
+    log "INFO" "Using Client API: $PTERODACTYL_API_URL"
+    
+    echo -e "${BLUE}${BOLD}${INFO} For Client API, you need an API key created in your user account settings.${NC}"
+    echo -e "${YELLOW}${BOLD}${WARNING} Note: Client API has limited functionality and may not support all bot features.${NC}"
+  fi
+
+  read -p "$(echo -e "${CYAN}${BOLD}?${NC} ${CYAN}Pterodactyl API Key:${NC} ")" PTERODACTYL_API_KEY
+  log "INFO" "Pterodactyl API Key provided (hidden for security)"
+
   # Test Pterodactyl API URL
   if [[ ! $PTERODACTYL_API_URL =~ ^https?:// ]]; then
     print_warning "$WARNING" "Pterodactyl API URL should start with http:// or https://"
@@ -292,25 +329,35 @@ test_bot_configuration() {
     log "INFO" "Testing connection to Pterodactyl API"
     
     if command_exists curl; then
-      HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$PTERODACTYL_API_URL" 2>> "$LOG_FILE")
+      # Test with the API key to get a more accurate response
+      HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $PTERODACTYL_API_KEY" "$PTERODACTYL_API_URL" 2>> "$LOG_FILE")
       
       if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 400 ]; then
         print_success "$CHECK_MARK" "Connection to Pterodactyl API successful (HTTP $HTTP_STATUS)"
         log "SUCCESS" "Connection to Pterodactyl API successful (HTTP $HTTP_STATUS)"
       else
-        print_warning "$WARNING" "Could not connect to Pterodactyl API (HTTP $HTTP_STATUS). Please verify the URL"
+        print_warning "$WARNING" "Could not connect to Pterodactyl API (HTTP $HTTP_STATUS). Please verify the URL and API key"
         log "WARNING" "Could not connect to Pterodactyl API (HTTP $HTTP_STATUS)"
         
-        # Suggest the application API URL if using admin API
-        if [[ "$PTERODACTYL_API_URL" == *"/api" ]] && [[ ! "$PTERODACTYL_API_URL" == *"/api/application" ]]; then
-          SUGGESTED_URL="${PTERODACTYL_API_URL}/application"
-          print_info "$INFO" "You might need to use the application API URL: $SUGGESTED_URL"
+        # Provide more detailed information based on status code
+        if [ "$HTTP_STATUS" -eq 401 ] || [ "$HTTP_STATUS" -eq 403 ]; then
+          print_warning "$WARNING" "Authentication failed. Please check your API key."
+          log "WARNING" "Authentication failed. Please check your API key."
           
-          read -p "$(echo -e "${YELLOW}${BOLD}?${NC} ${YELLOW}Would you like to use this URL instead? (y/n):${NC} ")" USE_SUGGESTED
-          if [[ "$USE_SUGGESTED" =~ ^[Yy]$ ]]; then
-            PTERODACTYL_API_URL="$SUGGESTED_URL"
-            print_success "$CHECK_MARK" "Updated Pterodactyl API URL to: $PTERODACTYL_API_URL"
-            log "SUCCESS" "Updated Pterodactyl API URL to: $PTERODACTYL_API_URL"
+          if [ "$API_TYPE" = "1" ]; then
+            print_info "$INFO" "For Application API, make sure you created the key in the admin panel under 'Application API'."
+          else
+            print_info "$INFO" "For Client API, make sure you created the key in your account settings under 'API Credentials'."
+          fi
+        elif [ "$HTTP_STATUS" -eq 404 ]; then
+          print_warning "$WARNING" "API endpoint not found. Please check the URL."
+          log "WARNING" "API endpoint not found. Please check the URL."
+          
+          # Suggest trying the other API type
+          if [ "$API_TYPE" = "1" ]; then
+            print_info "$INFO" "You might want to try the Client API instead: ${PANEL_URL}/api/client"
+          else
+            print_info "$INFO" "You might want to try the Application API instead: ${PANEL_URL}/api/application"
           fi
         fi
       fi
@@ -512,11 +559,8 @@ echo -e "\n${YELLOW}${BOLD}${STAR} Please provide the following information:${NC
 read -p "$(echo -e "${CYAN}${BOLD}?${NC} ${CYAN}Discord Bot Token:${NC} ")" BOT_TOKEN
 log "INFO" "Discord Bot Token provided (hidden for security)"
 
-read -p "$(echo -e "${CYAN}${BOLD}?${NC} ${CYAN}Pterodactyl API URL (e.g., https://panel.jmfhosting.com):${NC} ")" PTERODACTYL_API_URL
-log "INFO" "Pterodactyl API URL: $PTERODACTYL_API_URL"
-
-read -p "$(echo -e "${CYAN}${BOLD}?${NC} ${CYAN}Pterodactyl API Key:${NC} ")" PTERODACTYL_API_KEY
-log "INFO" "Pterodactyl API Key provided (hidden for security)"
+# Test configuration
+test_bot_configuration
 
 # Ask for service user
 DEFAULT_USER="root"
