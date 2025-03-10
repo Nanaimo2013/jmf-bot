@@ -15,7 +15,7 @@
 # without interfering with existing services like Pterodactyl Panel
 
 # Version
-VERSION="1.2.0"
+VERSION="1.2.1"
 
 # Text colors and formatting
 BOLD='\033[1m'
@@ -465,12 +465,27 @@ mkdir -p "$INSTALL_DIR/logs"
 print_status "$GEAR" "Installing Node.js dependencies"
 log "INFO" "Installing Node.js dependencies"
 cd "$INSTALL_DIR"
-npm install --production >> "$LOG_FILE" 2>&1
+# Use --legacy-peer-deps to fix dependency conflicts between chart.js and chartjs-node-canvas
+npm install --production --legacy-peer-deps >> "$LOG_FILE" 2>&1
 
 if [ $? -ne 0 ]; then
-  print_error "$CROSS_MARK" "Failed to install Node.js dependencies"
-  log "ERROR" "Failed to install Node.js dependencies"
-  exit 1
+  print_warning "$WARNING" "First attempt to install dependencies failed, trying with additional flags"
+  log "WARNING" "First attempt to install dependencies failed, trying with additional flags"
+  
+  # Try with force flag as a fallback
+  npm install --production --legacy-peer-deps --force >> "$LOG_FILE" 2>&1
+  
+  if [ $? -ne 0 ]; then
+    print_error "$CROSS_MARK" "Failed to install Node.js dependencies"
+    log "ERROR" "Failed to install Node.js dependencies"
+    exit 1
+  else
+    print_success "$CHECK_MARK" "Dependencies installed successfully with force flag"
+    log "SUCCESS" "Dependencies installed successfully with force flag"
+  fi
+else
+  print_success "$CHECK_MARK" "Dependencies installed successfully"
+  log "SUCCESS" "Dependencies installed successfully"
 fi
 
 # Create .env file
