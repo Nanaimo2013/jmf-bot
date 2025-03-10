@@ -4,12 +4,14 @@
 
 ### A custom Discord bot for the JMF Hosting server
 
-###        ██╗███╗   ███╗███████╗    ██████╗  ██████╗ ████████╗
-###        ██║████╗ ████║██╔════╝    ██╔══██╗██╔═══██╗╚══██╔══╝
-###        ██║██╔████╔██║█████╗█████╗██████╔╝██║   ██║   ██║   
-###   ██   ██║██║╚██╔╝██║██╔══╝╚════╝██╔══██╗██║   ██║   ██║   
-###   ╚█████╔╝██║ ╚═╝ ██║██║         ██████╔╝╚██████╔╝   ██║   
-###    ╚════╝ ╚═╝     ╚═╝╚═╝         ╚═════╝  ╚═════╝    ╚═╝   
+<pre>
+      ██╗███╗   ███╗███████╗    ██████╗  ██████╗ ████████╗
+      ██║████╗ ████║██╔════╝    ██╔══██╗██╔═══██╗╚══██╔══╝
+      ██║██╔████╔██║█████╗█████╗██████╔╝██║   ██║   ██║   
+ ██   ██║██║╚██╔╝██║██╔══╝╚════╝██╔══██╗██║   ██║   ██║   
+ ╚█████╔╝██║ ╚═╝ ██║██║         ██████╔╝╚██████╔╝   ██║   
+  ╚════╝ ╚═╝     ╚═╝╚═╝         ╚═════╝  ╚═════╝    ╚═╝   
+</pre>
 
 <br/>
 
@@ -17,7 +19,7 @@
 [![Discord.js](https://img.shields.io/badge/discord.js-v14-blue.svg?style=for-the-badge)](https://discord.js.org/)
 [![Node.js](https://img.shields.io/badge/node.js-%3E%3D16.9.0-brightgreen.svg?style=for-the-badge)](https://nodejs.org/)
 [![MySQL](https://img.shields.io/badge/mysql-v8-orange.svg?style=for-the-badge)](https://www.mysql.com/)
-[![Version](https://img.shields.io/badge/VERSION-0.1.0-blue.svg?style=for-the-badge)](https://github.com/Nanaimo2013/Jmf-Bot/releases)
+[![Version](https://img.shields.io/badge/VERSION-1.0.0-blue.svg?style=for-the-badge)](https://github.com/Nanaimo2013/Jmf-Bot/releases)
 [![Build](https://img.shields.io/badge/BUILD-in_progress-yellow.svg?style=for-the-badge)](https://github.com/Nanaimo2013/Jmf-Bot/actions)
 [![Docker](https://img.shields.io/badge/docker-supported-2496ED.svg?style=for-the-badge&logo=docker)](https://github.com/Nanaimo2013/Jmf-Bot/pkgs/container/jmf-bot)
 [![GitHub Actions](https://img.shields.io/badge/CI%2FCD-GitHub_Actions-2088FF.svg?style=for-the-badge&logo=github-actions)](https://github.com/Nanaimo2013/Jmf-Bot/actions)
