@@ -11,9 +11,7 @@ This guide provides step-by-step instructions for deploying the JMF Hosting Disc
 
 ## Option 1: Quick Installation (Recommended)
 
-We've created an automated installer script that handles all the setup for you:
-
-```bash
+We've created an automated installer script that handles all the setup for you:```bash
 # Download the installation script
 wget -O install.sh https://raw.githubusercontent.com/Nanaimo2013/Jmf-Bot/main/install.sh
 chmod +x install.sh
@@ -315,3 +313,4 @@ pm2 restart jmf-bot --max-memory-restart 200M
 Your JMF Hosting Discord bot should now be running on the same VM as your Pterodactyl panel. This setup provides a cost-effective and efficient way to manage both services while enabling direct integration between them.
 
 If you encounter any issues or need further assistance, please contact the JMF Hosting support team or join our [Discord server](https://discord.gg/qZBWNjuBzy). 
+

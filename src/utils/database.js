@@ -21,6 +21,7 @@ class Database {
     this.connection = null;
     this.isConnected = false;
     this.dbType = process.env.DB_TYPE || 'sqlite'; // Default to SQLite if not specified
+    logger.info(`Database type set to: ${this.dbType}`);
   }
 
   /**
@@ -173,6 +174,7 @@ class Database {
    */
   async createDefaultTables() {
     try {
+      logger.info(`Creating default tables for ${this.dbType} database`);
       if (this.dbType === 'mysql') {
         await this.createMysqlTables();
       } else if (this.dbType === 'sqlite') {

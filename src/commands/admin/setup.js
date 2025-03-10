@@ -16,7 +16,7 @@ const tickets = require('../../modules/tickets');
 
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName('setup')
+    .setName('server-setup')
     .setDescription('Set up the Discord server with roles, channels, and permissions')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
   

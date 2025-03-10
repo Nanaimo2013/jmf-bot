@@ -273,16 +273,26 @@ test_discord_connection() {
     
     print_status "Creating temporary test script for Discord connection"
     
-    # Create a temporary test script
+    # Create a temporary test script with direct token usage
     cat > "$TEMP_TEST_FILE" << EOF
-require('dotenv').config();
+// Discord connection test script
 const { Client, GatewayIntentBits } = require('discord.js');
+
+// Use the token directly instead of relying on dotenv
+const TOKEN = '$DISCORD_TOKEN';
 
 const client = new Client({ 
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages
   ] 
+});
+
+// Log any unhandled errors
+process.on('unhandledRejection', error => {
+  console.error('UNHANDLED_REJECTION');
+  console.error(error.message);
+  process.exit(1);
 });
 
 client.once('ready', () => {
@@ -306,7 +316,8 @@ setTimeout(() => {
   process.exit(1);
 }, 30000);
 
-client.login(process.env.DISCORD_TOKEN).catch(error => {
+// Login with the token directly
+client.login(TOKEN).catch(error => {
   console.error('DISCORD_LOGIN_ERROR');
   console.error(error.message);
   process.exit(1);
@@ -324,9 +335,17 @@ EOF
       return 1
     }
     
+    # Log the test script for debugging
+    echo "Discord test script content:" >> "$LOG_FILE"
+    cat "$TEMP_TEST_FILE" | grep -v "TOKEN" >> "$LOG_FILE"
+    
     # Capture the output
     TEST_OUTPUT=$(sudo -u jmf-bot node "$TEMP_TEST_FILE" 2>&1)
     TEST_EXIT_CODE=$?
+    
+    # Log the output for debugging
+    echo "Discord test output:" >> "$LOG_FILE"
+    echo "$TEST_OUTPUT" >> "$LOG_FILE"
     
     # Clean up
     rm -f "$TEMP_TEST_FILE"
@@ -356,9 +375,14 @@ EOF
         print_error "Connection error: $ERROR_MSG"
       elif echo "$TEST_OUTPUT" | grep -q "DISCORD_CONNECTION_TIMEOUT"; then
         print_error "Connection timed out"
+      elif echo "$TEST_OUTPUT" | grep -q "UNHANDLED_REJECTION"; then
+        ERROR_MSG=$(echo "$TEST_OUTPUT" | grep -A 1 "UNHANDLED_REJECTION" | tail -n 1)
+        print_error "Unhandled error: $ERROR_MSG"
       else
         print_error "Unknown error"
-        echo "$TEST_OUTPUT" >> "$LOG_FILE"
+        # Print the first few lines of output to help diagnose the issue
+        echo "$TEST_OUTPUT" | head -n 10 >> "$LOG_FILE"
+        print_info "Check the log file for more details: $LOG_FILE"
       fi
       
       return 1

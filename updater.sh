@@ -11,7 +11,7 @@
 # © 2025 JMFHosting. All Rights Reserved.
 # Developed by Nanaimo2013 (https://github.com/Nanaimo2013)
 #
-# This script updates the JMF Hosting Discord Bot without requiring a full reinstallation
+# This script updates the JMF Hosting Discord Bot from GitHub
 
 # Version
 VERSION="1.0.0"
@@ -19,10 +19,15 @@ VERSION="1.0.0"
 # Text colors and formatting
 BOLD='\033[1m'
 GREEN='\033[0;32m'
+LIGHT_GREEN='\033[1;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
+LIGHT_RED='\033[1;31m'
 BLUE='\033[0;34m'
+LIGHT_BLUE='\033[1;34m'
+PURPLE='\033[0;35m'
 CYAN='\033[0;36m'
+GRAY='\033[0;37m'
 NC='\033[0m' # No Color
 
 # Emojis
@@ -30,8 +35,18 @@ CHECK_MARK="✅"
 CROSS_MARK="❌"
 WARNING="⚠️"
 INFO="ℹ️"
-GEAR="⚙️"
 ROCKET="🚀"
+GEAR="⚙️"
+LOCK="🔒"
+GLOBE="🌐"
+CLOCK="🕒"
+STAR="⭐"
+FIRE="🔥"
+TOOLS="🛠️"
+SHIELD="🛡️"
+SPARKLES="✨"
+DATABASE="🗄️"
+DISCORD="🎮"
 
 # Default installation directory
 DEFAULT_INSTALL_DIR="/opt/jmf-bot"
@@ -70,9 +85,10 @@ print_info() {
   echo "[$(date +%Y-%m-%d\ %H:%M:%S)] INFO: $1" >> "$LOG_FILE"
 }
 
-# Function to check if a command exists
-command_exists() {
-  command -v "$1" >/dev/null 2>&1
+# Function to print section headers
+print_section() {
+  echo -e "\n${PURPLE}${BOLD}${STAR} $1${NC}"
+  echo "[$(date +%Y-%m-%d\ %H:%M:%S)] SECTION: $1" >> "$LOG_FILE"
 }
 
 # Function to check if running as root
@@ -83,88 +99,179 @@ check_root() {
   fi
 }
 
-# Function to create backup
-create_backup() {
+# Function to backup the current installation
+backup_installation() {
   local install_dir=$1
   local backup_dir="${install_dir}_backup_$(date +%Y%m%d%H%M%S)"
   
-  print_status "Creating backup of current installation to $backup_dir"
+  print_status "Creating backup of current installation"
   
-  if cp -r "$install_dir" "$backup_dir"; then
-    print_success "Backup completed"
-    return 0
-  else
-    print_error "Failed to create backup"
-    return 1
+  # Create backup directory
+  mkdir -p "$backup_dir"
+  
+  # Copy files
+  cp -r "$install_dir"/* "$backup_dir"
+  
+  # Backup .env file separately
+  if [ -f "$install_dir/.env" ]; then
+    cp "$install_dir/.env" "$backup_dir/.env"
   fi
+  
+  print_success "Backup created at $backup_dir"
+  return 0
 }
 
-# Function to update the bot
-update_bot() {
+# Function to update from GitHub
+update_from_github() {
   local install_dir=$1
-  local service_user=$2
+  local branch=$2
   
-  # Check if the installation directory exists
-  if [ ! -d "$install_dir" ]; then
-    print_error "Installation directory does not exist: $install_dir"
-    exit 1
-  fi
-  
-  # Create backup
-  create_backup "$install_dir"
+  print_status "Updating from GitHub (branch: $branch)"
   
   # Navigate to installation directory
   cd "$install_dir" || {
     print_error "Failed to navigate to installation directory"
-    exit 1
+    return 1
   }
   
-  # Pull latest changes from git
-  print_status "Pulling latest changes from git repository"
-  if sudo -u "$service_user" git pull; then
-    print_success "Git pull completed"
+  # Check if git is installed
+  if ! command -v git &> /dev/null; then
+    print_error "Git is not installed. Please install git and try again."
+    return 1
+  }
+  
+  # Check if it's a git repository
+  if [ ! -d "$install_dir/.git" ]; then
+    print_error "Not a git repository. Cannot update."
+    return 1
+  }
+  
+  # Stash any local changes
+  print_status "Stashing local changes"
+  git stash >> "$LOG_FILE" 2>&1
+  
+  # Fetch latest changes
+  print_status "Fetching latest changes"
+  git fetch --all >> "$LOG_FILE" 2>&1
+  
+  # Reset to the specified branch
+  print_status "Resetting to origin/$branch"
+  git reset --hard "origin/$branch" >> "$LOG_FILE" 2>&1
+  
+  # Check if update was successful
+  if [ $? -eq 0 ]; then
+    print_success "Successfully updated to the latest version"
+    
+    # Get the latest commit info
+    COMMIT_HASH=$(git rev-parse --short HEAD)
+    COMMIT_DATE=$(git log -1 --format=%cd --date=local)
+    COMMIT_MSG=$(git log -1 --format=%s)
+    
+    print_info "Latest commit: $COMMIT_HASH ($COMMIT_DATE)"
+    print_info "Commit message: $COMMIT_MSG"
+    
+    return 0
   else
-    print_warning "Git pull failed. Continuing with update process"
+    print_error "Failed to update from GitHub"
+    return 1
   fi
+}
+
+# Function to install dependencies
+install_dependencies() {
+  local install_dir=$1
+  
+  print_status "Installing dependencies"
+  
+  # Navigate to installation directory
+  cd "$install_dir" || {
+    print_error "Failed to navigate to installation directory"
+    return 1
+  }
   
   # Install dependencies
-  print_status "Installing dependencies"
-  if npm install --include=dev; then
+  npm install --production >> "$LOG_FILE" 2>&1
+  
+  if [ $? -eq 0 ]; then
     print_success "Dependencies installed successfully"
+    return 0
   else
-    print_error "Failed to install dependencies"
-    exit 1
-  fi
-  
-  # Set proper file permissions
-  print_status "Setting proper file permissions"
-  chown -R "$service_user":"$service_user" "$install_dir"
-  chmod -R 755 "$install_dir"
-  
-  # Deploy slash commands if deploy-commands.js exists
-  if [ -f "$install_dir/src/deploy-commands.js" ]; then
-    print_status "Deploying slash commands"
-    if sudo -u "$service_user" npm run deploy; then
-      print_success "Slash commands deployed successfully"
+    print_warning "Some dependencies may have failed to install"
+    print_status "Trying with --force flag"
+    
+    npm install --production --force >> "$LOG_FILE" 2>&1
+    
+    if [ $? -eq 0 ]; then
+      print_success "Dependencies installed successfully with --force"
+      return 0
     else
-      print_warning "Failed to deploy slash commands. Continuing with update process"
+      print_error "Failed to install dependencies"
+      return 1
     fi
   fi
+}
+
+# Function to deploy slash commands
+deploy_commands() {
+  local install_dir=$1
   
-  # Restart the service
-  print_status "Restarting the JMF Bot service"
-  if systemctl restart jmf-bot; then
-    print_success "Service restarted successfully"
+  print_status "Deploying slash commands"
+  
+  # Navigate to installation directory
+  cd "$install_dir" || {
+    print_error "Failed to navigate to installation directory"
+    return 1
+  }
+  
+  # Check if deploy-commands.js exists
+  if [ ! -f "$install_dir/src/deploy-commands.js" ]; then
+    print_error "deploy-commands.js not found"
+    return 1
+  }
+  
+  # Deploy commands
+  npm run deploy >> "$LOG_FILE" 2>&1
+  
+  if [ $? -eq 0 ]; then
+    print_success "Slash commands deployed successfully"
+    return 0
   else
-    print_error "Failed to restart service"
-    exit 1
+    print_error "Failed to deploy slash commands"
+    return 1
+  fi
+}
+
+# Function to restart the bot service
+restart_service() {
+  print_status "Restarting JMF Bot service"
+  
+  # Check if service exists
+  if ! systemctl list-unit-files | grep -q "jmf-bot.service"; then
+    print_error "JMF Bot service not found"
+    return 1
   fi
   
-  # Check service status
-  print_status "Checking service status"
-  systemctl status jmf-bot --no-pager
+  # Restart service
+  systemctl restart jmf-bot
   
-  print_success "Update completed successfully!"
+  if [ $? -eq 0 ]; then
+    print_success "Service restarted successfully"
+    
+    # Wait a moment for the service to initialize
+    sleep 3
+    
+    # Check if the service is running
+    if systemctl is-active --quiet jmf-bot; then
+      print_success "JMF Bot service is running"
+      return 0
+    else
+      print_error "JMF Bot service failed to start"
+      return 1
+    fi
+  else
+    print_error "Failed to restart service"
+    return 1
+  fi
 }
 
 # Main function
@@ -191,24 +298,62 @@ main() {
   read -p "$(echo -e "${CYAN}${BOLD}?${NC} ${CYAN}Installation directory [${DEFAULT_INSTALL_DIR}]:${NC} ")" install_dir
   install_dir=${install_dir:-$DEFAULT_INSTALL_DIR}
   
-  # Ask for service user
-  read -p "$(echo -e "${CYAN}${BOLD}?${NC} ${CYAN}Service user [jmf-bot]:${NC} ")" service_user
-  service_user=${service_user:-jmf-bot}
-  
-  # Confirm update
-  echo -e "\n${YELLOW}${BOLD}${WARNING} Warning:${NC} This will update the JMF Hosting Discord Bot."
-  read -p "$(echo -e "${CYAN}${BOLD}?${NC} ${CYAN}Do you want to continue? (y/n):${NC} ")" confirm
-  
-  if [[ "$confirm" =~ ^[Yy]$ ]]; then
-    update_bot "$install_dir" "$service_user"
-    
-    echo -e "\n${GREEN}${BOLD}${ROCKET} JMF Hosting Discord Bot has been successfully updated!${NC}"
-    echo -e "\n${BOLD}© 2025 JMFHosting. All Rights Reserved.${NC}"
-    echo -e "${BOLD}Developed by Nanaimo2013 (https://github.com/Nanaimo2013)${NC}"
-    echo -e "${BOLD}Update Date: $(date)${NC}"
-  else
-    print_info "Update cancelled"
+  # Check if the installation directory exists
+  if [ ! -d "$install_dir" ]; then
+    print_error "Installation directory does not exist: $install_dir"
+    exit 1
   fi
+  
+  # Ask for branch
+  read -p "$(echo -e "${CYAN}${BOLD}?${NC} ${CYAN}Git branch [main]:${NC} ")" branch
+  branch=${branch:-main}
+  
+  # Ask if user wants to create a backup
+  read -p "$(echo -e "${CYAN}${BOLD}?${NC} ${CYAN}Create backup before updating? (y/n) [y]:${NC} ")" create_backup
+  create_backup=${create_backup:-y}
+  
+  if [[ "$create_backup" =~ ^[Yy]$ ]]; then
+    backup_installation "$install_dir"
+  fi
+  
+  # Update from GitHub
+  print_section "Updating from GitHub"
+  update_from_github "$install_dir" "$branch"
+  
+  # Install dependencies
+  print_section "Installing Dependencies"
+  install_dependencies "$install_dir"
+  
+  # Deploy slash commands
+  print_section "Deploying Slash Commands"
+  deploy_commands "$install_dir"
+  
+  # Ask if user wants to restart the service
+  read -p "$(echo -e "${CYAN}${BOLD}?${NC} ${CYAN}Restart the bot service? (y/n) [y]:${NC} ")" restart
+  restart=${restart:-y}
+  
+  if [[ "$restart" =~ ^[Yy]$ ]]; then
+    print_section "Restarting Service"
+    restart_service
+  else
+    print_info "Skipping service restart"
+    print_info "To restart the service manually, run: systemctl restart jmf-bot"
+  fi
+  
+  # Display service management information
+  echo -e "\n${YELLOW}${BOLD}${STAR} Service Management:${NC}"
+  echo -e "  ${CYAN}${BOLD}${INFO} Status:${NC}   systemctl status jmf-bot"
+  echo -e "  ${CYAN}${BOLD}${INFO} Logs:${NC}     journalctl -u jmf-bot -f"
+  echo -e "  ${CYAN}${BOLD}${INFO} Restart:${NC}  systemctl restart jmf-bot"
+  echo -e "  ${CYAN}${BOLD}${INFO} Stop:${NC}     systemctl stop jmf-bot"
+  echo -e "  ${CYAN}${BOLD}${INFO} Start:${NC}    systemctl start jmf-bot"
+  echo -e "  ${CYAN}${BOLD}${INFO} Update Log:${NC} $LOG_FILE"
+  
+  # Print completion message
+  echo -e "\n${GREEN}${BOLD}${ROCKET} JMF Hosting Discord Bot has been successfully updated!${NC}"
+  echo -e "\n${PURPLE}${BOLD}© 2025 JMFHosting. All Rights Reserved.${NC}"
+  echo -e "${PURPLE}${BOLD}Developed by Nanaimo2013 (https://github.com/Nanaimo2013)${NC}"
+  echo -e "${BLUE}${BOLD}Update Date: $(date)${NC}"
 }
 
 # Run the main function
