@@ -222,10 +222,17 @@ const mining = require('./modules/mining');
 const verification = require('./modules/verification');
 const tickets = require('./modules/tickets');
 
+// Initialize modules and attach them to the client
+client.leveling = leveling;
+client.economy = economy;
+client.mining = mining;
+client.verification = verification;
+client.tickets = tickets;
+
 // Initialize modules
 leveling.init(client);
-economy.init(client);
-mining.init(client);
+economy.init(client.db);
+mining.init(client.db);
 verification.init(client);
 tickets.init(client);
 

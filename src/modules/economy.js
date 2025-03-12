@@ -18,6 +18,7 @@ class Economy {
     this.transactions = [];
     this.marketListings = new Map();
     this.db = null; // Will be initialized with database connection
+    this.isInitialized = false; // Flag to track initialization status
   }
 
   /**
@@ -26,7 +27,6 @@ class Economy {
    */
   async init(database) {
     this.db = database;
-    logger.info('Economy module initialized');
     
     // Load data from database if available
     if (this.db && this.db.isConnected) {
@@ -37,6 +37,9 @@ class Economy {
         logger.error('Failed to load economy data from database:', error);
       }
     }
+    
+    this.isInitialized = true;
+    logger.info('Economy module initialized');
   }
 
   /**

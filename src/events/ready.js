@@ -84,10 +84,16 @@ async function initializeModules(client) {
   try {
     logger.info('Initializing modules...');
     
+    // Ensure modules are attached to the client
+    client.verification = verification;
+    client.tickets = tickets;
+    client.economy = economy;
+    client.mining = miningGame;
+    
     // Initialize verification module
     if (verification && config.verification && config.verification.enabled) {
       verification.init(client);
-      logger.info('Verification module initialized');
+      logger.info('Verification system initialized');
     }
     
     // Initialize ticket system
@@ -98,12 +104,19 @@ async function initializeModules(client) {
     
     // Initialize economy module
     if (economy && config.economy && config.economy.enabled) {
-      // Database connection is already passed in the database init function
+      // Make sure economy is initialized with the database
+      if (!economy.isInitialized && client.db) {
+        await economy.init(client.db);
+      }
       logger.info('Economy module initialized');
     }
     
     // Initialize mining game
     if (miningGame && config.miningGame && config.miningGame.enabled) {
+      // Make sure mining game is initialized with the database
+      if (!miningGame.isInitialized && client.db) {
+        await miningGame.init(client.db);
+      }
       logger.info('Mining game initialized');
     }
     

@@ -35,13 +35,13 @@ module.exports = {
       const economy = interaction.client.economy;
       
       // Check if economy module exists and is initialized
-      if (!economy) {
+      if (!economy || !economy.getBalance) {
         logger.error('Economy module not found or not initialized');
         return await interaction.editReply('Economy system is currently unavailable. Please try again later.');
       }
       
       // Get user's balance
-      const balance = economy.getBalance ? economy.getBalance(targetUser.id) : 0;
+      const balance = economy.getBalance(targetUser.id);
       
       // Get user's mining stats if available
       let miningStats = null;

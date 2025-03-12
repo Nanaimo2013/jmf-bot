@@ -29,6 +29,12 @@ module.exports = {
 
   async execute(interaction) {
     try {
+      // Check if the interaction is still valid before deferring
+      if (interaction.replied || interaction.deferred) {
+        logger.warn(`Interaction already acknowledged for command: leaderboard`);
+        return;
+      }
+      
       await interaction.deferReply();
       
       const category = interaction.options.getString('category') || 'economy';
@@ -61,7 +67,15 @@ module.exports = {
       // Get the appropriate leaderboard based on category
       switch (category) {
         case 'economy':
-          embed = await economy.createLeaderboardEmbed(interaction.guild);
+          if (economy && economy.createLeaderboardEmbed) {
+            embed = await economy.createLeaderboardEmbed(interaction.guild);
+          } else {
+            embed = new EmbedBuilder()
+              .setTitle('Economy Leaderboard')
+              .setDescription('Economy module is not initialized')
+              .setColor(config.embedColor || '#0099ff')
+              .setTimestamp();
+          }
           break;
         case 'mining':
           if (mining && mining.isInitialized) {

@@ -50,6 +50,12 @@ module.exports = {
 
   async execute(interaction) {
     try {
+      // Check if the interaction is still valid before deferring
+      if (interaction.replied || interaction.deferred) {
+        logger.warn(`Interaction already acknowledged for command: mine`);
+        return;
+      }
+      
       await interaction.deferReply();
       
       const subcommand = interaction.options.getSubcommand();
