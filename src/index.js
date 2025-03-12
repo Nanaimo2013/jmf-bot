@@ -12,16 +12,77 @@ require('dotenv').config();
 const { Client, GatewayIntentBits, Partials, Collection, Events } = require('discord.js');
 const fs = require('node:fs');
 const path = require('node:path');
+const readline = require('node:readline');
 const logger = require('./utils/logger');
 const statusMonitor = require('./utils/statusMonitor');
 const { nodeStatusManager } = require('./commands/admin/node');
 const database = require('./utils/database');
 
+// Function to prompt for Discord token if missing
+async function promptForDiscordToken() {
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout
+    });
+    
+    console.log('\n=== Discord Token Setup ===');
+    console.log('Your Discord token is missing or invalid in the .env file.');
+    console.log('You can enter it manually now, or press Ctrl+C to exit and set it in the .env file.');
+    console.log('The token will be saved to your .env file for future use.');
+    
+    rl.question('\nPlease enter your Discord bot token: ', (token) => {
+      if (!token || token.trim() === '') {
+        console.log('No token provided. Exiting...');
+        process.exit(1);
+      }
+      
+      // Save the token to .env file
+      try {
+        const envPath = path.join(process.cwd(), '.env');
+        let envContent = '';
+        
+        // Read existing .env file if it exists
+        if (fs.existsSync(envPath)) {
+          envContent = fs.readFileSync(envPath, 'utf8');
+          
+          // Check if DISCORD_TOKEN already exists in the file
+          if (envContent.includes('DISCORD_TOKEN=')) {
+            // Replace the existing token
+            envContent = envContent.replace(/DISCORD_TOKEN=.*(\r?\n|$)/g, `DISCORD_TOKEN=${token}$1`);
+          } else {
+            // Add the token to the file
+            envContent += `\nDISCORD_TOKEN=${token}\n`;
+          }
+        } else {
+          // Create a new .env file with the token
+          envContent = `# Discord Bot Token (Required)\nDISCORD_TOKEN=${token}\n`;
+        }
+        
+        // Write the updated content back to the .env file
+        fs.writeFileSync(envPath, envContent);
+        console.log('Token saved to .env file successfully!');
+        
+        // Set the token in the environment
+        process.env.DISCORD_TOKEN = token;
+        
+        rl.close();
+        resolve(token);
+      } catch (error) {
+        console.error(`Error saving token to .env file: ${error.message}`);
+        console.log('Continuing with the provided token for this session only...');
+        process.env.DISCORD_TOKEN = token;
+        rl.close();
+        resolve(token);
+      }
+    });
+  });
+}
+
 // Check if Discord token is available
 if (!process.env.DISCORD_TOKEN || process.env.DISCORD_TOKEN.trim() === '') {
   logger.error('DISCORD_TOKEN is missing or empty in your .env file');
-  logger.info('Please make sure your .env file contains a valid DISCORD_TOKEN');
-  process.exit(1);
+  logger.info('You will be prompted to enter your Discord token manually');
 }
 
 // Create a new client instance
@@ -242,6 +303,16 @@ async function gracefulShutdown(signal) {
     logger.error(`Failed to initialize database: ${error.message}`);
   }
   
+  // Check if Discord token is missing and prompt for it
+  if (!process.env.DISCORD_TOKEN || process.env.DISCORD_TOKEN.trim() === '') {
+    try {
+      await promptForDiscordToken();
+    } catch (error) {
+      logger.error(`Error during token prompt: ${error.message}`);
+      process.exit(1);
+    }
+  }
+  
   // Log token status (without revealing the token)
   logger.info(`Discord token status: ${process.env.DISCORD_TOKEN ? 'Present' : 'Missing'} (length: ${process.env.DISCORD_TOKEN?.length || 0})`);
   
@@ -251,9 +322,20 @@ async function gracefulShutdown(signal) {
     logger.info('Bot logged in successfully');
   } catch (error) {
     logger.error(`Error logging in: ${error.message}`);
-    logger.error('Please check that your DISCORD_TOKEN in .env is correct and properly formatted');
-    logger.error('Make sure there are no spaces, quotes, or special characters around the token');
-    process.exit(1);
+    
+    // If login fails, prompt for a new token
+    logger.info('Login failed. You will be prompted to enter a new Discord token.');
+    try {
+      await promptForDiscordToken();
+      // Try logging in again with the new token
+      await client.login(process.env.DISCORD_TOKEN);
+      logger.info('Bot logged in successfully with the new token');
+    } catch (retryError) {
+      logger.error(`Error logging in with new token: ${retryError.message}`);
+      logger.error('Please check that your DISCORD_TOKEN is correct and properly formatted');
+      logger.error('Make sure there are no spaces, quotes, or special characters around the token');
+      process.exit(1);
+    }
   }
 })();
 
