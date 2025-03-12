@@ -1,86 +1,87 @@
-# JMF Hosting Discord Bot Documentation
+# JMF Bot
 
 <div align="center">
 
 [![Version](https://img.shields.io/badge/Version-1.1.1-blue.svg?style=for-the-badge)](https://github.com/Nanaimo2013/Jmf-Bot/releases)
-[![Discord.js](https://img.shields.io/badge/discord.js-v14-blue.svg?style=for-the-badge)](https://discord.js.org/)
-[![Documentation](https://img.shields.io/badge/Documentation-Comprehensive-green.svg?style=for-the-badge)](https://github.com/Nanaimo2013/Jmf-Bot/docs)
+[![Architecture](https://img.shields.io/badge/Architecture-Modular-green.svg?style=for-the-badge)](https://github.com/Nanaimo2013/Jmf-Bot/docs/ARCHITECTURE.md)
+[![Discord](https://img.shields.io/discord/123456789?style=for-the-badge&logo=discord)](https://discord.gg/jmf)
 
 </div>
 
-## 📚 Documentation Index
+## Overview
 
-### 🚀 Getting Started
-- [Installation & Setup](DEPLOYMENT.md) - How to install and configure the bot
-- [VM Deployment Guide](VM-DEPLOYMENT.md) - Deploying on a virtual machine
-- [Building from Source](BUILDING.md) - Building the bot from source code
+JMF Bot is a powerful Discord bot designed for server management, user engagement, and automation. Built with a modern, modular architecture, it provides robust features for server administration, user interaction, and system monitoring.
 
-### 🏗️ Architecture & Design
-- [System Architecture](ARCHITECTURE.md) - Overview of the bot's architecture
-- [Development Roadmap](development/ROADMAP.md) - Future development plans
+## Features
 
-### 🔌 Integrations
-- [Pterodactyl Integration](PTERODACTYL.md) - Game server management
-- [API Documentation](API.md) - External API endpoints
+- **Server Management**
+  - Role management
+  - Channel configuration
+  - Permission handling
+  - Automated moderation
 
-### 🧩 Features
-- [Command Reference](COMMANDS.md) - List of all available commands
-- [Permission System](PERMISSIONS.md) - Role-based permissions
-- [Economy System](ECONOMY.md) - Virtual currency and shop
-- [Ticket System](TICKETS.md) - Support ticket management
-- [Leveling System](features/leveling.md) - XP progression and rewards
+- **User Engagement**
+  - Custom commands
+  - Interactive responses
+  - User tracking
+  - Leveling system
 
-### 🛠️ Development
-- [Contributing Guide](../CONTRIBUTING.md) - How to contribute to the project
-- [Code of Conduct](../CODE_OF_CONDUCT.md) - Community guidelines
-- [Changelog](../CHANGELOG.md) - Version history and changes
+- **System Integration**
+  - Docker support
+  - Database management
+  - API integration
+  - Monitoring and alerts
 
-## 🔍 Quick Reference
+## Architecture
 
-<table>
-<tr>
-<td>
+JMF Bot uses a manager-based architecture for better modularity and maintainability:
 
-### 🤖 Bot Commands
-- `/help` - Display help information
-- `/ping` - Check bot latency
-- `/status` - View bot status
-- `/ticket` - Create a support ticket
-- `/server` - Manage game servers
-- `/mine` - Play the mining game
-- `/balance` - Check your balance
-- `/level` - View your level and XP
+- **Install Manager**: Handles installation and setup
+- **Update Manager**: Manages updates and migrations
+- **Monitor Manager**: Tracks system health
+- **Database Manager**: Handles data operations
+- **Docker Manager**: Manages containerization
 
-</td>
-<td>
+> **Note**: The previous scripts-based system is deprecated. Please use the new manager-based system for all operations.
 
-### ⚙️ Configuration
-- Environment variables in `.env`
-- Bot settings in `config.json`
-- Command deployment with `npm run deploy`
-- Database setup with `schema.sql`
-- Docker deployment with `docker-compose.yml`
+For detailed information about the manager system, see [MANAGERS.md](docs/MANAGERS.md).
 
-</td>
-</tr>
-</table>
+## Prerequisites
 
-## 🆘 Support
+- Node.js 18.x or higher
+- Docker (optional, for containerized deployment)
+- PostgreSQL 13+ or SQLite 3
+- Discord Bot Token
 
-If you need help with the bot, you can:
-- Join our [Discord server](https://discord.gg/qZBWNjuBzy)
-- Open an [issue on GitHub](https://github.com/Nanaimo2013/Jmf-Bot/issues)
-- Email us at support@jmfhosting.com
+## Quick Start
 
----
+1. **Clone the Repository**
+   ```bash
+   git clone https://github.com/Nanaimo2013/Jmf-Bot.git
+   cd Jmf-Bot
+   ```
 
-<div align="center">
+2. **Install Dependencies**
+   ```bash
+   npm install
+   ```
 
-**[🏠 Home](../README.md)** •
-**[🚀 Getting Started](DEPLOYMENT.md)** •
-**[💡 Features](ROADMAP.md)**
+3. **Configure Environment**
+   ```bash
+   cp .env.example .env
+   # Edit .env with your settings
+   ```
 
-© 2025 JMFHosting. All Rights Reserved.  
-Developed by [Nanaimo2013](https://github.com/Nanaimo2013)
+4. **Initialize the Bot**
+   ```bash
+   npm run manager install all
+   ```
 
-</div> 
+5. **Start the Bot**
+   ```bash
+   npm run manager start
+   ```
+
+## Manager Commands
+
+### Installation

@@ -83,7 +83,7 @@
   "ticketSystem": {
     "enabled": true,
     "categoryName": "🎫 TICKETS",
-    "supportRoles": ["Administrator", "Moderator", "Support Staff"],
+    "supportRoles": ["Owner", "Administrator", "Moderator", "Support Staff"],
     "maxTicketsPerUser": 3,
     "closeConfirmation": true
   },
@@ -93,7 +93,7 @@
     "maxEmojis": 10,
     "maxCaps": 70,
     "inviteFilter": true,
-    "linkFilter": true,
+    "linkFilter": false,
     "allowedLinks": ["discord.gg/jmfhosting", "jmfhosting.com"],
     "bannedWords": ["badword1", "badword2", "badword3"],
     "logChannel": "📝︱mod-logs",
@@ -112,7 +112,7 @@
     "repeatOffenderThreshold": 3,
     "escalatedTimeoutDuration": 3600000,
     "pingModRole": true,
-    "modRoleId": "1348545298477355019"
+    "modRoleId": "1348545287396003870"
   },
   "levelSystem": {
     "enabled": true,
@@ -142,12 +142,12 @@
     "updateInterval": 300
   },
   "memberCountChannels": {
-    "enabled": false,
-    "totalChannel": "",
-    "humanChannel": "",
-    "botChannel": ""
+    "enabled": true,
+    "totalChannel": "1349467612790263819",
+    "humanChannel": "1349467967976378429",
+    "botChannel": "1349468003233960007"
   },
-  "sendWelcomeDM": false,
+  "sendWelcomeDM": true,
   "welcomeDMMessage": "Thanks for joining our server! If you need any help, feel free to create a ticket in our support channel.",
   "miningGame": {
     "enabled": true,

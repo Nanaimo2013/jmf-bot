@@ -1,0 +1,39 @@
+{
+    "default": "sqlite",
+    "connections": {
+        "sqlite": {
+            "driver": "sqlite",
+            "database": "./data/database.sqlite",
+            "prefix": "",
+            "foreign_key_constraints": true
+        },
+        "mysql": {
+            "driver": "mysql",
+            "host": "localhost",
+            "port": 3306,
+            "database": "jmf_bot",
+            "username": "jmf_bot",
+            "password": "",
+            "charset": "utf8mb4",
+            "collation": "utf8mb4_unicode_ci",
+            "prefix": "",
+            "strict": true,
+            "engine": "InnoDB"
+        }
+    },
+    "migrations": {
+        "directory": "./src/database/migrations",
+        "table": "migrations"
+    },
+    "backup": {
+        "directory": "./backups/database",
+        "keep": 5,
+        "compression": true
+    },
+    "logging": {
+        "directory": "./logs/database",
+        "level": "info",
+        "max_files": 30,
+        "max_size": "10M"
+    }
+} 

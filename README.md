@@ -1,4 +1,6 @@
-# JMF Hosting Discord Bot
+# JMF Bot
+
+A powerful Discord bot for JMF Hosting server management and automation.
 
 <div align="center">
 
@@ -398,7 +400,6 @@ Contributions are welcome! Please see [Contributing Guide](CONTRIBUTING.md) for 
 ## 📜 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
 ## 📞 Support
 
 Join our Discord server for support and updates:
@@ -425,3 +426,4 @@ Join our Discord server for support and updates:
 Developed by [Nanaimo2013](https://github.com/Nanaimo2013)
 
 </div> 
+
