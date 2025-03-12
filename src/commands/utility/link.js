@@ -12,6 +12,7 @@ const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, Butt
 const logger = require('../../utils/logger');
 const config = require('../../../config.json');
 const crypto = require('crypto');
+const { safeReply, safeDeferReply, isValidInteraction } = require('../../utils/interactionHandler');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -39,7 +40,7 @@ module.exports = {
       
       // Check if database is connected
       if (!interaction.client.db || !interaction.client.db.isConnected) {
-        return interaction.reply({
+        return safeReply(interaction, {
           content: 'Database connection is not available. Please try again later or contact an administrator.',
           ephemeral: true
         });
@@ -58,7 +59,7 @@ module.exports = {
       }
     } catch (error) {
       logger.error(`Error in link command: ${error.message}`);
-      await interaction.reply({
+      await safeReply(interaction, {
         content: '❌ There was an error executing this command.',
         ephemeral: true
       });
@@ -70,7 +71,7 @@ module.exports = {
    * @param {CommandInteraction} interaction - The interaction
    */
   async handleLinkAccount(interaction) {
-    await interaction.deferReply({ ephemeral: true });
+    await safeDeferReply(interaction, true);
     
     try {
       // Check if user is already linked
@@ -80,7 +81,7 @@ module.exports = {
       );
       
       if (existingLink && existingLink.length > 0) {
-        return interaction.editReply({
+        return safeReply(interaction, {
           content: 'Your Discord account is already linked to a Pterodactyl panel account. Use `/link status` to check your link status or `/link unlink` to unlink your account.',
           ephemeral: true
         });
@@ -108,7 +109,7 @@ module.exports = {
         } else if (error.message.includes('SQLITE_CONSTRAINT')) {
           // If there's a constraint error, log it and provide more details
           logger.error(`Error generating link token: ${error.message}`);
-          return interaction.editReply({
+          return safeReply(interaction, {
             content: 'There was an error linking your account. Please try again later or contact an administrator.',
             ephemeral: true
           });
@@ -155,7 +156,7 @@ module.exports = {
             .setStyle(ButtonStyle.Primary)
         );
 
-      await interaction.editReply({
+      await safeReply(interaction, {
         embeds: [linkEmbed],
         components: [linkRow],
         ephemeral: true
@@ -170,7 +171,7 @@ module.exports = {
       
     } catch (error) {
       logger.error(`Error generating link token: ${error.message}`);
-      await interaction.editReply({
+      await safeReply(interaction, {
         content: 'An error occurred while generating your link token: ' + error.message,
         ephemeral: true
       });
@@ -182,7 +183,7 @@ module.exports = {
    * @param {CommandInteraction} interaction - The interaction
    */
   async handleLinkStatus(interaction) {
-    await interaction.deferReply({ ephemeral: true });
+    await safeDeferReply(interaction, true);
     
     try {
       // Check if user is linked
@@ -214,7 +215,7 @@ module.exports = {
               .setStyle(ButtonStyle.Primary)
           );
           
-        return interaction.editReply({
+        return safeReply(interaction, {
           embeds: [notLinkedEmbed],
           components: [linkRow],
           ephemeral: true
@@ -263,7 +264,7 @@ module.exports = {
               .setStyle(ButtonStyle.Danger)
           );
           
-        return interaction.editReply({
+        return safeReply(interaction, {
           embeds: [statusEmbed],
           components: [unlinkRow],
           ephemeral: true
@@ -295,7 +296,7 @@ module.exports = {
               .setStyle(ButtonStyle.Danger)
           );
           
-        return interaction.editReply({
+        return safeReply(interaction, {
           embeds: [statusEmbed],
           components: [linkRow],
           ephemeral: true
@@ -303,7 +304,7 @@ module.exports = {
       }
     } catch (error) {
       logger.error(`Error checking link status: ${error.message}`);
-      await interaction.editReply({
+      await safeReply(interaction, {
         content: 'An error occurred while checking your link status: ' + error.message,
         ephemeral: true
       });
@@ -315,7 +316,7 @@ module.exports = {
    * @param {CommandInteraction} interaction - The interaction
    */
   async handleUnlinkAccount(interaction) {
-    await interaction.deferReply({ ephemeral: true });
+    await safeDeferReply(interaction, true);
     
     try {
       // Check if user is linked
@@ -325,7 +326,7 @@ module.exports = {
       );
       
       if (!linkData || linkData.length === 0) {
-        return interaction.editReply({
+        return safeReply(interaction, {
           content: 'Your Discord account is not linked to any Pterodactyl panel account.',
           ephemeral: true
         });
@@ -363,14 +364,14 @@ module.exports = {
             .setStyle(ButtonStyle.Secondary)
         );
         
-      await interaction.editReply({
+      await safeReply(interaction, {
         embeds: [confirmEmbed],
         components: [confirmRow],
         ephemeral: true
       });
     } catch (error) {
       logger.error(`Error unlinking account: ${error.message}`);
-      await interaction.editReply({
+      await safeReply(interaction, {
         content: 'An error occurred while unlinking your account: ' + error.message,
         ephemeral: true
       });
