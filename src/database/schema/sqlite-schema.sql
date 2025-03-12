@@ -441,23 +441,9 @@ CREATE INDEX IF NOT EXISTS idx_user_levels_guild_id ON user_levels(guild_id);
 CREATE INDEX IF NOT EXISTS idx_account_links_user_id ON account_links(user_id);
 
 -- Only create these indexes if the account_links table exists and has these columns
-CREATE INDEX IF NOT EXISTS idx_account_links_discord_id ON account_links(discord_id)
-WHERE EXISTS (
-  SELECT 1 FROM pragma_table_info('account_links') 
-  WHERE name = 'discord_id'
-);
-
-CREATE INDEX IF NOT EXISTS idx_account_links_pterodactyl_id ON account_links(pterodactyl_id)
-WHERE EXISTS (
-  SELECT 1 FROM pragma_table_info('account_links') 
-  WHERE name = 'pterodactyl_id'
-);
-
-CREATE INDEX IF NOT EXISTS idx_account_links_panel_id ON account_links(panel_id)
-WHERE EXISTS (
-  SELECT 1 FROM pragma_table_info('account_links') 
-  WHERE name = 'panel_id'
-);
+CREATE INDEX IF NOT EXISTS idx_account_links_discord_id ON account_links(discord_id);
+CREATE INDEX IF NOT EXISTS idx_account_links_pterodactyl_id ON account_links(pterodactyl_id);
+CREATE INDEX IF NOT EXISTS idx_account_links_panel_id ON account_links(panel_id);
 
 CREATE INDEX IF NOT EXISTS idx_verification_user_id ON verification(user_id);
 CREATE INDEX IF NOT EXISTS idx_guilds_guild_id ON guilds(guild_id);
@@ -470,29 +456,10 @@ CREATE INDEX IF NOT EXISTS idx_user_mining_inventory_item_type ON user_mining_in
 CREATE INDEX IF NOT EXISTS idx_transactions_user_id ON transactions(user_id);
 
 -- Only create these indexes if the market_listings table exists and has these columns
-CREATE INDEX IF NOT EXISTS idx_market_listings_seller_id ON market_listings(seller_id)
-WHERE EXISTS (
-  SELECT 1 FROM pragma_table_info('market_listings') 
-  WHERE name = 'seller_id'
-);
-
-CREATE INDEX IF NOT EXISTS idx_market_listings_item_type ON market_listings(item_type)
-WHERE EXISTS (
-  SELECT 1 FROM pragma_table_info('market_listings') 
-  WHERE name = 'item_type'
-);
-
-CREATE INDEX IF NOT EXISTS idx_market_listings_is_active ON market_listings(is_active)
-WHERE EXISTS (
-  SELECT 1 FROM pragma_table_info('market_listings') 
-  WHERE name = 'is_active'
-);
-
-CREATE INDEX IF NOT EXISTS idx_market_listings_active ON market_listings(active)
-WHERE EXISTS (
-  SELECT 1 FROM pragma_table_info('market_listings') 
-  WHERE name = 'active'
-);
+CREATE INDEX IF NOT EXISTS idx_market_listings_seller_id ON market_listings(seller_id);
+CREATE INDEX IF NOT EXISTS idx_market_listings_item_type ON market_listings(item_type);
+CREATE INDEX IF NOT EXISTS idx_market_listings_is_active ON market_listings(is_active);
+CREATE INDEX IF NOT EXISTS idx_market_listings_active ON market_listings(active);
 
 CREATE INDEX IF NOT EXISTS idx_market_transactions_buyer_id ON market_transactions(buyer_id);
 CREATE INDEX IF NOT EXISTS idx_market_transactions_seller_id ON market_transactions(seller_id);
