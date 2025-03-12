@@ -23,23 +23,38 @@ module.exports = {
 
   async execute(interaction) {
     try {
+      // Check if the interaction is still valid before deferring
+      if (interaction.replied || interaction.deferred) {
+        logger.warn(`Interaction already acknowledged for command: balance`);
+        return;
+      }
+      
       await interaction.deferReply();
       
       const targetUser = interaction.options.getUser('user') || interaction.user;
       const economy = interaction.client.economy;
-      const mining = interaction.client.mining;
+      
+      // Check if economy module exists and is initialized
+      if (!economy) {
+        logger.error('Economy module not found or not initialized');
+        return await interaction.editReply('Economy system is currently unavailable. Please try again later.');
+      }
       
       // Get user's balance
-      const balance = economy.getBalance(targetUser.id);
+      const balance = economy.getBalance ? economy.getBalance(targetUser.id) : 0;
       
       // Get user's mining stats if available
       let miningStats = null;
-      if (mining && mining.isInitialized) {
+      const mining = interaction.client.mining;
+      if (mining && mining.isInitialized && mining.getUserStats) {
         miningStats = mining.getUserStats(targetUser.id);
       }
       
       // Get user's transaction history
-      const transactions = await economy.getRecentTransactions(targetUser.id, 5);
+      let transactions = [];
+      if (economy.getRecentTransactions) {
+        transactions = await economy.getRecentTransactions(targetUser.id, 5);
+      }
       
       // Create embed
       const embed = new EmbedBuilder()

@@ -11,7 +11,7 @@
 const fs = require('fs');
 const path = require('path');
 const { exec } = require('child_process');
-const logger = require('../src/utils/logger');
+const logger = require('../../src/utils/logger');
 
 // ASCII Art for the shutdown message
 const shutdownArt = `

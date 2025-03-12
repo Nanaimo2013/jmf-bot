@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS member_events (
 -- Command usage table
 CREATE TABLE IF NOT EXISTS command_usage (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  command_name VARCHAR(50) NOT NULL,
+  command VARCHAR(50) NOT NULL,
   user_id VARCHAR(20) NOT NULL,
   guild_id VARCHAR(20),
   channel_id VARCHAR(20),
@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS command_errors (
 -- Legacy command usage table
 CREATE TABLE IF NOT EXISTS legacy_command_usage (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  command_name VARCHAR(50) NOT NULL,
+  command VARCHAR(50) NOT NULL,
   user_id VARCHAR(20) NOT NULL,
   guild_id VARCHAR(20),
   channel_id VARCHAR(20),
@@ -432,7 +432,7 @@ CREATE INDEX IF NOT EXISTS idx_messages_channel_id ON messages(channel_id);
 CREATE INDEX IF NOT EXISTS idx_messages_user_id ON messages(user_id);
 CREATE INDEX IF NOT EXISTS idx_member_events_user_id ON member_events(user_id);
 CREATE INDEX IF NOT EXISTS idx_member_events_guild_id ON member_events(guild_id);
-CREATE INDEX IF NOT EXISTS idx_command_usage_command ON command_usage(command_name);
+CREATE INDEX IF NOT EXISTS idx_command_usage_command ON command_usage(command);
 CREATE INDEX IF NOT EXISTS idx_command_usage_user_id ON command_usage(user_id);
 CREATE INDEX IF NOT EXISTS idx_moderation_actions_user_id ON moderation_actions(user_id);
 CREATE INDEX IF NOT EXISTS idx_moderation_actions_guild_id ON moderation_actions(guild_id);

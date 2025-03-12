@@ -115,6 +115,7 @@ module.exports = {
         // Record command usage in database
         if (interaction.client.db) {
           try {
+            // Insert directly with the command column (no fallback needed since we fixed the schema)
             await interaction.client.db.query(
               'INSERT INTO command_usage (user_id, guild_id, command, channel_id, timestamp) VALUES (?, ?, ?, ?, ?)',
               [
@@ -140,17 +141,25 @@ module.exports = {
           const errorMessage = config.debug 
             ? `There was an error executing this command: \`${error.message}\``
             : 'There was an error executing this command.';
-            
-          if (interaction.replied || interaction.deferred) {
-            await interaction.followUp({ 
-              content: `❌ ${errorMessage}`, 
-              ephemeral: true 
-            });
-          } else {
-            await interaction.reply({ 
-              content: `❌ ${errorMessage}`, 
-              ephemeral: true 
-            });
+          
+          try {  
+            if (interaction.replied || interaction.deferred) {
+              await interaction.followUp({ 
+                content: `❌ ${errorMessage}`, 
+                ephemeral: true 
+              }).catch(e => {
+                logger.error(`Error sending followUp: ${e.message}`);
+              });
+            } else {
+              await interaction.reply({ 
+                content: `❌ ${errorMessage}`, 
+                ephemeral: true 
+              }).catch(e => {
+                logger.error(`Error sending reply: ${e.message}`);
+              });
+            }
+          } catch (replyError) {
+            logger.error(`Error handling interaction: ${replyError.message}`);
           }
           
           // Record error in database
