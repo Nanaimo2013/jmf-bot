@@ -5,6 +5,7 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
+    "stop": "node scripts/stop.js",
     "dev": "nodemon src/index.js",
     "deploy": "node src/deploy-commands.js",
     "deploy:global": "node src/deploy-commands.js --global",
@@ -21,6 +22,7 @@
     "db:fix": "node scripts/database/fix-database.js",
     "db:update": "bash update-database.sh",
     "db:init": "node src/database/init.js",
+    "set-perms": "node scripts/set-permissions.js",
     "docker:build": "docker-compose build",
     "docker:start": "docker-compose up -d",
     "docker:stop": "docker-compose down",

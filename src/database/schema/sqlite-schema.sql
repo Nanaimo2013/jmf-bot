@@ -232,7 +232,8 @@ CREATE TABLE IF NOT EXISTS transfers (
 );
 
 -- Market listings table
-CREATE TABLE IF NOT EXISTS market_listings (
+DROP TABLE IF EXISTS market_listings_temp;
+CREATE TABLE IF NOT EXISTS market_listings_temp (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   seller_id VARCHAR(20) NOT NULL,
   guild_id VARCHAR(20) NOT NULL,
@@ -243,8 +244,19 @@ CREATE TABLE IF NOT EXISTS market_listings (
   description TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   expires_at TIMESTAMP,
-  status VARCHAR(20) DEFAULT 'active'
+  status VARCHAR(20) DEFAULT 'active',
+  is_active BOOLEAN DEFAULT 1,
+  active INTEGER DEFAULT 1
 );
+
+-- Copy data from existing table if it exists
+INSERT OR IGNORE INTO market_listings_temp 
+SELECT id, seller_id, guild_id, item_id, item_type, quantity, price, description, created_at, expires_at, status, 1, 1
+FROM market_listings;
+
+-- Drop the old table and rename the new one
+DROP TABLE IF EXISTS market_listings;
+ALTER TABLE market_listings_temp RENAME TO market_listings;
 
 -- Market transactions table
 CREATE TABLE IF NOT EXISTS market_transactions (
@@ -359,7 +371,7 @@ CREATE TABLE IF NOT EXISTS level_rewards (
 CREATE TABLE IF NOT EXISTS account_links (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id VARCHAR(20) NOT NULL,
-  discord_id VARCHAR(20),
+  discord_id VARCHAR(20) NOT NULL,
   pterodactyl_id INTEGER,
   panel_id VARCHAR(100),
   pterodactyl_username VARCHAR(100),
@@ -436,12 +448,21 @@ CREATE INDEX IF NOT EXISTS idx_tickets_guild_id ON tickets(guild_id);
 CREATE INDEX IF NOT EXISTS idx_tickets_status ON tickets(status);
 CREATE INDEX IF NOT EXISTS idx_user_mining_data_user_id ON user_mining_data(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_mining_inventory_user_id ON user_mining_inventory(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_mining_inventory_item_type ON user_mining_inventory(item_type);
 CREATE INDEX IF NOT EXISTS idx_transactions_user_id ON transactions(user_id);
 CREATE INDEX IF NOT EXISTS idx_market_listings_seller_id ON market_listings(seller_id);
 CREATE INDEX IF NOT EXISTS idx_market_listings_item_type ON market_listings(item_type);
+CREATE INDEX IF NOT EXISTS idx_market_listings_is_active ON market_listings(is_active);
+CREATE INDEX IF NOT EXISTS idx_market_listings_active ON market_listings(active);
 CREATE INDEX IF NOT EXISTS idx_market_transactions_buyer_id ON market_transactions(buyer_id);
 CREATE INDEX IF NOT EXISTS idx_market_transactions_seller_id ON market_transactions(seller_id);
 CREATE INDEX IF NOT EXISTS idx_automod_actions_user_id ON automod_actions(user_id);
 CREATE INDEX IF NOT EXISTS idx_automod_actions_guild_id ON automod_actions(guild_id);
 CREATE INDEX IF NOT EXISTS idx_automod_settings_guild_id ON automod_settings(guild_id);
-CREATE INDEX IF NOT EXISTS idx_guild_settings_guild_id ON guild_settings(guild_id); 
+CREATE INDEX IF NOT EXISTS idx_guild_settings_guild_id ON guild_settings(guild_id);
+
+-- Remove duplicate indexes
+CREATE INDEX IF NOT EXISTS idx_market_listings_seller_id ON market_listings(seller_id);
+CREATE INDEX IF NOT EXISTS idx_market_listings_item_type ON market_listings(item_type);
+CREATE INDEX IF NOT EXISTS idx_market_listings_is_active ON market_listings(is_active);
+CREATE INDEX IF NOT EXISTS idx_market_listings_active ON market_listings(active); 
