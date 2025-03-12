@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS command_usage (
 -- Command errors table
 CREATE TABLE IF NOT EXISTS command_errors (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  command_name VARCHAR(50) NOT NULL,
+  command VARCHAR(50) NOT NULL,
   user_id VARCHAR(20) NOT NULL,
   guild_id VARCHAR(20),
   channel_id VARCHAR(20),
@@ -77,7 +77,7 @@ CREATE TABLE IF NOT EXISTS legacy_command_usage (
 -- Legacy command errors table
 CREATE TABLE IF NOT EXISTS legacy_command_errors (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  command_name VARCHAR(50) NOT NULL,
+  command VARCHAR(50) NOT NULL,
   user_id VARCHAR(20) NOT NULL,
   guild_id VARCHAR(20),
   channel_id VARCHAR(20),

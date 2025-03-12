@@ -91,20 +91,27 @@ module.exports = {
       const expiresAt = new Date();
       expiresAt.setHours(expiresAt.getHours() + 24); // Token expires in 24 hours
       
-      // Store the token in the database - check if created_at column exists
+      // Store the token in the database - include user_id which is required
       try {
         await interaction.client.db.query(
-          'INSERT INTO account_links (discord_id, token, expires_at, created_at) VALUES (?, ?, ?, ?)',
-          [interaction.user.id, token, expiresAt, new Date()]
+          'INSERT INTO account_links (user_id, discord_id, token, expires_at, created_at) VALUES (?, ?, ?, ?, ?)',
+          [interaction.user.id, interaction.user.id, token, expiresAt, new Date()]
         );
       } catch (error) {
         // If the error is about missing created_at column, try without it
         if (error.message.includes('no column named created_at')) {
           logger.warn('account_links table missing created_at column, trying without it');
           await interaction.client.db.query(
-            'INSERT INTO account_links (discord_id, token, expires_at) VALUES (?, ?, ?)',
-            [interaction.user.id, token, expiresAt]
+            'INSERT INTO account_links (user_id, discord_id, token, expires_at) VALUES (?, ?, ?, ?)',
+            [interaction.user.id, interaction.user.id, token, expiresAt]
           );
+        } else if (error.message.includes('SQLITE_CONSTRAINT')) {
+          // If there's a constraint error, log it and provide more details
+          logger.error(`Error generating link token: ${error.message}`);
+          return interaction.editReply({
+            content: 'There was an error linking your account. Please try again later or contact an administrator.',
+            ephemeral: true
+          });
         } else {
           throw error;
         }
