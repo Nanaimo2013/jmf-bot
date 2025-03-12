@@ -13,6 +13,9 @@ const fs = require('fs');
 const path = require('path');
 const sqlite3 = require('sqlite3').verbose();
 const logger = require('./src/utils/logger');
+const yargs = require('yargs/yargs');
+const { hideBin } = require('yargs/helpers');
+const { open } = require('sqlite');
 
 // Get database path from environment variables or use default
 const dbPath = process.env.DB_PATH || './data/database.sqlite';
@@ -43,16 +46,44 @@ const db = new sqlite3.Database(dbPath, (err) => {
 // Enable foreign keys
 db.run('PRAGMA foreign_keys = ON');
 
+// Parse command-line arguments
+const argv = yargs(hideBin(process.argv))
+  .option('verbose', {
+    alias: 'v',
+    type: 'boolean',
+    description: 'Run with verbose logging'
+  })
+  .option('dry-run', {
+    alias: 'd',
+    type: 'boolean',
+    description: 'Perform a dry run without making changes'
+  })
+  .help()
+  .argv;
+
+// Enhanced logging function
+function log(message, level = 'info') {
+  const symbols = { info: 'ℹ️', error: '❌', success: '✅', warning: '⚠️' };
+  const symbol = symbols[level] || symbols.info;
+  if (argv.verbose || level !== 'info') {
+    logger[level](`${symbol} ${message}`);
+  }
+}
+
 // Function to run a query and log the result
-function runQuery(query, params = []) {
+async function runQuery(query, params = []) {
+  if (argv['dry-run']) {
+    log(`Dry run: would execute query: ${query.split('\n')[0]}...`, 'warning');
+    return Promise.resolve({ changes: 0, lastID: null });
+  }
   return new Promise((resolve, reject) => {
     db.run(query, params, function(err) {
       if (err) {
-        logger.error(`Error executing query: ${query}`);
-        logger.error(`Error message: ${err.message}`);
+        log(`Error executing query: ${query}`, 'error');
+        log(`Error message: ${err.message}`, 'error');
         reject(err);
       } else {
-        logger.info(`Query executed successfully: ${query.split('\n')[0]}...`);
+        log(`Query executed successfully: ${query.split('\n')[0]}...`, 'success');
         resolve({ changes: this.changes, lastID: this.lastID });
       }
     });
@@ -100,46 +131,129 @@ function getTableColumns(tableName) {
   });
 }
 
+// Function to fix market_listings table
+async function fixMarketListingsTable() {
+  const tableName = 'market_listings';
+  
+  // Check if table exists
+  const exists = await tableExists(tableName);
+  
+  if (!exists) {
+    log(`Creating ${tableName} table...`, 'info');
+    await runQuery(`
+      CREATE TABLE ${tableName} (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        seller_id VARCHAR(20) NOT NULL,
+        guild_id VARCHAR(20) NOT NULL,
+        item_id VARCHAR(50) NOT NULL,
+        item_type VARCHAR(20) NOT NULL,
+        quantity INTEGER NOT NULL,
+        price INTEGER NOT NULL,
+        description TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        expires_at TIMESTAMP,
+        status VARCHAR(20) DEFAULT 'active'
+      )
+    `);
+    log(`Created ${tableName} table`, 'success');
+  } else {
+    // Check and add missing columns
+    const hasItemTypeColumn = await columnExists(tableName, 'item_type');
+    
+    if (!hasItemTypeColumn) {
+      log(`Adding item_type column to ${tableName} table...`, 'info');
+      await runQuery(`ALTER TABLE ${tableName} ADD COLUMN item_type VARCHAR(20) NOT NULL DEFAULT 'item'`);
+      log(`Added item_type column to ${tableName} table`, 'success');
+    }
+  }
+}
+
+// Function to fix account_links table
+async function fixAccountLinksTable() {
+  const tableName = 'account_links';
+  
+  // Check if table exists
+  const exists = await tableExists(tableName);
+  
+  if (!exists) {
+    log(`Creating ${tableName} table...`, 'info');
+    await runQuery(`
+      CREATE TABLE ${tableName} (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id VARCHAR(20) NOT NULL,
+        discord_id VARCHAR(20),
+        pterodactyl_id INTEGER,
+        panel_id VARCHAR(100),
+        pterodactyl_username VARCHAR(100),
+        token VARCHAR(100),
+        expires_at TIMESTAMP,
+        whmcs_id INTEGER,
+        verified BOOLEAN DEFAULT 0,
+        verification_code VARCHAR(10),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        verified_at TIMESTAMP,
+        UNIQUE(user_id)
+      )
+    `);
+    log(`Created ${tableName} table`, 'success');
+  } else {
+    // Check and add missing columns
+    const requiredColumns = [
+      { name: 'discord_id', type: 'VARCHAR(20)' },
+      { name: 'pterodactyl_id', type: 'INTEGER' },
+      { name: 'panel_id', type: 'VARCHAR(100)' },
+      { name: 'pterodactyl_username', type: 'VARCHAR(100)' },
+      { name: 'token', type: 'VARCHAR(100)' },
+      { name: 'expires_at', type: 'TIMESTAMP' },
+      { name: 'whmcs_id', type: 'INTEGER' },
+      { name: 'verified', type: 'BOOLEAN DEFAULT 0' },
+      { name: 'verification_code', type: 'VARCHAR(10)' },
+      { name: 'created_at', type: 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP' },
+      { name: 'verified_at', type: 'TIMESTAMP' }
+    ];
+    
+    for (const column of requiredColumns) {
+      const hasColumn = await columnExists(tableName, column.name);
+      if (!hasColumn) {
+        log(`Adding ${column.name} column to ${tableName} table...`, 'info');
+        await runQuery(`ALTER TABLE ${tableName} ADD COLUMN ${column.name} ${column.type}`);
+        log(`Added ${column.name} column to ${tableName} table`, 'success');
+      }
+    }
+  }
+}
+
 // Main function to fix database issues
 async function fixDatabaseIssues() {
   try {
-    logger.info('Starting database fix process...');
+    log('Starting database fix process...', 'info');
     
     // Begin transaction
     await runQuery('BEGIN TRANSACTION');
     
-    // Fix command_usage table
+    // Call the fix functions
     await fixCommandUsageTable();
-    
-    // Fix button_usage table
     await fixButtonUsageTable();
-    
-    // Fix account_links table
     await fixAccountLinksTable();
-    
-    // Fix command_errors table
+    await fixMarketListingsTable();
     await fixCommandErrorsTable();
-    
-    // Fix leveling table
     await fixLevelingTable();
-    
-    // Fix mining_data table
     await fixMiningDataTable();
     
     // Commit transaction
     await runQuery('COMMIT');
-    logger.info('Database fix process completed successfully');
+    log('Database fix process completed successfully', 'success');
   } catch (error) {
-    logger.error(`Error fixing database: ${error.message}`);
+    log(`Error fixing database: ${error.message}`, 'error');
     await runQuery('ROLLBACK');
-    logger.info('Changes rolled back due to error');
+    log('Changes rolled back due to error', 'warning');
   } finally {
     // Close database connection
     db.close((err) => {
       if (err) {
-        logger.error(`Error closing database: ${err.message}`);
+        log(`Error closing database: ${err.message}`, 'error');
       } else {
-        logger.info('Database connection closed');
+        log('Database connection closed', 'info');
       }
     });
   }
@@ -153,7 +267,7 @@ async function fixCommandUsageTable() {
   const exists = await tableExists(tableName);
   
   if (!exists) {
-    logger.info(`Creating ${tableName} table...`);
+    log(`Creating ${tableName} table...`, 'info');
     await runQuery(`
       CREATE TABLE ${tableName} (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -167,13 +281,13 @@ async function fixCommandUsageTable() {
     await runQuery(`CREATE INDEX idx_command_usage_user ON ${tableName}(user_id)`);
     await runQuery(`CREATE INDEX idx_command_usage_guild ON ${tableName}(guild_id)`);
     await runQuery(`CREATE INDEX idx_command_usage_command ON ${tableName}(command)`);
-    logger.info(`Created ${tableName} table`);
+    log(`Created ${tableName} table`, 'success');
   } else {
     // Check if command column exists
     const hasCommandColumn = await columnExists(tableName, 'command');
     
     if (!hasCommandColumn) {
-      logger.info(`Adding command column to ${tableName} table...`);
+      log(`Adding command column to ${tableName} table...`, 'info');
       
       // In SQLite, we need to recreate the table to add a column
       // First, get all existing columns
@@ -206,7 +320,7 @@ async function fixCommandUsageTable() {
       await runQuery(`CREATE INDEX idx_command_usage_guild ON ${tableName}(guild_id)`);
       await runQuery(`CREATE INDEX idx_command_usage_command ON ${tableName}(command)`);
       
-      logger.info(`Added command column to ${tableName} table`);
+      log(`Added command column to ${tableName} table`, 'success');
     }
   }
 }
@@ -219,7 +333,7 @@ async function fixButtonUsageTable() {
   const exists = await tableExists(tableName);
   
   if (!exists) {
-    logger.info(`Creating ${tableName} table...`);
+    log(`Creating ${tableName} table...`, 'info');
     await runQuery(`
       CREATE TABLE ${tableName} (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -233,13 +347,13 @@ async function fixButtonUsageTable() {
     await runQuery(`CREATE INDEX idx_button_usage_user ON ${tableName}(user_id)`);
     await runQuery(`CREATE INDEX idx_button_usage_guild ON ${tableName}(guild_id)`);
     await runQuery(`CREATE INDEX idx_button_usage_button ON ${tableName}(button_id)`);
-    logger.info(`Created ${tableName} table`);
+    log(`Created ${tableName} table`, 'success');
   } else {
     // Check if button_id column exists
     const hasButtonIdColumn = await columnExists(tableName, 'button_id');
     
     if (!hasButtonIdColumn) {
-      logger.info(`Adding button_id column to ${tableName} table...`);
+      log(`Adding button_id column to ${tableName} table...`, 'info');
       
       // In SQLite, we need to recreate the table to add a column
       // First, get all existing columns
@@ -272,87 +386,7 @@ async function fixButtonUsageTable() {
       await runQuery(`CREATE INDEX idx_button_usage_guild ON ${tableName}(guild_id)`);
       await runQuery(`CREATE INDEX idx_button_usage_button ON ${tableName}(button_id)`);
       
-      logger.info(`Added button_id column to ${tableName} table`);
-    }
-  }
-}
-
-// Fix account_links table
-async function fixAccountLinksTable() {
-  const tableName = 'account_links';
-  
-  // Check if table exists
-  const exists = await tableExists(tableName);
-  
-  if (!exists) {
-    logger.info(`Creating ${tableName} table...`);
-    await runQuery(`
-      CREATE TABLE ${tableName} (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        discord_id VARCHAR(20) UNIQUE,
-        pterodactyl_id INTEGER,
-        token VARCHAR(100),
-        expires_at TIMESTAMP,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        verified BOOLEAN DEFAULT 0,
-        verified_at TIMESTAMP,
-        panel_id VARCHAR(100)
-      )
-    `);
-    await runQuery(`CREATE INDEX idx_account_links_discord ON ${tableName}(discord_id)`);
-    await runQuery(`CREATE INDEX idx_account_links_pterodactyl ON ${tableName}(pterodactyl_id)`);
-    logger.info(`Created ${tableName} table`);
-  } else {
-    // Check if created_at column exists
-    const hasCreatedAtColumn = await columnExists(tableName, 'created_at');
-    
-    if (!hasCreatedAtColumn) {
-      logger.info(`Adding created_at column to ${tableName} table...`);
-      await runQuery(`ALTER TABLE ${tableName} ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`);
-      logger.info(`Added created_at column to ${tableName} table`);
-    }
-    
-    // Check if token column exists
-    const hasTokenColumn = await columnExists(tableName, 'token');
-    
-    if (!hasTokenColumn) {
-      logger.info(`Adding token column to ${tableName} table...`);
-      await runQuery(`ALTER TABLE ${tableName} ADD COLUMN token VARCHAR(100)`);
-      logger.info(`Added token column to ${tableName} table`);
-    }
-    
-    // Check if expires_at column exists
-    const hasExpiresAtColumn = await columnExists(tableName, 'expires_at');
-    
-    if (!hasExpiresAtColumn) {
-      logger.info(`Adding expires_at column to ${tableName} table...`);
-      await runQuery(`ALTER TABLE ${tableName} ADD COLUMN expires_at TIMESTAMP`);
-      logger.info(`Added expires_at column to ${tableName} table`);
-    }
-    
-    // Check if panel_id column exists
-    const hasPanelIdColumn = await columnExists(tableName, 'panel_id');
-    
-    if (!hasPanelIdColumn) {
-      logger.info(`Adding panel_id column to ${tableName} table...`);
-      await runQuery(`ALTER TABLE ${tableName} ADD COLUMN panel_id VARCHAR(100)`);
-      logger.info(`Added panel_id column to ${tableName} table`);
-    }
-    
-    // Check if discord_id column exists
-    const hasDiscordIdColumn = await columnExists(tableName, 'discord_id');
-    
-    if (!hasDiscordIdColumn) {
-      logger.info(`Adding discord_id column to ${tableName} table...`);
-      await runQuery(`ALTER TABLE ${tableName} ADD COLUMN discord_id VARCHAR(20)`);
-      
-      // Update discord_id to match user_id if it exists
-      const hasUserIdColumn = await columnExists(tableName, 'user_id');
-      if (hasUserIdColumn) {
-        await runQuery(`UPDATE ${tableName} SET discord_id = user_id WHERE discord_id IS NULL`);
-      }
-      
-      logger.info(`Added discord_id column to ${tableName} table`);
+      log(`Added button_id column to ${tableName} table`, 'success');
     }
   }
 }
@@ -365,7 +399,7 @@ async function fixCommandErrorsTable() {
   const exists = await tableExists(tableName);
   
   if (!exists) {
-    logger.info(`Creating ${tableName} table...`);
+    log(`Creating ${tableName} table...`, 'info');
     await runQuery(`
       CREATE TABLE ${tableName} (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -380,7 +414,7 @@ async function fixCommandErrorsTable() {
     await runQuery(`CREATE INDEX idx_command_errors_user ON ${tableName}(user_id)`);
     await runQuery(`CREATE INDEX idx_command_errors_guild ON ${tableName}(guild_id)`);
     await runQuery(`CREATE INDEX idx_command_errors_command ON ${tableName}(command)`);
-    logger.info(`Created ${tableName} table`);
+    log(`Created ${tableName} table`, 'success');
   }
 }
 
@@ -396,10 +430,10 @@ async function fixLevelingTable() {
     const columns = await getTableColumns(tableName);
     
     if (!columns.includes('total_xp')) {
-      logger.info(`Adding total_xp column to ${tableName} table...`);
+      log(`Adding total_xp column to ${tableName} table...`, 'info');
       await runQuery(`ALTER TABLE ${tableName} ADD COLUMN total_xp INTEGER DEFAULT 0`);
       await runQuery(`UPDATE ${tableName} SET total_xp = xp`);
-      logger.info(`Added total_xp column to ${tableName} table`);
+      log(`Added total_xp column to ${tableName} table`, 'success');
     }
   }
 }
@@ -416,15 +450,15 @@ async function fixMiningDataTable() {
     const hasResourcesColumn = await columnExists(tableName, 'resources');
     
     if (!hasResourcesColumn) {
-      logger.info(`Adding resources column to ${tableName} table...`);
+      log(`Adding resources column to ${tableName} table...`, 'info');
       await runQuery(`ALTER TABLE ${tableName} ADD COLUMN resources TEXT DEFAULT '[]'`);
-      logger.info(`Added resources column to ${tableName} table`);
+      log(`Added resources column to ${tableName} table`, 'success');
     }
   }
 }
 
 // Run the fix process
 fixDatabaseIssues().catch(err => {
-  logger.error(`Unhandled error in database fix process: ${err.message}`);
+  log(`Unhandled error in database fix process: ${err.message}`, 'error');
   process.exit(1);
 }); 

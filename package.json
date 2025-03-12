@@ -18,7 +18,7 @@
     "lint:fix": "eslint . --fix",
     "add-copyright": "node add-copyright.js",
     "test": "echo \"No tests specified - skipping tests\" && exit 0",
-    "db:fix": "node fix-database.js",
+    "db:fix": "node scripts/database/fix-database.js",
     "db:update": "bash update-database.sh",
     "db:init": "node src/database/init.js",
     "docker:build": "docker-compose build",
