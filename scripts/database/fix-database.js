@@ -12,7 +12,7 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const sqlite3 = require('sqlite3').verbose();
-const logger = require('./src/utils/logger');
+const logger = require('../../src/utils/logger');
 const yargs = require('yargs/yargs');
 const { hideBin } = require('yargs/helpers');
 const { open } = require('sqlite');
