@@ -4,7 +4,7 @@
 
 -- Users table
 CREATE TABLE IF NOT EXISTS users (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id VARCHAR(20) NOT NULL,
   username VARCHAR(32) NOT NULL,
   discriminator VARCHAR(4) NOT NULL,
@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS users (
 
 -- Messages table
 CREATE TABLE IF NOT EXISTS messages (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   message_id VARCHAR(20) NOT NULL,
   user_id VARCHAR(20) NOT NULL,
   guild_id VARCHAR(20) NOT NULL,
@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS messages (
 
 -- Member events table
 CREATE TABLE IF NOT EXISTS member_events (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id VARCHAR(20) NOT NULL,
   guild_id VARCHAR(20) NOT NULL,
   event_type VARCHAR(20) NOT NULL,
@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS member_events (
 
 -- Command usage table
 CREATE TABLE IF NOT EXISTS command_usage (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   command_name VARCHAR(50) NOT NULL,
   user_id VARCHAR(20) NOT NULL,
   guild_id VARCHAR(20),
@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS command_usage (
 
 -- Command errors table
 CREATE TABLE IF NOT EXISTS command_errors (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   command_name VARCHAR(50) NOT NULL,
   user_id VARCHAR(20) NOT NULL,
   guild_id VARCHAR(20),
@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS command_errors (
 
 -- Legacy command usage table
 CREATE TABLE IF NOT EXISTS legacy_command_usage (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   command_name VARCHAR(50) NOT NULL,
   user_id VARCHAR(20) NOT NULL,
   guild_id VARCHAR(20),
@@ -76,7 +76,7 @@ CREATE TABLE IF NOT EXISTS legacy_command_usage (
 
 -- Legacy command errors table
 CREATE TABLE IF NOT EXISTS legacy_command_errors (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   command_name VARCHAR(50) NOT NULL,
   user_id VARCHAR(20) NOT NULL,
   guild_id VARCHAR(20),
@@ -88,7 +88,7 @@ CREATE TABLE IF NOT EXISTS legacy_command_errors (
 
 -- Button usage table
 CREATE TABLE IF NOT EXISTS button_usage (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   button_id VARCHAR(100) NOT NULL,
   user_id VARCHAR(20) NOT NULL,
   guild_id VARCHAR(20),
@@ -101,7 +101,7 @@ CREATE TABLE IF NOT EXISTS button_usage (
 
 -- Select menu usage table
 CREATE TABLE IF NOT EXISTS select_menu_usage (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   menu_id VARCHAR(100) NOT NULL,
   user_id VARCHAR(20) NOT NULL,
   guild_id VARCHAR(20),
@@ -115,7 +115,7 @@ CREATE TABLE IF NOT EXISTS select_menu_usage (
 
 -- Modal submissions table
 CREATE TABLE IF NOT EXISTS modal_submissions (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   modal_id VARCHAR(100) NOT NULL,
   user_id VARCHAR(20) NOT NULL,
   guild_id VARCHAR(20),
@@ -128,7 +128,7 @@ CREATE TABLE IF NOT EXISTS modal_submissions (
 
 -- Tickets table
 CREATE TABLE IF NOT EXISTS tickets (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   ticket_id VARCHAR(20) NOT NULL,
   user_id VARCHAR(20) NOT NULL,
   guild_id VARCHAR(20) NOT NULL,
@@ -145,9 +145,20 @@ CREATE TABLE IF NOT EXISTS tickets (
   UNIQUE(ticket_id)
 );
 
+-- Ticket messages table
+CREATE TABLE IF NOT EXISTS ticket_messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ticket_id VARCHAR(20) NOT NULL,
+  user_id VARCHAR(20) NOT NULL,
+  message_id VARCHAR(20) NOT NULL,
+  content TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(message_id)
+);
+
 -- Moderation actions table
 CREATE TABLE IF NOT EXISTS moderation_actions (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   action_type VARCHAR(20) NOT NULL,
   user_id VARCHAR(20) NOT NULL,
   moderator_id VARCHAR(20) NOT NULL,
@@ -163,7 +174,7 @@ CREATE TABLE IF NOT EXISTS moderation_actions (
 
 -- Automod actions table
 CREATE TABLE IF NOT EXISTS automod_actions (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id VARCHAR(20) NOT NULL,
   guild_id VARCHAR(20) NOT NULL,
   channel_id VARCHAR(20) NOT NULL,
@@ -177,7 +188,7 @@ CREATE TABLE IF NOT EXISTS automod_actions (
 
 -- Automod settings table
 CREATE TABLE IF NOT EXISTS automod_settings (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   guild_id VARCHAR(20) NOT NULL,
   feature VARCHAR(50) NOT NULL,
   enabled BOOLEAN DEFAULT 0,
@@ -189,7 +200,7 @@ CREATE TABLE IF NOT EXISTS automod_settings (
 
 -- User balances table
 CREATE TABLE IF NOT EXISTS user_balances (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id VARCHAR(20) NOT NULL,
   guild_id VARCHAR(20) NOT NULL,
   balance INTEGER DEFAULT 0,
@@ -199,7 +210,7 @@ CREATE TABLE IF NOT EXISTS user_balances (
 
 -- Transactions table
 CREATE TABLE IF NOT EXISTS transactions (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id VARCHAR(20) NOT NULL,
   guild_id VARCHAR(20) NOT NULL,
   amount INTEGER NOT NULL,
@@ -210,7 +221,7 @@ CREATE TABLE IF NOT EXISTS transactions (
 
 -- Transfers table
 CREATE TABLE IF NOT EXISTS transfers (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   sender_id VARCHAR(20) NOT NULL,
   receiver_id VARCHAR(20) NOT NULL,
   guild_id VARCHAR(20) NOT NULL,
@@ -222,7 +233,7 @@ CREATE TABLE IF NOT EXISTS transfers (
 
 -- Market listings table
 CREATE TABLE IF NOT EXISTS market_listings (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   seller_id VARCHAR(20) NOT NULL,
   guild_id VARCHAR(20) NOT NULL,
   item_id VARCHAR(50) NOT NULL,
@@ -237,167 +248,163 @@ CREATE TABLE IF NOT EXISTS market_listings (
 
 -- Market transactions table
 CREATE TABLE IF NOT EXISTS market_transactions (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   listing_id INTEGER NOT NULL,
   buyer_id VARCHAR(20) NOT NULL,
   seller_id VARCHAR(20) NOT NULL,
-  guild_id VARCHAR(20) NOT NULL,
   item_id VARCHAR(50) NOT NULL,
   item_type VARCHAR(20) NOT NULL,
   quantity INTEGER NOT NULL,
-  price INTEGER NOT NULL,
+  price_per_unit INTEGER NOT NULL,
   total_price INTEGER NOT NULL,
-  fee INTEGER DEFAULT 0,
   timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- User mining data table
 CREATE TABLE IF NOT EXISTS user_mining_data (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id VARCHAR(20) NOT NULL,
   guild_id VARCHAR(20) NOT NULL,
-  level INTEGER NOT NULL DEFAULT 1,
-  xp INTEGER NOT NULL DEFAULT 0,
-  current_world VARCHAR(50) DEFAULT 'Coal Mine',
-  pickaxe VARCHAR(50) DEFAULT 'Wooden Pickaxe',
-  pet VARCHAR(50),
-  armor VARCHAR(50),
-  active_booster VARCHAR(50),
-  booster_expiry TIMESTAMP,
-  last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  level INTEGER DEFAULT 1,
+  xp INTEGER DEFAULT 0,
+  pickaxe VARCHAR(50) DEFAULT 'wooden',
+  world VARCHAR(50) DEFAULT 'overworld',
+  last_mined TIMESTAMP,
   UNIQUE(user_id, guild_id)
 );
 
 -- User mining inventory table
 CREATE TABLE IF NOT EXISTS user_mining_inventory (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id VARCHAR(20) NOT NULL,
   guild_id VARCHAR(20) NOT NULL,
-  resource_id VARCHAR(50) NOT NULL,
-  quantity INTEGER NOT NULL DEFAULT 0,
-  item_type VARCHAR(20) DEFAULT 'resource',
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE(user_id, guild_id, resource_id)
+  item_id VARCHAR(50) NOT NULL,
+  item_type VARCHAR(20) NOT NULL,
+  quantity INTEGER DEFAULT 1,
+  acquired_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Mining actions table
 CREATE TABLE IF NOT EXISTS mining_actions (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id VARCHAR(20) NOT NULL,
-  action_type VARCHAR(50) NOT NULL,
-  resource_id VARCHAR(50),
-  quantity INTEGER,
-  xp_gained INTEGER,
+  guild_id VARCHAR(20) NOT NULL,
+  action_type VARCHAR(20) NOT NULL,
+  details TEXT,
   timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- AI chat messages table
 CREATE TABLE IF NOT EXISTS ai_chat_messages (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id VARCHAR(20) NOT NULL,
   guild_id VARCHAR(20) NOT NULL,
   channel_id VARCHAR(20) NOT NULL,
   message_id VARCHAR(20) NOT NULL,
-  content TEXT NOT NULL,
+  content TEXT,
   response TEXT,
   tokens_used INTEGER,
-  response_time INTEGER,
   timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Feedback table
 CREATE TABLE IF NOT EXISTS feedback (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id VARCHAR(20) NOT NULL,
   guild_id VARCHAR(20) NOT NULL,
-  feedback_type VARCHAR(20) NOT NULL,
-  content TEXT NOT NULL,
+  type VARCHAR(20) NOT NULL,
+  content TEXT,
   rating INTEGER,
-  timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  status VARCHAR(20) DEFAULT 'pending',
-  reviewed_by VARCHAR(20),
-  reviewed_at TIMESTAMP
+  timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Keyword triggers table
 CREATE TABLE IF NOT EXISTS keyword_triggers (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   guild_id VARCHAR(20) NOT NULL,
   keyword VARCHAR(100) NOT NULL,
-  response TEXT NOT NULL,
+  response TEXT,
   created_by VARCHAR(20) NOT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  uses INTEGER DEFAULT 0,
   is_regex BOOLEAN DEFAULT 0,
-  case_sensitive BOOLEAN DEFAULT 0,
-  enabled BOOLEAN DEFAULT 1
+  is_case_sensitive BOOLEAN DEFAULT 0,
+  UNIQUE(guild_id, keyword)
 );
 
 -- User levels table
 CREATE TABLE IF NOT EXISTS user_levels (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id VARCHAR(20) NOT NULL,
   guild_id VARCHAR(20) NOT NULL,
-  level INTEGER NOT NULL DEFAULT 1,
-  xp INTEGER NOT NULL DEFAULT 0,
-  last_message_timestamp TIMESTAMP,
-  last_voice_timestamp TIMESTAMP,
-  total_messages INTEGER NOT NULL DEFAULT 0,
-  total_voice_minutes INTEGER NOT NULL DEFAULT 0,
+  xp INTEGER DEFAULT 0,
+  level INTEGER DEFAULT 0,
+  messages INTEGER DEFAULT 0,
+  voice_time INTEGER DEFAULT 0,
+  last_xp_earned TIMESTAMP,
   UNIQUE(user_id, guild_id)
 );
 
 -- Level rewards table
 CREATE TABLE IF NOT EXISTS level_rewards (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   guild_id VARCHAR(20) NOT NULL,
   level INTEGER NOT NULL,
-  role_id VARCHAR(20) NOT NULL,
-  created_by VARCHAR(20) NOT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  role_id VARCHAR(20),
+  message TEXT,
   UNIQUE(guild_id, level)
 );
 
 -- Account links table
 CREATE TABLE IF NOT EXISTS account_links (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id VARCHAR(20) NOT NULL,
-  platform VARCHAR(50) NOT NULL,
-  platform_id VARCHAR(100) NOT NULL,
-  platform_username VARCHAR(100),
+  discord_id VARCHAR(20),
   pterodactyl_id INTEGER,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  panel_id VARCHAR(100),
+  pterodactyl_username VARCHAR(100),
+  token VARCHAR(100),
+  expires_at TIMESTAMP,
+  whmcs_id INTEGER,
   verified BOOLEAN DEFAULT 0,
+  verification_code VARCHAR(10),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   verified_at TIMESTAMP,
-  UNIQUE(user_id, platform)
+  UNIQUE(user_id)
 );
 
 -- Verification table
 CREATE TABLE IF NOT EXISTS verification (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id VARCHAR(20) NOT NULL,
   guild_id VARCHAR(20) NOT NULL,
   verified BOOLEAN DEFAULT 0,
-  verification_date TIMESTAMP,
-  verification_method VARCHAR(50),
-  verification_data TEXT,
+  verification_code VARCHAR(10),
+  verification_method VARCHAR(20),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  verified_at TIMESTAMP,
   UNIQUE(user_id, guild_id)
 );
 
 -- Guilds table
 CREATE TABLE IF NOT EXISTS guilds (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   guild_id VARCHAR(20) NOT NULL,
   name VARCHAR(100) NOT NULL,
-  owner_id VARCHAR(20) NOT NULL,
-  joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  member_count INTEGER,
   icon VARCHAR(255),
+  owner_id VARCHAR(20) NOT NULL,
+  member_count INTEGER DEFAULT 0,
+  joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  left_at TIMESTAMP,
+  is_active BOOLEAN DEFAULT 1,
+  premium_tier INTEGER DEFAULT 0,
+  premium_until TIMESTAMP,
   UNIQUE(guild_id)
 );
 
 -- Guild settings table
 CREATE TABLE IF NOT EXISTS guild_settings (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   guild_id VARCHAR(20) NOT NULL,
   setting_key VARCHAR(50) NOT NULL,
   setting_value TEXT,
@@ -419,7 +426,9 @@ CREATE INDEX IF NOT EXISTS idx_moderation_actions_guild_id ON moderation_actions
 CREATE INDEX IF NOT EXISTS idx_user_levels_user_id ON user_levels(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_levels_guild_id ON user_levels(guild_id);
 CREATE INDEX IF NOT EXISTS idx_account_links_user_id ON account_links(user_id);
+CREATE INDEX IF NOT EXISTS idx_account_links_discord_id ON account_links(discord_id);
 CREATE INDEX IF NOT EXISTS idx_account_links_pterodactyl_id ON account_links(pterodactyl_id);
+CREATE INDEX IF NOT EXISTS idx_account_links_panel_id ON account_links(panel_id);
 CREATE INDEX IF NOT EXISTS idx_verification_user_id ON verification(user_id);
 CREATE INDEX IF NOT EXISTS idx_guilds_guild_id ON guilds(guild_id);
 CREATE INDEX IF NOT EXISTS idx_tickets_user_id ON tickets(user_id);
@@ -434,4 +443,5 @@ CREATE INDEX IF NOT EXISTS idx_market_transactions_buyer_id ON market_transactio
 CREATE INDEX IF NOT EXISTS idx_market_transactions_seller_id ON market_transactions(seller_id);
 CREATE INDEX IF NOT EXISTS idx_automod_actions_user_id ON automod_actions(user_id);
 CREATE INDEX IF NOT EXISTS idx_automod_actions_guild_id ON automod_actions(guild_id);
-CREATE INDEX IF NOT EXISTS idx_automod_settings_guild_id ON automod_settings(guild_id); 
+CREATE INDEX IF NOT EXISTS idx_automod_settings_guild_id ON automod_settings(guild_id);
+CREATE INDEX IF NOT EXISTS idx_guild_settings_guild_id ON guild_settings(guild_id); 

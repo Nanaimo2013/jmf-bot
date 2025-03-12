@@ -8,7 +8,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-const mysql = require('mysql2/promise');
 const sqlite3 = require('sqlite3');
 const { open } = require('sqlite');
 const logger = require('./logger');
@@ -20,7 +19,7 @@ class Database {
   constructor() {
     this.connection = null;
     this.isConnected = false;
-    this.dbType = process.env.DB_TYPE || 'sqlite'; // Default to SQLite if not specified
+    this.dbType = 'sqlite';
     logger.info(`Database type set to: ${this.dbType}`);
   }
 
@@ -35,16 +34,8 @@ class Database {
         return false;
       }
 
-      logger.info(`Initializing ${this.dbType} database connection...`);
-
-      if (this.dbType === 'mysql') {
-        await this.initializeMysql();
-      } else if (this.dbType === 'sqlite') {
-        await this.initializeSqlite();
-      } else {
-        logger.error(`Unsupported database type: ${this.dbType}`);
-        return false;
-      }
+      logger.info(`Initializing SQLite database connection...`);
+      await this.initializeSqlite();
 
       // Initialize database tables
       await this.initializeTables();
@@ -54,38 +45,6 @@ class Database {
       logger.error(`Database initialization failed: ${error.message}`);
       return false;
     }
-  }
-
-  /**
-   * Initialize MySQL database connection
-   * @returns {Promise<void>}
-   */
-  async initializeMysql() {
-    // Create database configuration
-    const dbConfig = {
-      host: process.env.DB_HOST || config.database.host || 'localhost',
-      port: parseInt(process.env.DB_PORT || config.database.port || '3306'),
-      user: process.env.DB_USERNAME || config.database.user || 'jmfbot',
-      password: process.env.DB_PASSWORD || config.database.password || '',
-      database: process.env.DB_DATABASE || config.database.name || 'jmfbot',
-      waitForConnections: true,
-      connectionLimit: config.database.connectionLimit || 10,
-      queueLimit: 0,
-      // Ensure we don't interfere with the panel by using a separate connection
-      connectTimeout: 10000,
-      // Use a unique connection name to avoid conflicts
-      connectionName: 'jmf_bot_connection'
-    };
-
-    // Create connection pool
-    this.connection = mysql.createPool(dbConfig);
-
-    // Test connection
-    const conn = await this.connection.getConnection();
-    logger.info('MySQL database connection successful');
-    conn.release();
-
-    this.isConnected = true;
   }
 
   /**
@@ -120,66 +79,36 @@ class Database {
     try {
       logger.info('Checking and creating database tables if needed...');
 
-      // Load and execute SQL schema files
-      const schemaDir = path.join(__dirname, '../database/schema');
-      const dbType = this.dbType; // 'mysql' or 'sqlite'
-      
       // Create schema directory if it doesn't exist
+      const schemaDir = path.join(__dirname, '../database/schema');
       if (!fs.existsSync(schemaDir)) {
         fs.mkdirSync(schemaDir, { recursive: true });
         logger.info('Created schema directory');
       }
 
-      // Check if we have schema files for the current database type
-      const schemaFiles = fs.readdirSync(schemaDir)
-        .filter(file => {
-          // Prioritize database-specific schema files
-          if (file.endsWith(`.${dbType}.sql`)) {
-            return true;
-          }
-          // Only include generic .sql files if no database-specific file exists
-          if (file.endsWith('.sql') && !file.includes('.')) {
-            // Check if there's a database-specific version of this file
-            const dbSpecificFile = file.replace('.sql', `.${dbType}.sql`);
-            return !fs.existsSync(path.join(schemaDir, dbSpecificFile));
-          }
-          return false;
-        });
-      
-      if (schemaFiles.length > 0) {
-        logger.info(`Found ${schemaFiles.length} schema files for ${dbType}`);
+      // Create SQLite schema file if it doesn't exist
+      const sqliteSchemaPath = path.join(schemaDir, 'sqlite-schema.sql');
+      if (!fs.existsSync(sqliteSchemaPath)) {
+        logger.info('Creating SQLite schema file');
+        await this.createSqliteTables();
+      } else {
+        // Execute the SQLite schema file
+        logger.info('Executing SQLite schema file');
+        const schema = fs.readFileSync(sqliteSchemaPath, 'utf8');
         
-        // Execute each schema file
-        for (const file of schemaFiles) {
-          const filePath = path.join(schemaDir, file);
-          logger.info(`Executing schema file: ${file}`);
-          
-          const schema = fs.readFileSync(filePath, 'utf8');
-          
-          // Split the schema into individual statements
-          const statements = schema.split(';').filter(stmt => stmt.trim() !== '');
-          
-          for (const statement of statements) {
-            if (statement.trim()) {
-              try {
-                await this.query(statement);
-              } catch (error) {
-                logger.error(`Database query error: ${error.message}`);
-                logger.error(`Query: \n\n${statement}`);
-                throw error;
-              }
+        // Split the schema into individual statements
+        const statements = schema.split(';').filter(stmt => stmt.trim() !== '');
+        
+        for (const statement of statements) {
+          if (statement.trim()) {
+            try {
+              await this.query(statement);
+            } catch (error) {
+              logger.error(`Database query error: ${error.message}`);
+              logger.error(`Query: \n\n${statement}`);
+              // Continue with other statements even if one fails
             }
           }
-          
-          logger.info(`Executed schema file: ${file}`);
-        }
-      } else {
-        // If no schema files, create tables directly
-        logger.info('No schema files found, creating tables directly');
-        if (this.dbType === 'sqlite') {
-          await this.createSqliteTables();
-        } else {
-          await this.createDefaultTables();
         }
       }
 
@@ -191,433 +120,517 @@ class Database {
   }
 
   /**
-   * Create default tables if no schema files exist
-   * @returns {Promise<void>}
-   */
-  async createDefaultTables() {
-    try {
-      logger.info(`Creating default tables for ${this.dbType} database`);
-      if (this.dbType === 'mysql') {
-        await this.createMysqlTables();
-      } else if (this.dbType === 'sqlite') {
-        await this.createSqliteTables();
-      }
-    } catch (error) {
-      logger.error(`Failed to create default tables: ${error.message}`);
-      throw error;
-    }
-  }
-
-  /**
-   * Create default MySQL tables
-   * @returns {Promise<void>}
-   */
-  async createMysqlTables() {
-    // Users table
-    await this.query(`
-      CREATE TABLE IF NOT EXISTS users (
-        user_id VARCHAR(20) NOT NULL,
-        guild_id VARCHAR(20) NOT NULL,
-        username VARCHAR(100) NOT NULL,
-        discriminator VARCHAR(10) NOT NULL,
-        nickname VARCHAR(100),
-        avatar_url TEXT,
-        joined_at DATETIME NOT NULL,
-        is_member TINYINT(1) DEFAULT 1,
-        left_at DATETIME,
-        PRIMARY KEY (user_id, guild_id)
-      )
-    `);
-    
-    // Messages table
-    await this.query(`
-      CREATE TABLE IF NOT EXISTS messages (
-        message_id VARCHAR(20) NOT NULL,
-        user_id VARCHAR(20) NOT NULL,
-        guild_id VARCHAR(20),
-        channel_id VARCHAR(20) NOT NULL,
-        content_length INT NOT NULL,
-        has_attachments TINYINT(1) DEFAULT 0,
-        has_embeds TINYINT(1) DEFAULT 0,
-        timestamp DATETIME NOT NULL,
-        PRIMARY KEY (message_id)
-      )
-    `);
-    
-    // Member events table
-    await this.query(`
-      CREATE TABLE IF NOT EXISTS member_events (
-        id INT AUTO_INCREMENT,
-        user_id VARCHAR(20) NOT NULL,
-        guild_id VARCHAR(20) NOT NULL,
-        event_type ENUM('join', 'leave') NOT NULL,
-        timestamp DATETIME NOT NULL,
-        PRIMARY KEY (id)
-      )
-    `);
-    
-    // Command usage table
-    await this.query(`
-      CREATE TABLE IF NOT EXISTS command_usage (
-        id INT AUTO_INCREMENT,
-        user_id VARCHAR(20) NOT NULL,
-        guild_id VARCHAR(20),
-        command VARCHAR(50) NOT NULL,
-        channel_id VARCHAR(20),
-        timestamp DATETIME NOT NULL,
-        PRIMARY KEY (id)
-      )
-    `);
-    
-    // Command errors table
-    await this.query(`
-      CREATE TABLE IF NOT EXISTS command_errors (
-        id INT AUTO_INCREMENT,
-        user_id VARCHAR(20) NOT NULL,
-        guild_id VARCHAR(20),
-        command VARCHAR(50) NOT NULL,
-        error_message TEXT NOT NULL,
-        stack_trace TEXT,
-        timestamp DATETIME NOT NULL,
-        PRIMARY KEY (id)
-      )
-    `);
-    
-    // Legacy command usage table
-    await this.query(`
-      CREATE TABLE IF NOT EXISTS legacy_command_usage (
-        id INT AUTO_INCREMENT,
-        user_id VARCHAR(20) NOT NULL,
-        guild_id VARCHAR(20),
-        command VARCHAR(50) NOT NULL,
-        channel_id VARCHAR(20),
-        timestamp DATETIME NOT NULL,
-        PRIMARY KEY (id)
-      )
-    `);
-    
-    // Legacy command errors table
-    await this.query(`
-      CREATE TABLE IF NOT EXISTS legacy_command_errors (
-        id INT AUTO_INCREMENT,
-        user_id VARCHAR(20) NOT NULL,
-        guild_id VARCHAR(20),
-        command VARCHAR(50) NOT NULL,
-        error_message TEXT NOT NULL,
-        timestamp DATETIME NOT NULL,
-        PRIMARY KEY (id)
-      )
-    `);
-    
-    // Button usage table
-    await this.query(`
-      CREATE TABLE IF NOT EXISTS button_usage (
-        id INT AUTO_INCREMENT,
-        user_id VARCHAR(20) NOT NULL,
-        guild_id VARCHAR(20),
-        button_id VARCHAR(100) NOT NULL,
-        channel_id VARCHAR(20),
-        timestamp DATETIME NOT NULL,
-        PRIMARY KEY (id)
-      )
-    `);
-    
-    // Select menu usage table
-    await this.query(`
-      CREATE TABLE IF NOT EXISTS select_menu_usage (
-        id INT AUTO_INCREMENT,
-        user_id VARCHAR(20) NOT NULL,
-        guild_id VARCHAR(20),
-        menu_id VARCHAR(100) NOT NULL,
-        selected_values TEXT NOT NULL,
-        channel_id VARCHAR(20),
-        timestamp DATETIME NOT NULL,
-        PRIMARY KEY (id)
-      )
-    `);
-    
-    // Modal submissions table
-    await this.query(`
-      CREATE TABLE IF NOT EXISTS modal_submissions (
-        id INT AUTO_INCREMENT,
-        user_id VARCHAR(20) NOT NULL,
-        guild_id VARCHAR(20),
-        modal_id VARCHAR(100) NOT NULL,
-        field_values TEXT NOT NULL,
-        channel_id VARCHAR(20),
-        timestamp DATETIME NOT NULL,
-        PRIMARY KEY (id)
-      )
-    `);
-    
-    // Tickets table
-    await this.query(`
-      CREATE TABLE IF NOT EXISTS tickets (
-        id INT AUTO_INCREMENT,
-        ticket_id VARCHAR(20) NOT NULL,
-        user_id VARCHAR(20) NOT NULL,
-        guild_id VARCHAR(20) NOT NULL,
-        channel_id VARCHAR(20) NOT NULL,
-        subject VARCHAR(200) NOT NULL,
-        status ENUM('open', 'closed') DEFAULT 'open',
-        created_at DATETIME NOT NULL,
-        closed_at DATETIME,
-        closed_by VARCHAR(20),
-        PRIMARY KEY (id)
-      )
-    `);
-    
-    // Moderation actions table
-    await this.query(`
-      CREATE TABLE IF NOT EXISTS moderation_actions (
-        id INT AUTO_INCREMENT,
-        user_id VARCHAR(20) NOT NULL,
-        guild_id VARCHAR(20) NOT NULL,
-        action_type ENUM('warn', 'mute', 'kick', 'ban', 'unmute', 'unban') NOT NULL,
-        moderator_id VARCHAR(20) NOT NULL,
-        reason TEXT,
-        timestamp DATETIME NOT NULL,
-        duration INT,
-        PRIMARY KEY (id)
-      )
-    `);
-    
-    // AutoMod actions table
-    await this.query(`
-      CREATE TABLE IF NOT EXISTS automod_actions (
-        id INT AUTO_INCREMENT,
-        user_id VARCHAR(20) NOT NULL,
-        guild_id VARCHAR(20) NOT NULL,
-        channel_id VARCHAR(20) NOT NULL,
-        message_id VARCHAR(20),
-        violations TEXT NOT NULL,
-        action ENUM('warn', 'delete', 'mute', 'timeout') NOT NULL,
-        message_content TEXT,
-        timestamp DATETIME NOT NULL,
-        duration INT,
-        PRIMARY KEY (id),
-        INDEX idx_user_guild (user_id, guild_id),
-        INDEX idx_timestamp (timestamp)
-      )
-    `);
-    
-    // User balances table
-    await this.query(`
-      CREATE TABLE IF NOT EXISTS user_balances (
-        user_id VARCHAR(20) NOT NULL,
-        balance BIGINT NOT NULL DEFAULT 0,
-        last_updated DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (user_id)
-      )
-    `);
-    
-    // Transactions table
-    await this.query(`
-      CREATE TABLE IF NOT EXISTS transactions (
-        id INT AUTO_INCREMENT,
-        user_id VARCHAR(20) NOT NULL,
-        type ENUM('add', 'remove') NOT NULL,
-        amount BIGINT NOT NULL,
-        old_balance BIGINT NOT NULL,
-        new_balance BIGINT NOT NULL,
-        reason VARCHAR(255),
-        timestamp DATETIME NOT NULL,
-        PRIMARY KEY (id)
-      )
-    `);
-    
-    // Transfers table
-    await this.query(`
-      CREATE TABLE IF NOT EXISTS transfers (
-        id INT AUTO_INCREMENT,
-        from_user_id VARCHAR(20) NOT NULL,
-        to_user_id VARCHAR(20) NOT NULL,
-        amount BIGINT NOT NULL,
-        fee BIGINT NOT NULL,
-        timestamp DATETIME NOT NULL,
-        PRIMARY KEY (id)
-      )
-    `);
-    
-    // Market listings table
-    await this.query(`
-      CREATE TABLE IF NOT EXISTS market_listings (
-        id VARCHAR(50) NOT NULL,
-        seller_id VARCHAR(20) NOT NULL,
-        item_type VARCHAR(50) NOT NULL,
-        item_name VARCHAR(100) NOT NULL,
-        quantity INT NOT NULL,
-        price BIGINT NOT NULL,
-        listed_at DATETIME NOT NULL,
-        active TINYINT(1) DEFAULT 1,
-        PRIMARY KEY (id)
-      )
-    `);
-    
-    // Market transactions table
-    await this.query(`
-      CREATE TABLE IF NOT EXISTS market_transactions (
-        id INT AUTO_INCREMENT,
-        listing_id VARCHAR(50) NOT NULL,
-        buyer_id VARCHAR(20) NOT NULL,
-        seller_id VARCHAR(20) NOT NULL,
-        item_type VARCHAR(50) NOT NULL,
-        item_name VARCHAR(100) NOT NULL,
-        quantity INT NOT NULL,
-        price_per_unit BIGINT NOT NULL,
-        total_price BIGINT NOT NULL,
-        timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (id)
-      )
-    `);
-    
-    // User mining data table
-    await this.query(`
-      CREATE TABLE IF NOT EXISTS user_mining_data (
-        user_id VARCHAR(20) NOT NULL,
-        level INT NOT NULL DEFAULT 1,
-        xp BIGINT NOT NULL DEFAULT 0,
-        current_world VARCHAR(100) NOT NULL,
-        pickaxe VARCHAR(100) NOT NULL,
-        pet VARCHAR(100),
-        armor VARCHAR(100),
-        active_booster VARCHAR(100),
-        booster_expiry DATETIME,
-        last_updated DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (user_id)
-      )
-    `);
-    
-    // User mining inventory table
-    await this.query(`
-      CREATE TABLE IF NOT EXISTS user_mining_inventory (
-        id INT AUTO_INCREMENT,
-        user_id VARCHAR(20) NOT NULL,
-        item_type ENUM('resource', 'pickaxe', 'pet', 'armor', 'booster') NOT NULL,
-        item_name VARCHAR(100) NOT NULL,
-        quantity INT NOT NULL DEFAULT 1,
-        acquired_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (id),
-        UNIQUE KEY user_item (user_id, item_type, item_name)
-      )
-    `);
-    
-    // Mining actions table
-    await this.query(`
-      CREATE TABLE IF NOT EXISTS mining_actions (
-        id INT AUTO_INCREMENT,
-        user_id VARCHAR(20) NOT NULL,
-        action_type ENUM('mine', 'purchase', 'world_change') NOT NULL,
-        details TEXT NOT NULL,
-        timestamp DATETIME NOT NULL,
-        PRIMARY KEY (id)
-      )
-    `);
-    
-    // AI chat messages table
-    await this.query(`
-      CREATE TABLE IF NOT EXISTS ai_chat_messages (
-        id INT AUTO_INCREMENT,
-        user_id VARCHAR(20) NOT NULL,
-        guild_id VARCHAR(20),
-        channel_id VARCHAR(20) NOT NULL,
-        message_id VARCHAR(20) NOT NULL,
-        user_message TEXT NOT NULL,
-        ai_response TEXT,
-        response_message_id VARCHAR(20),
-        timestamp DATETIME NOT NULL,
-        PRIMARY KEY (id)
-      )
-    `);
-    
-    // Feedback table
-    await this.query(`
-      CREATE TABLE IF NOT EXISTS feedback (
-        id INT AUTO_INCREMENT,
-        user_id VARCHAR(20) NOT NULL,
-        guild_id VARCHAR(20),
-        feedback_type VARCHAR(50) NOT NULL,
-        content TEXT NOT NULL,
-        timestamp DATETIME NOT NULL,
-        PRIMARY KEY (id)
-      )
-    `);
-    
-    // Keyword triggers table
-    await this.query(`
-      CREATE TABLE IF NOT EXISTS keyword_triggers (
-        id INT AUTO_INCREMENT,
-        user_id VARCHAR(20) NOT NULL,
-        guild_id VARCHAR(20),
-        channel_id VARCHAR(20) NOT NULL,
-        message_id VARCHAR(20) NOT NULL,
-        keyword VARCHAR(100) NOT NULL,
-        timestamp DATETIME NOT NULL,
-        PRIMARY KEY (id)
-      )
-    `);
-  }
-
-  /**
-   * Create default SQLite tables
+   * Create SQLite tables
    * @returns {Promise<void>}
    */
   async createSqliteTables() {
     // Users table
     await this.query(`
       CREATE TABLE IF NOT EXISTS users (
-        user_id TEXT NOT NULL,
-        guild_id TEXT NOT NULL,
-        username TEXT NOT NULL,
-        discriminator TEXT NOT NULL,
-        nickname TEXT,
-        avatar_url TEXT,
-        joined_at TEXT NOT NULL,
-        is_member INTEGER DEFAULT 1,
-        left_at TEXT,
-        PRIMARY KEY (user_id, guild_id)
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id VARCHAR(20) NOT NULL,
+        username VARCHAR(32) NOT NULL,
+        discriminator VARCHAR(4) NOT NULL,
+        avatar VARCHAR(255),
+        created_at TIMESTAMP,
+        last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        is_bot BOOLEAN DEFAULT 0,
+        is_banned BOOLEAN DEFAULT 0,
+        ban_reason TEXT,
+        UNIQUE(user_id)
       )
     `);
-    
+
     // Messages table
     await this.query(`
       CREATE TABLE IF NOT EXISTS messages (
-        message_id TEXT NOT NULL,
-        user_id TEXT NOT NULL,
-        guild_id TEXT,
-        channel_id TEXT NOT NULL,
-        content_length INTEGER NOT NULL,
-        has_attachments INTEGER DEFAULT 0,
-        has_embeds INTEGER DEFAULT 0,
-        timestamp TEXT NOT NULL,
-        PRIMARY KEY (message_id)
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        message_id VARCHAR(20) NOT NULL,
+        user_id VARCHAR(20) NOT NULL,
+        guild_id VARCHAR(20) NOT NULL,
+        channel_id VARCHAR(20) NOT NULL,
+        content TEXT,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(message_id)
       )
     `);
-    
+
     // Member events table
     await this.query(`
       CREATE TABLE IF NOT EXISTS member_events (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id TEXT NOT NULL,
-        guild_id TEXT NOT NULL,
-        event_type TEXT NOT NULL,
-        timestamp TEXT NOT NULL
+        user_id VARCHAR(20) NOT NULL,
+        guild_id VARCHAR(20) NOT NULL,
+        event_type VARCHAR(20) NOT NULL,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
-    
+
     // Command usage table
     await this.query(`
       CREATE TABLE IF NOT EXISTS command_usage (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id TEXT NOT NULL,
-        guild_id TEXT,
-        command TEXT NOT NULL,
-        channel_id TEXT,
-        timestamp TEXT NOT NULL
+        command_name VARCHAR(50) NOT NULL,
+        user_id VARCHAR(20) NOT NULL,
+        guild_id VARCHAR(20),
+        channel_id VARCHAR(20),
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        execution_time INTEGER,
+        success BOOLEAN DEFAULT 1
       )
     `);
-    
-    // Add other tables as needed...
+
+    // Command errors table
+    await this.query(`
+      CREATE TABLE IF NOT EXISTS command_errors (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        command_name VARCHAR(50) NOT NULL,
+        user_id VARCHAR(20) NOT NULL,
+        guild_id VARCHAR(20),
+        channel_id VARCHAR(20),
+        error_message TEXT,
+        stack_trace TEXT,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Legacy command usage table
+    await this.query(`
+      CREATE TABLE IF NOT EXISTS legacy_command_usage (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        command_name VARCHAR(50) NOT NULL,
+        user_id VARCHAR(20) NOT NULL,
+        guild_id VARCHAR(20),
+        channel_id VARCHAR(20),
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        execution_time INTEGER,
+        success BOOLEAN DEFAULT 1
+      )
+    `);
+
+    // Legacy command errors table
+    await this.query(`
+      CREATE TABLE IF NOT EXISTS legacy_command_errors (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        command_name VARCHAR(50) NOT NULL,
+        user_id VARCHAR(20) NOT NULL,
+        guild_id VARCHAR(20),
+        channel_id VARCHAR(20),
+        error_message TEXT,
+        stack_trace TEXT,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Button usage table
+    await this.query(`
+      CREATE TABLE IF NOT EXISTS button_usage (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        button_id VARCHAR(100) NOT NULL,
+        user_id VARCHAR(20) NOT NULL,
+        guild_id VARCHAR(20),
+        channel_id VARCHAR(20),
+        message_id VARCHAR(20),
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        custom_id VARCHAR(100),
+        success BOOLEAN DEFAULT 1
+      )
+    `);
+
+    // Select menu usage table
+    await this.query(`
+      CREATE TABLE IF NOT EXISTS select_menu_usage (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        menu_id VARCHAR(100) NOT NULL,
+        user_id VARCHAR(20) NOT NULL,
+        guild_id VARCHAR(20),
+        channel_id VARCHAR(20),
+        message_id VARCHAR(20),
+        selected_values TEXT,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        custom_id VARCHAR(100),
+        success BOOLEAN DEFAULT 1
+      )
+    `);
+
+    // Modal submissions table
+    await this.query(`
+      CREATE TABLE IF NOT EXISTS modal_submissions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        modal_id VARCHAR(100) NOT NULL,
+        user_id VARCHAR(20) NOT NULL,
+        guild_id VARCHAR(20),
+        channel_id VARCHAR(20),
+        submitted_data TEXT,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        custom_id VARCHAR(100),
+        success BOOLEAN DEFAULT 1
+      )
+    `);
+
+    // Tickets table
+    await this.query(`
+      CREATE TABLE IF NOT EXISTS tickets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticket_id VARCHAR(20) NOT NULL,
+        user_id VARCHAR(20) NOT NULL,
+        guild_id VARCHAR(20) NOT NULL,
+        channel_id VARCHAR(20) NOT NULL,
+        status VARCHAR(20) DEFAULT 'open',
+        category VARCHAR(50),
+        priority VARCHAR(20) DEFAULT 'normal',
+        assigned_to VARCHAR(20),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        closed_at TIMESTAMP,
+        closed_by VARCHAR(20),
+        close_reason TEXT,
+        contact_info TEXT,
+        UNIQUE(ticket_id)
+      )
+    `);
+
+    // Ticket messages table
+    await this.query(`
+      CREATE TABLE IF NOT EXISTS ticket_messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticket_id VARCHAR(20) NOT NULL,
+        user_id VARCHAR(20) NOT NULL,
+        message_id VARCHAR(20) NOT NULL,
+        content TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(message_id)
+      )
+    `);
+
+    // Moderation actions table
+    await this.query(`
+      CREATE TABLE IF NOT EXISTS moderation_actions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        action_type VARCHAR(20) NOT NULL,
+        user_id VARCHAR(20) NOT NULL,
+        moderator_id VARCHAR(20) NOT NULL,
+        guild_id VARCHAR(20) NOT NULL,
+        reason TEXT,
+        duration INTEGER,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        expires_at TIMESTAMP,
+        revoked BOOLEAN DEFAULT 0,
+        revoked_by VARCHAR(20),
+        revoked_at TIMESTAMP
+      )
+    `);
+
+    // Automod actions table
+    await this.query(`
+      CREATE TABLE IF NOT EXISTS automod_actions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id VARCHAR(20) NOT NULL,
+        guild_id VARCHAR(20) NOT NULL,
+        channel_id VARCHAR(20) NOT NULL,
+        message_id VARCHAR(20),
+        action_type VARCHAR(20) NOT NULL,
+        trigger_type VARCHAR(20) NOT NULL,
+        content TEXT,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        automated BOOLEAN DEFAULT 1
+      )
+    `);
+
+    // Automod settings table
+    await this.query(`
+      CREATE TABLE IF NOT EXISTS automod_settings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        guild_id VARCHAR(20) NOT NULL,
+        feature VARCHAR(50) NOT NULL,
+        enabled BOOLEAN DEFAULT 0,
+        settings TEXT,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_by VARCHAR(20),
+        UNIQUE(guild_id, feature)
+      )
+    `);
+
+    // User balances table
+    await this.query(`
+      CREATE TABLE IF NOT EXISTS user_balances (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id VARCHAR(20) NOT NULL,
+        guild_id VARCHAR(20) NOT NULL,
+        balance INTEGER DEFAULT 0,
+        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, guild_id)
+      )
+    `);
+
+    // Transactions table
+    await this.query(`
+      CREATE TABLE IF NOT EXISTS transactions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id VARCHAR(20) NOT NULL,
+        guild_id VARCHAR(20) NOT NULL,
+        amount INTEGER NOT NULL,
+        type VARCHAR(20) NOT NULL,
+        description TEXT,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Transfers table
+    await this.query(`
+      CREATE TABLE IF NOT EXISTS transfers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sender_id VARCHAR(20) NOT NULL,
+        receiver_id VARCHAR(20) NOT NULL,
+        guild_id VARCHAR(20) NOT NULL,
+        amount INTEGER NOT NULL,
+        fee INTEGER DEFAULT 0,
+        description TEXT,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Market listings table
+    await this.query(`
+      CREATE TABLE IF NOT EXISTS market_listings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        seller_id VARCHAR(20) NOT NULL,
+        guild_id VARCHAR(20) NOT NULL,
+        item_id VARCHAR(50) NOT NULL,
+        item_type VARCHAR(20) NOT NULL,
+        quantity INTEGER NOT NULL,
+        price INTEGER NOT NULL,
+        description TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        expires_at TIMESTAMP,
+        status VARCHAR(20) DEFAULT 'active'
+      )
+    `);
+
+    // Market transactions table
+    await this.query(`
+      CREATE TABLE IF NOT EXISTS market_transactions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        listing_id INTEGER NOT NULL,
+        buyer_id VARCHAR(20) NOT NULL,
+        seller_id VARCHAR(20) NOT NULL,
+        item_id VARCHAR(50) NOT NULL,
+        item_type VARCHAR(20) NOT NULL,
+        quantity INTEGER NOT NULL,
+        price_per_unit INTEGER NOT NULL,
+        total_price INTEGER NOT NULL,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // User mining data table
+    await this.query(`
+      CREATE TABLE IF NOT EXISTS user_mining_data (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id VARCHAR(20) NOT NULL,
+        guild_id VARCHAR(20) NOT NULL,
+        level INTEGER DEFAULT 1,
+        xp INTEGER DEFAULT 0,
+        pickaxe VARCHAR(50) DEFAULT 'wooden',
+        world VARCHAR(50) DEFAULT 'overworld',
+        last_mined TIMESTAMP,
+        UNIQUE(user_id, guild_id)
+      )
+    `);
+
+    // User mining inventory table
+    await this.query(`
+      CREATE TABLE IF NOT EXISTS user_mining_inventory (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id VARCHAR(20) NOT NULL,
+        guild_id VARCHAR(20) NOT NULL,
+        item_id VARCHAR(50) NOT NULL,
+        item_type VARCHAR(20) NOT NULL,
+        quantity INTEGER DEFAULT 1,
+        acquired_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Mining actions table
+    await this.query(`
+      CREATE TABLE IF NOT EXISTS mining_actions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id VARCHAR(20) NOT NULL,
+        guild_id VARCHAR(20) NOT NULL,
+        action_type VARCHAR(20) NOT NULL,
+        details TEXT,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // AI chat messages table
+    await this.query(`
+      CREATE TABLE IF NOT EXISTS ai_chat_messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id VARCHAR(20) NOT NULL,
+        guild_id VARCHAR(20) NOT NULL,
+        channel_id VARCHAR(20) NOT NULL,
+        message_id VARCHAR(20) NOT NULL,
+        content TEXT,
+        response TEXT,
+        tokens_used INTEGER,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Feedback table
+    await this.query(`
+      CREATE TABLE IF NOT EXISTS feedback (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id VARCHAR(20) NOT NULL,
+        guild_id VARCHAR(20) NOT NULL,
+        type VARCHAR(20) NOT NULL,
+        content TEXT,
+        rating INTEGER,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Keyword triggers table
+    await this.query(`
+      CREATE TABLE IF NOT EXISTS keyword_triggers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        guild_id VARCHAR(20) NOT NULL,
+        keyword VARCHAR(100) NOT NULL,
+        response TEXT,
+        created_by VARCHAR(20) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        uses INTEGER DEFAULT 0,
+        is_regex BOOLEAN DEFAULT 0,
+        is_case_sensitive BOOLEAN DEFAULT 0,
+        UNIQUE(guild_id, keyword)
+      )
+    `);
+
+    // User levels table
+    await this.query(`
+      CREATE TABLE IF NOT EXISTS user_levels (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id VARCHAR(20) NOT NULL,
+        guild_id VARCHAR(20) NOT NULL,
+        xp INTEGER DEFAULT 0,
+        level INTEGER DEFAULT 0,
+        messages INTEGER DEFAULT 0,
+        voice_time INTEGER DEFAULT 0,
+        last_xp_earned TIMESTAMP,
+        UNIQUE(user_id, guild_id)
+      )
+    `);
+
+    // Level rewards table
+    await this.query(`
+      CREATE TABLE IF NOT EXISTS level_rewards (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        guild_id VARCHAR(20) NOT NULL,
+        level INTEGER NOT NULL,
+        role_id VARCHAR(20),
+        message TEXT,
+        UNIQUE(guild_id, level)
+      )
+    `);
+
+    // Account links table
+    await this.query(`
+      CREATE TABLE IF NOT EXISTS account_links (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id VARCHAR(20) NOT NULL,
+        discord_id VARCHAR(20),
+        pterodactyl_id INTEGER,
+        panel_id VARCHAR(100),
+        pterodactyl_username VARCHAR(100),
+        token VARCHAR(100),
+        expires_at TIMESTAMP,
+        whmcs_id INTEGER,
+        verified BOOLEAN DEFAULT 0,
+        verification_code VARCHAR(10),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        verified_at TIMESTAMP,
+        UNIQUE(user_id)
+      )
+    `);
+
+    // Verification table
+    await this.query(`
+      CREATE TABLE IF NOT EXISTS verification (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id VARCHAR(20) NOT NULL,
+        guild_id VARCHAR(20) NOT NULL,
+        verified BOOLEAN DEFAULT 0,
+        verification_code VARCHAR(10),
+        verification_method VARCHAR(20),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        verified_at TIMESTAMP,
+        UNIQUE(user_id, guild_id)
+      )
+    `);
+
+    // Guilds table
+    await this.query(`
+      CREATE TABLE IF NOT EXISTS guilds (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        guild_id VARCHAR(20) NOT NULL,
+        name VARCHAR(100) NOT NULL,
+        icon VARCHAR(255),
+        owner_id VARCHAR(20) NOT NULL,
+        member_count INTEGER DEFAULT 0,
+        joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        left_at TIMESTAMP,
+        is_active BOOLEAN DEFAULT 1,
+        premium_tier INTEGER DEFAULT 0,
+        premium_until TIMESTAMP,
+        UNIQUE(guild_id)
+      )
+    `);
+
+    // Guild settings table
+    await this.query(`
+      CREATE TABLE IF NOT EXISTS guild_settings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        guild_id VARCHAR(20) NOT NULL,
+        setting_key VARCHAR(50) NOT NULL,
+        setting_value TEXT,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_by VARCHAR(20),
+        UNIQUE(guild_id, setting_key)
+      )
+    `);
+
+    // Create indexes for better performance
+    await this.query(`CREATE INDEX IF NOT EXISTS idx_users_user_id ON users(user_id)`);
+    await this.query(`CREATE INDEX IF NOT EXISTS idx_messages_channel_id ON messages(channel_id)`);
+    await this.query(`CREATE INDEX IF NOT EXISTS idx_messages_user_id ON messages(user_id)`);
+    await this.query(`CREATE INDEX IF NOT EXISTS idx_member_events_user_id ON member_events(user_id)`);
+    await this.query(`CREATE INDEX IF NOT EXISTS idx_member_events_guild_id ON member_events(guild_id)`);
+    await this.query(`CREATE INDEX IF NOT EXISTS idx_command_usage_command ON command_usage(command_name)`);
+    await this.query(`CREATE INDEX IF NOT EXISTS idx_command_usage_user_id ON command_usage(user_id)`);
+    await this.query(`CREATE INDEX IF NOT EXISTS idx_moderation_actions_user_id ON moderation_actions(user_id)`);
+    await this.query(`CREATE INDEX IF NOT EXISTS idx_moderation_actions_guild_id ON moderation_actions(guild_id)`);
+    await this.query(`CREATE INDEX IF NOT EXISTS idx_user_levels_user_id ON user_levels(user_id)`);
+    await this.query(`CREATE INDEX IF NOT EXISTS idx_user_levels_guild_id ON user_levels(guild_id)`);
+    await this.query(`CREATE INDEX IF NOT EXISTS idx_account_links_user_id ON account_links(user_id)`);
+    await this.query(`CREATE INDEX IF NOT EXISTS idx_account_links_discord_id ON account_links(discord_id)`);
+    await this.query(`CREATE INDEX IF NOT EXISTS idx_account_links_pterodactyl_id ON account_links(pterodactyl_id)`);
+    await this.query(`CREATE INDEX IF NOT EXISTS idx_account_links_panel_id ON account_links(panel_id)`);
+    await this.query(`CREATE INDEX IF NOT EXISTS idx_verification_user_id ON verification(user_id)`);
+    await this.query(`CREATE INDEX IF NOT EXISTS idx_guilds_guild_id ON guilds(guild_id)`);
+    await this.query(`CREATE INDEX IF NOT EXISTS idx_tickets_user_id ON tickets(user_id)`);
+    await this.query(`CREATE INDEX IF NOT EXISTS idx_tickets_guild_id ON tickets(guild_id)`);
+    await this.query(`CREATE INDEX IF NOT EXISTS idx_tickets_status ON tickets(status)`);
+    await this.query(`CREATE INDEX IF NOT EXISTS idx_user_mining_data_user_id ON user_mining_data(user_id)`);
+    await this.query(`CREATE INDEX IF NOT EXISTS idx_user_mining_inventory_user_id ON user_mining_inventory(user_id)`);
+    await this.query(`CREATE INDEX IF NOT EXISTS idx_transactions_user_id ON transactions(user_id)`);
+    await this.query(`CREATE INDEX IF NOT EXISTS idx_market_listings_seller_id ON market_listings(seller_id)`);
+    await this.query(`CREATE INDEX IF NOT EXISTS idx_market_listings_item_type ON market_listings(item_type)`);
+    await this.query(`CREATE INDEX IF NOT EXISTS idx_market_transactions_buyer_id ON market_transactions(buyer_id)`);
+    await this.query(`CREATE INDEX IF NOT EXISTS idx_market_transactions_seller_id ON market_transactions(seller_id)`);
+    await this.query(`CREATE INDEX IF NOT EXISTS idx_automod_actions_user_id ON automod_actions(user_id)`);
+    await this.query(`CREATE INDEX IF NOT EXISTS idx_automod_actions_guild_id ON automod_actions(guild_id)`);
+    await this.query(`CREATE INDEX IF NOT EXISTS idx_automod_settings_guild_id ON automod_settings(guild_id)`);
+    await this.query(`CREATE INDEX IF NOT EXISTS idx_guild_settings_guild_id ON guild_settings(guild_id)`);
   }
 
   /**
@@ -632,16 +645,11 @@ class Database {
         throw new Error('Database is not connected');
       }
 
-      if (this.dbType === 'mysql') {
-        const [results] = await this.connection.execute(sql, params);
-        return results;
-      } else if (this.dbType === 'sqlite') {
-        // For SQLite, we need to handle different query types
-        if (sql.trim().toLowerCase().startsWith('select')) {
-          return await this.connection.all(sql, params);
-        } else {
-          return await this.connection.run(sql, params);
-        }
+      // For SQLite, we need to handle different query types
+      if (sql.trim().toLowerCase().startsWith('select')) {
+        return await this.connection.all(sql, params);
+      } else {
+        return await this.connection.run(sql, params);
       }
     } catch (error) {
       logger.error(`Database query error: ${error.message}`);
@@ -651,8 +659,8 @@ class Database {
   }
 
   /**
-   * Create a database backup
-   * @returns {Promise<string>} - Backup file path
+   * Create a backup of the database
+   * @returns {Promise<string>} - Path to the backup file
    */
   async createBackup() {
     try {
@@ -660,32 +668,32 @@ class Database {
         throw new Error('Database is not connected');
       }
 
-      const backupDir = path.join(process.cwd(), 'backups');
-      if (!fs.existsSync(backupDir)) {
-        fs.mkdirSync(backupDir, { recursive: true });
-      }
+      // Only SQLite backups are supported
+      if (this.dbType === 'sqlite') {
+        // Create backups directory if it doesn't exist
+        const backupsDir = path.join(process.cwd(), 'data', 'backups');
+        if (!fs.existsSync(backupsDir)) {
+          fs.mkdirSync(backupsDir, { recursive: true });
+        }
 
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      let backupPath;
-
-      if (this.dbType === 'mysql') {
-        // For MySQL, we'll dump the database structure and data
-        backupPath = path.join(backupDir, `mysql-backup-${timestamp}.sql`);
-        // Implementation depends on having mysqldump available
-        // This is a placeholder - actual implementation would require shell commands
-        logger.info('MySQL backup functionality requires external tools (mysqldump)');
-        return null;
-      } else if (this.dbType === 'sqlite') {
-        // For SQLite, we can just copy the database file
-        const dbPath = process.env.DB_PATH || path.join(process.cwd(), 'data', 'database.sqlite');
-        backupPath = path.join(backupDir, `sqlite-backup-${timestamp}.sqlite`);
+        // Get database path
+        const dbPath = this.connection.config.filename;
+        
+        // Create backup filename with timestamp
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const backupPath = path.join(backupsDir, `backup-${timestamp}.sqlite`);
+        
+        // Copy the database file
         fs.copyFileSync(dbPath, backupPath);
-        logger.info(`SQLite database backed up to ${backupPath}`);
+        
+        logger.info(`Database backup created at ${backupPath}`);
         return backupPath;
+      } else {
+        throw new Error('Backup is only supported for SQLite databases');
       }
     } catch (error) {
-      logger.error(`Database backup error: ${error.message}`);
-      return null;
+      logger.error(`Failed to create database backup: ${error.message}`);
+      throw error;
     }
   }
 
@@ -696,9 +704,7 @@ class Database {
   async close() {
     try {
       if (this.isConnected) {
-        if (this.dbType === 'mysql') {
-          await this.connection.end();
-        } else if (this.dbType === 'sqlite') {
+        if (this.dbType === 'sqlite') {
           await this.connection.close();
         }
         
@@ -707,10 +713,9 @@ class Database {
       }
     } catch (error) {
       logger.error(`Error closing database connection: ${error.message}`);
+      throw error;
     }
   }
 }
 
-// Create and export a singleton instance
-const database = new Database();
-module.exports = database; 
+module.exports = new Database(); 

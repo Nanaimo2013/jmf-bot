@@ -14,7 +14,7 @@
 # This script updates the JMF Hosting Discord Bot from GitHub
 
 # Version
-VERSION="1.2.1"
+VERSION="1.2.2"
 
 # Text colors and formatting
 BOLD='\033[1m'
