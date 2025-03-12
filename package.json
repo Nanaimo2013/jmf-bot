@@ -21,6 +21,7 @@
     "db:fix": "node scripts/database/fix-database.js",
     "db:update": "bash update-database.sh",
     "db:init": "node src/database/init.js",
+    "db:delete": "node scripts/delete-database.js",
     "set-perms": "node scripts/set-permissions.js",
     "update": "sudo ./scripts/update/updater.sh", 
     "docker:build": "docker-compose build",
