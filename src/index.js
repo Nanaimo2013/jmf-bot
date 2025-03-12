@@ -17,6 +17,13 @@ const statusMonitor = require('./utils/statusMonitor');
 const { nodeStatusManager } = require('./commands/admin/node');
 const database = require('./utils/database');
 
+// Check if Discord token is available
+if (!process.env.DISCORD_TOKEN || process.env.DISCORD_TOKEN.trim() === '') {
+  logger.error('DISCORD_TOKEN is missing or empty in your .env file');
+  logger.info('Please make sure your .env file contains a valid DISCORD_TOKEN');
+  process.exit(1);
+}
+
 // Create a new client instance
 const client = new Client({
   intents: [
@@ -235,15 +242,19 @@ async function gracefulShutdown(signal) {
     logger.error(`Failed to initialize database: ${error.message}`);
   }
   
-  // Login to Discord
-  client.login(process.env.DISCORD_TOKEN)
-    .then(() => {
-      logger.info('Bot logged in successfully');
-    })
-    .catch(error => {
-      logger.error(`Error logging in: ${error.message}`);
-      process.exit(1);
-    });
+  // Log token status (without revealing the token)
+  logger.info(`Discord token status: ${process.env.DISCORD_TOKEN ? 'Present' : 'Missing'} (length: ${process.env.DISCORD_TOKEN?.length || 0})`);
+  
+  // Login to Discord with error handling
+  try {
+    await client.login(process.env.DISCORD_TOKEN);
+    logger.info('Bot logged in successfully');
+  } catch (error) {
+    logger.error(`Error logging in: ${error.message}`);
+    logger.error('Please check that your DISCORD_TOKEN in .env is correct and properly formatted');
+    logger.error('Make sure there are no spaces, quotes, or special characters around the token');
+    process.exit(1);
+  }
 })();
 
 // Handle process termination signals
