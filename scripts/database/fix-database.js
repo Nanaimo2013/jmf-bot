@@ -66,7 +66,15 @@ function log(message, level = 'info') {
   const symbols = { info: 'ℹ️', error: '❌', success: '✅', warning: '⚠️' };
   const symbol = symbols[level] || symbols.info;
   if (argv.verbose || level !== 'info') {
-    logger[level](`${symbol} ${message}`);
+    if (level === 'error') {
+      logger.error(`${symbol} ${message}`);
+    } else if (level === 'warn' || level === 'warning') {
+      logger.warn(`${symbol} ${message}`);
+    } else if (level === 'success') {
+      logger.info(`${symbol} ${message}`);
+    } else {
+      logger.info(`${symbol} ${message}`);
+    }
   }
 }
 
