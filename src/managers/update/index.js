@@ -1,57 +1,37 @@
-const { BaseManager } = require('../base.manager');
-const { Logger } = require('../logger');
-const path = require('path');
-const fs = require('fs-extra');
+/**
+ * JMF Hosting Discord Bot - Update Manager
+ * Version: 1.1.0
+ * Last Updated: 03/12/2025
+ * 
+ * This file exports the update manager and its modules.
+ * 
+ * © 2025 JMFHosting. All Rights Reserved.
+ * Developed by Nanaimo2013 (https://github.com/Nanaimo2013)
+ */
 
-class UpdateManager extends BaseManager {
-    constructor() {
-        super('UpdateManager');
-        this.logger = new Logger('UpdateManager');
-    }
+const UpdateManager = require('./update.manager');
+const GitHubModule = require('./modules/github');
+const MigrationModule = require('./modules/migration');
+const DockerModule = require('./modules/docker');
 
-    async init() {
-        this.logger.info('Starting update process...');
-        
-        try {
-            // Check for updates
-            const hasUpdates = await this.checkUpdates();
-            
-            if (hasUpdates) {
-                // Create backup before updating
-                await this.createBackup();
-                
-                // Run database migrations
-                await this.runMigrations();
-                
-                this.logger.success('Update completed successfully!');
-            } else {
-                this.logger.info('No updates available.');
-            }
-        } catch (error) {
-            this.logger.error('Update failed:', error);
-            process.exit(1);
-        }
-    }
-
-    async checkUpdates() {
-        this.logger.info('Checking for updates...');
-        const { default: check } = await import('./check.js');
-        return await check();
-    }
-
-    async createBackup() {
-        this.logger.info('Creating backup...');
-        const { default: backup } = await import('./backup.js');
-        await backup();
-    }
-
-    async runMigrations() {
-        this.logger.info('Running database migrations...');
-        const { default: migrate } = await import('./migrate.js');
-        await migrate();
-    }
+/**
+ * Creates and initializes a new UpdateManager instance
+ * @param {Object} config - Configuration for the update manager
+ * @returns {Promise<UpdateManager>} - The initialized update manager
+ */
+async function createUpdateManager(config) {
+    const manager = new UpdateManager(config);
+    await manager.initialize();
+    return manager;
 }
 
-// Run the update manager
-const manager = new UpdateManager();
-manager.init().catch(console.error); 
+// Export the update manager, modules, and create function
+module.exports = {
+    UpdateManager,
+    modules: {
+        GitHubModule,
+        MigrationModule,
+        DockerModule
+    },
+    createUpdateManager
+}; 

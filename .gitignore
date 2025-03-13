@@ -9,6 +9,13 @@ jspm_packages/
 .env.test.local
 .env.production.local
 
+# Configuration files (except examples)
+config/config.json
+config/database/config.json
+config/logger/config.json
+config/api/config.json
+config/bot/config.json
+
 # Logs
 logs
 *.log

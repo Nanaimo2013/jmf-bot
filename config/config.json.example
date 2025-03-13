@@ -1,0 +1,107 @@
+{
+  "bot": {
+    "token": "YOUR_BOT_TOKEN_HERE",
+    "clientId": "YOUR_CLIENT_ID_HERE",
+    "guildId": "YOUR_GUILD_ID_HERE",
+    "prefix": "!",
+    "embedColor": "#00AAFF",
+    "footerText": "JMF Hosting | Game Server Solutions",
+    "owners": ["OWNER_ID_1", "OWNER_ID_2"],
+    "admins": ["ADMIN_ID_1", "ADMIN_ID_2"]
+  },
+  "database": {
+    "type": "sqlite",
+    "connections": {
+      "sqlite": {
+        "driver": "sqlite3",
+        "filename": "./data/database.sqlite",
+        "useNullAsDefault": true,
+        "foreign_key_constraints": true
+      },
+      "mysql": {
+        "driver": "mysql2",
+        "host": "localhost",
+        "port": 3306,
+        "database": "jmf_bot",
+        "user": "jmf_bot",
+        "password": "",
+        "charset": "utf8mb4",
+        "timezone": "UTC"
+      }
+    }
+  },
+  "logging": {
+    "level": "info",
+    "format": "simple",
+    "colors": true,
+    "timestamp": true,
+    "directory": "./logs",
+    "console": true,
+    "file": true,
+    "maxSize": "10m",
+    "maxFiles": 30
+  },
+  "api": {
+    "enabled": true,
+    "port": 3000,
+    "host": "localhost",
+    "prefix": "/api",
+    "rateLimit": {
+      "windowMs": 900000,
+      "max": 100
+    },
+    "secretKey": "YOUR_SECRET_KEY_HERE"
+  },
+  "gameServers": {
+    "pterodactyl": {
+      "enabled": true,
+      "apiKey": "YOUR_PTERODACTYL_API_KEY_HERE",
+      "url": "https://panel.example.com"
+    }
+  },
+  "monitoring": {
+    "enabled": true,
+    "interval": 60000,
+    "webhookUrl": "YOUR_WEBHOOK_URL_HERE"
+  },
+  "backup": {
+    "enabled": true,
+    "interval": 86400000,
+    "directory": "./backups",
+    "maxAge": 604800000,
+    "compress": true
+  },
+  "features": {
+    "tickets": true,
+    "moderation": true,
+    "gameServers": true,
+    "analytics": true,
+    "automod": true,
+    "welcome": true,
+    "leveling": true
+  },
+  "roles": {
+    "member": "ROLE_ID_HERE",
+    "moderator": "ROLE_ID_HERE",
+    "admin": "ROLE_ID_HERE",
+    "muted": "ROLE_ID_HERE",
+    "verified": "ROLE_ID_HERE"
+  },
+  "channels": {
+    "welcome": "CHANNEL_ID_HERE",
+    "rules": "CHANNEL_ID_HERE",
+    "announcements": "CHANNEL_ID_HERE",
+    "logs": {
+      "moderation": "CHANNEL_ID_HERE",
+      "server": "CHANNEL_ID_HERE",
+      "join": "CHANNEL_ID_HERE",
+      "leave": "CHANNEL_ID_HERE",
+      "voice": "CHANNEL_ID_HERE",
+      "message": "CHANNEL_ID_HERE"
+    },
+    "tickets": {
+      "category": "CATEGORY_ID_HERE",
+      "logs": "CHANNEL_ID_HERE"
+    }
+  }
+} 

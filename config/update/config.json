@@ -1,0 +1,39 @@
+{
+  "enabled": true,
+  "autoUpdate": false,
+  "checkInterval": 86400000,
+  "notifyOnUpdate": true,
+  "github": {
+    "enabled": true,
+    "owner": "JMFHosting",
+    "repo": "discord-bot",
+    "branch": "main",
+    "token": ""
+  },
+  "backup": {
+    "enabled": true,
+    "location": "./backups",
+    "maxBackups": 5
+  },
+  "docker": {
+    "enabled": false,
+    "registry": "docker.io",
+    "image": "jmfhosting/discord-bot",
+    "tag": "latest"
+  },
+  "migration": {
+    "enabled": true,
+    "autoMigrate": true,
+    "backupBeforeMigration": true
+  },
+  "notifications": {
+    "discord": {
+      "enabled": true,
+      "channelId": ""
+    },
+    "email": {
+      "enabled": false,
+      "recipients": []
+    }
+  }
+}

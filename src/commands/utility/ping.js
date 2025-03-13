@@ -9,7 +9,6 @@
  */
 
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const config = require('../../../config.json');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -17,31 +16,55 @@ module.exports = {
     .setDescription('Checks the bot\'s latency and API response time'),
   
   async execute(interaction) {
-    // Initial response
-    const sent = await interaction.reply({ 
-      content: 'Pinging...', 
-      fetchReply: true 
-    });
+    // Get managers from global object
+    const { logger, database, bot } = global.managers;
     
-    // Calculate latencies
-    const roundtripLatency = sent.createdTimestamp - interaction.createdTimestamp;
-    const apiLatency = Math.round(interaction.client.ws.ping);
-    
-    // Create embed
-    const pingEmbed = new EmbedBuilder()
-      .setColor(config.embedColor)
-      .setTitle('🏓 Pong!')
-      .addFields(
-        { name: 'Roundtrip Latency', value: `${roundtripLatency}ms`, inline: true },
-        { name: 'API Latency', value: `${apiLatency}ms`, inline: true }
-      )
-      .setTimestamp()
-      .setFooter({ text: config.footerText });
-    
-    // Edit the reply with the embed
-    await interaction.editReply({ 
-      content: null, 
-      embeds: [pingEmbed] 
-    });
+    try {
+      // Initial response
+      const sent = await interaction.reply({ 
+        content: 'Pinging...', 
+        fetchReply: true 
+      });
+      
+      // Calculate latencies
+      const roundtripLatency = sent.createdTimestamp - interaction.createdTimestamp;
+      const apiLatency = Math.round(interaction.client.ws.ping);
+      
+      // Get database status
+      const dbStatus = await database.getStatus();
+      const dbLatency = dbStatus.latency || 'N/A';
+      
+      // Get config from bot manager
+      const config = bot.getConfigManager().getConfig();
+      
+      // Create embed
+      const pingEmbed = new EmbedBuilder()
+        .setColor(config.embedColor || '#0099ff')
+        .setTitle('🏓 Pong!')
+        .addFields(
+          { name: 'Roundtrip Latency', value: `${roundtripLatency}ms`, inline: true },
+          { name: 'API Latency', value: `${apiLatency}ms`, inline: true },
+          { name: 'Database Latency', value: `${dbLatency}ms`, inline: true }
+        )
+        .setTimestamp()
+        .setFooter({ text: config.footerText || 'JMF Hosting Bot' });
+      
+      // Edit the reply with the embed
+      await interaction.editReply({ 
+        content: null, 
+        embeds: [pingEmbed] 
+      });
+      
+      // Log the ping
+      logger.debug('commands', `Ping command executed by ${interaction.user.tag} (${interaction.user.id}): ${roundtripLatency}ms roundtrip, ${apiLatency}ms API, ${dbLatency}ms DB`);
+    } catch (error) {
+      // Log error
+      logger.error('commands', `Error in ping command: ${error.message}`, error.stack);
+      
+      return interaction.editReply({
+        content: `❌ An error occurred: ${error.message}`,
+        embeds: []
+      });
+    }
   },
 }; 

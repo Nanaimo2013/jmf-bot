@@ -1,0 +1,52 @@
+{
+  "socketPath": "/var/run/docker.sock",
+  "containerName": "jmf-bot",
+  "imageName": "jmf-bot",
+  "imageTag": "latest",
+  "buildArgs": {},
+  "ports": {
+    "3000": "3000"
+  },
+  "volumes": {
+    "./data": "/app/data",
+    "./logs": "/app/logs",
+    "./config": "/app/config",
+    "dataPath": "./data/docker",
+    "mountPoint": "/data"
+  },
+  "env": {
+    "NODE_ENV": "production"
+  },
+  "enabled": true,
+  "apiVersion": "v1.41",
+  "containers": {
+    "prefix": "jmf-",
+    "defaultImage": "ubuntu:latest",
+    "defaultMemory": "512m",
+    "defaultCpu": 1,
+    "defaultTimeout": 300
+  },
+  "networks": {
+    "default": "jmf-network",
+    "subnet": "172.20.0.0/16"
+  },
+  "security": {
+    "privileged": false,
+    "capDrop": [
+      "ALL"
+    ],
+    "capAdd": [
+      "NET_ADMIN"
+    ],
+    "securityOpt": [
+      "no-new-privileges"
+    ]
+  },
+  "logging": {
+    "driver": "json-file",
+    "options": {
+      "max-size": "10m",
+      "max-file": "3"
+    }
+  }
+}

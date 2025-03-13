@@ -9,9 +9,6 @@
  */
 
 const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
-const verification = require('../modules/verification');
-const tickets = require('../modules/tickets');
-const logger = require('../utils/logger');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -42,6 +39,9 @@ module.exports = {
     ),
 
   async execute(interaction) {
+    // Get managers from global object
+    const { logger, database, bot } = global.managers;
+    
     try {
       const subcommand = interaction.options.getSubcommand();
       const channel = interaction.options.getChannel('channel');
@@ -50,7 +50,7 @@ module.exports = {
       const permissions = channel.permissionsFor(interaction.client.user);
       if (!permissions.has(PermissionFlagsBits.SendMessages) || !permissions.has(PermissionFlagsBits.ViewChannel)) {
         return interaction.reply({
-          content: `I don't have permission to send messages in ${channel}. Please check my permissions and try again.`,
+          content: `❌ I don't have permission to send messages in ${channel}. Please check my permissions and try again.`,
           ephemeral: true
         });
       }
@@ -60,15 +60,30 @@ module.exports = {
         await interaction.deferReply({ ephemeral: true });
         
         try {
-          await verification.createVerificationMessage(channel);
+          // Get verification module from bot manager
+          const verificationModule = bot.getModuleRegistry().getModule('verification');
+          
+          if (!verificationModule) {
+            return interaction.editReply({
+              content: '❌ Verification module is not available.',
+              ephemeral: true
+            });
+          }
+          
+          // Create verification message
+          await verificationModule.createVerificationMessage(channel);
+          
+          // Log the action
+          logger.info('commands', `Verification system set up in channel ${channel.name} (${channel.id}) by ${interaction.user.tag} (${interaction.user.id})`);
+          
           return interaction.editReply({
-            content: `Verification system has been set up in ${channel}. Users can now verify themselves by clicking the button.`,
+            content: `✅ Verification system has been set up in ${channel}. Users can now verify themselves by clicking the button.`,
             ephemeral: true
           });
         } catch (error) {
-          logger.error(`Error setting up verification: ${error.message}`);
+          logger.error('commands', `Error setting up verification: ${error.message}`, error.stack);
           return interaction.editReply({
-            content: `An error occurred while setting up verification: ${error.message}`,
+            content: `❌ An error occurred while setting up verification: ${error.message}`,
             ephemeral: true
           });
         }
@@ -79,23 +94,38 @@ module.exports = {
         await interaction.deferReply({ ephemeral: true });
         
         try {
-          await tickets.createTicketPanel(channel);
+          // Get tickets module from bot manager
+          const ticketsModule = bot.getModuleRegistry().getModule('tickets');
+          
+          if (!ticketsModule) {
+            return interaction.editReply({
+              content: '❌ Tickets module is not available.',
+              ephemeral: true
+            });
+          }
+          
+          // Create ticket panel
+          await ticketsModule.createTicketPanel(channel);
+          
+          // Log the action
+          logger.info('commands', `Ticket system set up in channel ${channel.name} (${channel.id}) by ${interaction.user.tag} (${interaction.user.id})`);
+          
           return interaction.editReply({
-            content: `Ticket system has been set up in ${channel}. Users can now create tickets by clicking the button.`,
+            content: `✅ Ticket system has been set up in ${channel}. Users can now create tickets by clicking the button.`,
             ephemeral: true
           });
         } catch (error) {
-          logger.error(`Error setting up tickets: ${error.message}`);
+          logger.error('commands', `Error setting up tickets: ${error.message}`, error.stack);
           return interaction.editReply({
-            content: `An error occurred while setting up tickets: ${error.message}`,
+            content: `❌ An error occurred while setting up tickets: ${error.message}`,
             ephemeral: true
           });
         }
       }
     } catch (error) {
-      logger.error(`Error in setup command: ${error.message}`);
+      logger.error('commands', `Error in setup command: ${error.message}`, error.stack);
       return interaction.reply({
-        content: 'An error occurred while executing this command.',
+        content: `❌ An error occurred: ${error.message}`,
         ephemeral: true
       });
     }

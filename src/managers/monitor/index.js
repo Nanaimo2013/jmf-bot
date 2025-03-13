@@ -1,60 +1,30 @@
-const { BaseManager } = require('../base.manager');
-const { Logger } = require('../logger');
+/**
+ * JMF Hosting Discord Bot - Monitor Manager Index
+ * Version: 1.0.0
+ * Last Updated: 03/12/2025
+ * 
+ * This file exports the Monitor manager for the bot.
+ * 
+ * © 2025 JMFHosting. All Rights Reserved.
+ * Developed by Nanaimo2013 (https://github.com/Nanaimo2013)
+ */
+
+const MonitorManager = require('./monitor.manager');
 const path = require('path');
-const fs = require('fs-extra');
 
-class MonitorManager extends BaseManager {
-    constructor() {
-        super('MonitorManager');
-        this.logger = new Logger('MonitorManager');
-        this.isRunning = false;
-    }
-
-    async init() {
-        this.logger.info('Starting monitor manager...');
-        
-        try {
-            const command = process.argv[2];
-            
-            switch (command) {
-                case 'start':
-                    await this.start();
-                    break;
-                case 'stop':
-                    await this.stop();
-                    break;
-                case 'status':
-                    await this.status();
-                    break;
-                default:
-                    this.logger.error('Invalid command. Use: start, stop, or status');
-                    process.exit(1);
-            }
-        } catch (error) {
-            this.logger.error('Monitor manager failed:', error);
-            process.exit(1);
-        }
-    }
-
-    async start() {
-        this.logger.info('Starting monitoring system...');
-        const { default: start } = await import('./start.js');
-        await start();
-    }
-
-    async stop() {
-        this.logger.info('Stopping monitoring system...');
-        const { default: stop } = await import('./stop.js');
-        await stop();
-    }
-
-    async status() {
-        this.logger.info('Checking monitoring system status...');
-        const { default: status } = await import('./status.js');
-        await status();
-    }
+/**
+ * Create a new Monitor manager
+ * @param {Object} [config={}] - Configuration options
+ * @returns {Promise<MonitorManager>} Initialized Monitor manager
+ */
+async function createMonitorManager(config = {}) {
+    const manager = new MonitorManager();
+    await manager.initialize(config);
+    return manager;
 }
 
-// Run the monitor manager
-const manager = new MonitorManager();
-manager.init().catch(console.error); 
+// Export the Monitor manager and factory function
+module.exports = {
+    MonitorManager,
+    createMonitorManager
+};

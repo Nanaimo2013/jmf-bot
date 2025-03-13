@@ -1,0 +1,47 @@
+{
+  "enabled": false,
+  "testDir": "./tests",
+  "reporters": {
+    "0": "console",
+    "1": "json"
+  },
+  "timeout": 5000,
+  "bail": false,
+  "coverage": {
+    "enabled": true,
+    "directory": "./coverage",
+    "reporters": {
+      "0": "text",
+      "1": "lcov"
+    },
+    "excludes": {
+      "0": "**/node_modules/**",
+      "1": "**/tests/**"
+    },
+    "reporter": [
+      "text",
+      "lcov"
+    ]
+  },
+  "outputDir": "./test-results",
+  "parallel": true,
+  "maxWorkers": 4,
+  "suites": {
+    "unit": {
+      "pattern": "**/*.test.js",
+      "directory": "./tests/unit"
+    },
+    "integration": {
+      "pattern": "**/*.spec.js",
+      "directory": "./tests/integration"
+    },
+    "e2e": {
+      "pattern": "**/*.e2e.js",
+      "directory": "./tests/e2e"
+    }
+  },
+  "hooks": {
+    "beforeAll": "./tests/hooks/beforeAll.js",
+    "afterAll": "./tests/hooks/afterAll.js"
+  }
+}

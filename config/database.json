@@ -4,7 +4,7 @@
         "sqlite": {
             "driver": "sqlite",
             "database": "./data/database.sqlite",
-            "prefix": "",
+            "useNullAsDefault": true,
             "foreign_key_constraints": true
         },
         "mysql": {
@@ -18,22 +18,50 @@
             "collation": "utf8mb4_unicode_ci",
             "prefix": "",
             "strict": true,
-            "engine": "InnoDB"
+            "engine": "InnoDB",
+            "pool": {
+                "min": 2,
+                "max": 10
+            }
+        },
+        "postgres": {
+            "driver": "pg",
+            "host": "localhost",
+            "port": 5432,
+            "database": "jmf_bot",
+            "username": "jmf_bot",
+            "password": "",
+            "charset": "utf8",
+            "prefix": "",
+            "schema": "public",
+            "pool": {
+                "min": 2,
+                "max": 10
+            }
         }
     },
     "migrations": {
         "directory": "./src/database/migrations",
-        "table": "migrations"
+        "tableName": "migrations",
+        "extension": "js"
+    },
+    "seeds": {
+        "directory": "./src/database/seeds",
+        "extension": "js"
     },
     "backup": {
+        "enabled": true,
         "directory": "./backups/database",
-        "keep": 5,
+        "interval": "1d",
+        "maxBackups": 10,
         "compression": true
     },
     "logging": {
+        "enabled": true,
         "directory": "./logs/database",
         "level": "info",
-        "max_files": 30,
-        "max_size": "10M"
-    }
+        "maxFiles": 30,
+        "maxSize": "10M"
+    },
+    "debug": false
 } 

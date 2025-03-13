@@ -11,8 +11,6 @@
 const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
 const fs = require('fs').promises;
 const path = require('path');
-const logger = require('../utils/logger');
-const config = require('../../config.json');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -67,26 +65,15 @@ module.exports = {
     ),
 
   async execute(interaction) {
+    // Get managers from global object
+    const { logger, database, bot } = global.managers;
+    
     try {
       const subcommand = interaction.options.getSubcommand();
-
-      // Check if user is in the ownerIds list
-      const isOwner = config.ownerIds && config.ownerIds.includes(interaction.user.id);
       
-      // Only allow owners to modify sensitive settings
-      if (!isOwner && (subcommand === 'set' || subcommand === 'reload')) {
-        const path = interaction.options.getString('path');
-        const sensitiveSettings = ['token', 'database.password', 'aiChat.openai.apiKey', 'aiChat.huggingface.apiKey', 'webDashboard.secret'];
-        
-        if (sensitiveSettings.some(setting => path && path.startsWith(setting))) {
-          return interaction.reply({
-            content: 'You do not have permission to modify sensitive settings.',
-            ephemeral: true
-          });
-        }
-      }
-
-      // Handle view subcommand
+      // Get bot configuration from bot manager
+      const config = bot.getConfigManager().getConfig();
+      
       if (subcommand === 'view') {
         const section = interaction.options.getString('section');
         
@@ -94,140 +81,106 @@ module.exports = {
           // View specific section
           if (!config[section]) {
             return interaction.reply({
-              content: `Configuration section "${section}" not found.`,
+              content: `❌ Configuration section '${section}' not found.`,
               ephemeral: true
             });
           }
           
-          // Create embed for section
           const embed = new EmbedBuilder()
-            .setTitle(`Configuration: ${section}`)
-            .setColor(config.embedColor || '#0099ff')
-            .setTimestamp();
+            .setColor('#0099ff')
+            .setTitle(`${section.charAt(0).toUpperCase() + section.slice(1)} Configuration`)
+            .setDescription(formatConfigSection(config[section], section))
+            .setTimestamp()
+            .setFooter({ text: 'JMF Hosting Bot Configuration' });
           
-          // Format the section data
-          const sectionData = formatConfigSection(config[section], section);
-          
-          // Add fields to embed
-          for (const [key, value] of Object.entries(sectionData)) {
-            embed.addFields({ name: key, value: value.toString().substring(0, 1024), inline: true });
-          }
-          
-          return interaction.reply({
-            embeds: [embed],
-            ephemeral: true
-          });
+          return interaction.reply({ embeds: [embed], ephemeral: true });
         } else {
-          // View main sections
+          // View all sections
           const embed = new EmbedBuilder()
+            .setColor('#0099ff')
             .setTitle('Bot Configuration')
-            .setDescription('Here are the main configuration sections. Use `/config view [section]` to view details.')
-            .setColor(config.embedColor || '#0099ff')
-            .setTimestamp();
+            .setDescription('Here is the current bot configuration:')
+            .setTimestamp()
+            .setFooter({ text: 'JMF Hosting Bot Configuration' });
           
-          // Add main sections
-          const sections = [
-            'General Settings',
-            'Channels',
-            'Roles',
-            'Level System',
-            'Economy',
-            'Mining Game',
-            'Verification',
-            'Tickets',
-            'AI Chat',
-            'Database',
-            'Logging'
-          ];
+          // Add fields for each section
+          Object.keys(config).forEach(section => {
+            if (typeof config[section] === 'object' && !Array.isArray(config[section])) {
+              embed.addFields({ name: section.charAt(0).toUpperCase() + section.slice(1), value: formatConfigSection(config[section], section) });
+            }
+          });
           
-          const sectionValues = [
-            `Prefix: ${config.prefix}, Debug: ${config.debug || false}`,
-            `${Object.keys(config.channels || {}).length} channels configured`,
-            `${Object.keys(config.roles || {}).length} roles configured`,
-            `Enabled: ${config.levelSystem?.enabled || false}`,
-            `Enabled: ${config.economy?.enabled || false}`,
-            `Enabled: ${config.miningGame?.enabled || false}`,
-            `Enabled: ${config.verification?.enabled || false}`,
-            `Enabled: ${config.tickets?.enabled || false}`,
-            `Enabled: ${config.aiChat?.enabled || false}`,
-            `Enabled: ${config.database?.enabled || false}`,
-            `Enabled: ${config.logging?.enabled || false}`
-          ];
-          
-          for (let i = 0; i < sections.length; i++) {
-            embed.addFields({ name: sections[i], value: sectionValues[i], inline: true });
-          }
-          
+          return interaction.reply({ embeds: [embed], ephemeral: true });
+        }
+      } else if (subcommand === 'set') {
+        // Handle set subcommand
+        const section = interaction.options.getString('path');
+        const key = interaction.options.getString('value');
+        
+        if (!config[section]) {
           return interaction.reply({
-            embeds: [embed],
+            content: `❌ Configuration section '${section}' not found.`,
             ephemeral: true
           });
         }
-      }
-      
-      // Handle set subcommand
-      else if (subcommand === 'set') {
-        const configPath = interaction.options.getString('path');
-        let valueStr = interaction.options.getString('value');
         
-        // Parse the value
-        let value;
-        if (valueStr.toLowerCase() === 'true') {
-          value = true;
-        } else if (valueStr.toLowerCase() === 'false') {
-          value = false;
-        } else if (!isNaN(valueStr) && valueStr.trim() !== '') {
-          value = Number(valueStr);
-        } else if (valueStr.startsWith('[') && valueStr.endsWith(']')) {
-          try {
-            value = JSON.parse(valueStr);
-          } catch (error) {
-            return interaction.reply({
-              content: `Invalid array format. Make sure to use proper JSON syntax.`,
-              ephemeral: true
-            });
-          }
-        } else if (valueStr.startsWith('{') && valueStr.endsWith('}')) {
-          try {
-            value = JSON.parse(valueStr);
-          } catch (error) {
-            return interaction.reply({
-              content: `Invalid object format. Make sure to use proper JSON syntax.`,
-              ephemeral: true
-            });
-          }
-        } else {
-          value = valueStr;
+        // Check if key exists in section
+        if (!(key in config[section])) {
+          return interaction.reply({
+            content: `❌ Configuration key '${key}' not found in section '${section}'.`,
+            ephemeral: true
+          });
         }
         
-        // Update the config
-        const pathParts = configPath.split('.');
-        let current = config;
-        
-        for (let i = 0; i < pathParts.length - 1; i++) {
-          const part = pathParts[i];
+        // Parse value based on current type
+        let parsedValue;
+        try {
+          const currentType = typeof config[section][key];
           
-          if (!current[part]) {
-            current[part] = {};
+          if (currentType === 'boolean') {
+            parsedValue = key.toLowerCase() === 'true';
+          } else if (currentType === 'number') {
+            parsedValue = Number(key);
+            
+            if (isNaN(parsedValue)) {
+              throw new Error('Invalid number');
+            }
+          } else if (currentType === 'object' && Array.isArray(config[section][key])) {
+            parsedValue = JSON.parse(key);
+            
+            if (!Array.isArray(parsedValue)) {
+              throw new Error('Value must be an array');
+            }
+          } else if (currentType === 'object') {
+            parsedValue = JSON.parse(key);
+            
+            if (typeof parsedValue !== 'object' || Array.isArray(parsedValue)) {
+              throw new Error('Value must be an object');
+            }
+          } else {
+            parsedValue = key;
           }
-          
-          current = current[part];
+        } catch (error) {
+          return interaction.reply({
+            content: `❌ Invalid value format: ${error.message}`,
+            ephemeral: true
+          });
         }
         
-        const lastPart = pathParts[pathParts.length - 1];
-        current[lastPart] = value;
+        // Update config
+        config[section][key] = parsedValue;
         
-        // Save the config
-        await saveConfig();
+        // Save config using bot manager
+        await bot.getConfigManager().saveConfig();
+        
+        // Log the change
+        logger.info('commands', `Config updated by ${interaction.user.tag}: ${section}.${key} = ${JSON.stringify(parsedValue)}`);
         
         return interaction.reply({
-          content: `Configuration updated: \`${configPath}\` set to \`${valueStr}\``,
+          content: `✅ Configuration updated: \`${section}.${key}\` = \`${JSON.stringify(parsedValue)}\``,
           ephemeral: true
         });
-      }
-      
-      // Handle reload subcommand
-      else if (subcommand === 'reload') {
+      } else if (subcommand === 'reload') {
         await interaction.deferReply({ ephemeral: true });
         
         try {
@@ -240,6 +193,9 @@ module.exports = {
           // Update the global config object
           Object.keys(config).forEach(key => delete config[key]);
           Object.assign(config, newConfig);
+          
+          // Save the config
+          await saveConfig();
           
           return interaction.editReply({
             content: 'Configuration reloaded successfully.',
@@ -254,9 +210,11 @@ module.exports = {
         }
       }
     } catch (error) {
-      logger.error(`Error in config command: ${error.message}`);
+      // Log error
+      logger.error('commands', `Error in config command: ${error.message}`, error.stack);
+      
       return interaction.reply({
-        content: 'An error occurred while executing this command.',
+        content: `❌ An error occurred: ${error.message}`,
         ephemeral: true
       });
     }
@@ -267,31 +225,26 @@ module.exports = {
  * Format a configuration section for display
  * @param {Object} section - Configuration section
  * @param {string} sectionName - Section name
- * @returns {Object} - Formatted section
+ * @returns {string} Formatted section
  */
 function formatConfigSection(section, sectionName) {
-  const result = {};
-  
-  // Handle sensitive data
-  const sensitiveFields = ['token', 'password', 'apiKey', 'secret'];
-  
-  for (const [key, value] of Object.entries(section)) {
-    if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-      // For nested objects, show a summary
-      result[key] = `[Object with ${Object.keys(value).length} properties]`;
-    } else if (Array.isArray(value)) {
-      // For arrays, show a summary
-      result[key] = `[Array with ${value.length} items]`;
-    } else if (sensitiveFields.some(field => key.toLowerCase().includes(field))) {
-      // Mask sensitive data
-      result[key] = '********';
-    } else {
-      // Regular values
-      result[key] = value;
-    }
+  if (!section || typeof section !== 'object') {
+    return 'No configuration available';
   }
   
-  return result;
+  let formatted = '';
+  
+  Object.keys(section).forEach(key => {
+    const value = section[key];
+    
+    if (typeof value === 'object' && value !== null) {
+      formatted += `**${key}**: \`${JSON.stringify(value)}\`\n`;
+    } else {
+      formatted += `**${key}**: \`${value}\`\n`;
+    }
+  });
+  
+  return formatted || 'No configuration available';
 }
 
 /**

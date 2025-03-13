@@ -1,0 +1,42 @@
+{
+  "configDir": "./config",
+  "dataDir": "K:\\Projects\\Coding\\jmf-bot\\data",
+  "logsDir": "K:\\Projects\\Coding\\jmf-bot\\logs",
+  "dependencies": {
+    "0": "discord.js",
+    "1": "express",
+    "2": "winston",
+    "3": "sqlite3",
+    "4": "mysql2"
+  },
+  "enabled": true,
+  "packages": {
+    "required": [
+      "discord.js",
+      "sqlite3",
+      "express",
+      "winston"
+    ],
+    "optional": [
+      "dockerode",
+      "mysql2",
+      "pg",
+      "mongodb"
+    ]
+  },
+  "paths": {
+    "data": "./data",
+    "logs": "./logs",
+    "temp": "./temp"
+  },
+  "setup": {
+    "createDirectories": true,
+    "installDependencies": true,
+    "runMigrations": true,
+    "generateConfig": true
+  },
+  "permissions": {
+    "dataDir": "0755",
+    "configFiles": "0644"
+  }
+}

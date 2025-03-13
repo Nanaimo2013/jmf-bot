@@ -1,0 +1,53 @@
+{
+  "interval": 60000,
+  "enabled": true,
+  "metrics": {
+    "system": {
+      "enabled": true,
+      "cpu": true,
+      "memory": true,
+      "disk": true,
+      "network": true
+    },
+    "memory": true,
+    "cpu": true,
+    "disk": true,
+    "network": true,
+    "database": {
+      "enabled": true,
+      "connections": true,
+      "queries": true,
+      "performance": true
+    },
+    "api": true,
+    "bot": true,
+    "application": {
+      "enabled": true,
+      "memory": true,
+      "uptime": true,
+      "errors": true,
+      "requests": true
+    }
+  },
+  "alerts": {
+    "enabled": true,
+    "thresholds": {
+      "cpu": 80,
+      "memory": 80,
+      "disk": 90,
+      "responseTime": 1000,
+      "errors": 10
+    },
+    "channels": {
+      "discord": true,
+      "email": false,
+      "webhook": false
+    }
+  },
+  "logging": {
+    "level": "info",
+    "file": true,
+    "console": true,
+    "retention": "7d"
+  }
+}

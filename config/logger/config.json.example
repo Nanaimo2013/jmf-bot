@@ -1,0 +1,59 @@
+{
+  "level": "debug",
+  "format": "simple",
+  "colors": true,
+  "timestamp": true,
+  "logDirectory": "logs",
+  "categories": {
+    "default": {
+      "level": "info",
+      "format": "detailed",
+      "console": true,
+      "file": true
+    },
+    "system": {
+      "level": "debug",
+      "format": "detailed",
+      "console": true,
+      "file": true
+    },
+    "database": {
+      "level": "info",
+      "format": "detailed",
+      "console": true,
+      "file": true
+    },
+    "api": {
+      "level": "info",
+      "format": "detailed",
+      "console": true,
+      "file": true
+    },
+    "discord": {
+      "level": "info",
+      "format": "detailed",
+      "console": true,
+      "file": true
+    },
+    "test": {
+      "level": "debug",
+      "format": "detailed",
+      "console": true,
+      "file": true
+    }
+  },
+  "transports": {
+    "console": {
+      "enabled": true,
+      "level": "debug",
+      "format": "colored"
+    },
+    "file": {
+      "enabled": true,
+      "level": "debug",
+      "format": "json",
+      "maxSize": "10m",
+      "maxFiles": 10
+    }
+  }
+} 

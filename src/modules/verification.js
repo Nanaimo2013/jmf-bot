@@ -9,138 +9,323 @@
  */
 
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-const logger = require('../utils/logger');
-const config = require('../../config.json');
-const { createVerifyEmbed } = require('../embeds/verify-embed');
+const BotBaseModule = require('../managers/bot/modules/base.module');
 
-class VerificationSystem {
-  constructor() {
-    this.client = null;
-    this.isInitialized = false;
+class VerificationModule extends BotBaseModule {
+  /**
+   * Create a new verification module
+   * @param {BotManager} manager - The bot manager instance
+   */
+  constructor(manager) {
+    super(manager, {
+      name: 'verification',
+      version: '1.1.0',
+      description: 'Handles user verification in the server',
+      defaultConfig: {
+        enabled: true,
+        verifiedRoleId: null,
+        unverifiedRoleId: null,
+        buttonText: 'Verify',
+        buttonEmoji: '✅',
+        logVerifications: true,
+        autoAssignRoles: true,
+        welcomeMessage: true,
+        verificationChannelId: null
+      }
+    });
+    
+    // Track verified users
+    this.verifiedUsers = new Set();
   }
 
   /**
-   * Initialize the verification system
-   * @param {Client} client - Discord client
+   * Initialize the verification module
+   * @param {Object} [config] - Configuration options
+   * @returns {Promise<void>}
    */
-  init(client) {
-    this.client = client;
-    this.isInitialized = true;
-    logger.info('Verification system initialized');
+  async initialize(config = {}) {
+    await super.initialize(config);
+    
+    // Register button handler
+    this.registerButton('verify', this.handleVerifyButton.bind(this));
+    
+    // Load verified users from database
+    await this.loadVerifiedUsers();
+    
+    this.log('info', 'Verification module initialized');
+  }
+
+  /**
+   * Load verified users from database
+   * @returns {Promise<void>}
+   */
+  async loadVerifiedUsers() {
+    try {
+      const database = await this.getDatabase();
+      if (!database) return;
+      
+      const results = await database.query('SELECT user_id FROM verifications');
+      
+      for (const row of results) {
+        this.verifiedUsers.add(row.user_id);
+      }
+      
+      this.log('debug', `Loaded ${this.verifiedUsers.size} verified users from database`);
+    } catch (error) {
+      this.log('error', `Failed to load verified users: ${error.message}`, error.stack);
+    }
   }
 
   /**
    * Create verification message in channel
    * @param {TextChannel} channel - Discord text channel
+   * @returns {Promise<void>}
    */
   async createVerificationMessage(channel) {
     try {
+      // Get config
+      const config = this.getConfig();
+      
       // Create verification embed
-      const embed = createVerifyEmbed();
-
+      const embed = new EmbedBuilder()
+        .setTitle('Server Verification')
+        .setDescription('Click the button below to verify yourself and gain access to the server.')
+        .setColor('#0099ff')
+        .setTimestamp();
+      
       // Create verification button
       const row = new ActionRowBuilder()
         .addComponents(
           new ButtonBuilder()
             .setCustomId('verify')
-            .setLabel(config.verification?.buttonText || 'Verify')
+            .setLabel(config.buttonText || 'Verify')
             .setStyle(ButtonStyle.Primary)
-            .setEmoji('✅')
+            .setEmoji(config.buttonEmoji || '✅')
         );
-
+      
       // Send verification message
       await channel.send({ embeds: [embed], components: [row] });
-      logger.info(`Verification message created in channel: ${channel.name}`);
+      
+      // Update config with channel ID
+      const configManager = this.manager.getConfigManager();
+      const botConfig = configManager.getConfig();
+      
+      if (!botConfig.verification) {
+        botConfig.verification = {};
+      }
+      
+      botConfig.verification.verificationChannelId = channel.id;
+      await configManager.saveConfig();
+      
+      this.log('info', `Verification message created in channel: ${channel.name} (${channel.id})`);
     } catch (error) {
-      logger.error(`Error creating verification message: ${error.message}`);
+      this.log('error', `Error creating verification message: ${error.message}`, error.stack);
+      throw error;
     }
   }
 
   /**
-   * Verify a user
+   * Handle verify button interaction
    * @param {ButtonInteraction} interaction - Button interaction
+   * @returns {Promise<void>}
    */
-  async verifyUser(interaction) {
+  async handleVerifyButton(interaction) {
     try {
       // Defer reply to prevent timeout
       await interaction.deferReply({ ephemeral: true });
-
+      
       const { member, guild } = interaction;
-
-      // Check if user is already verified
-      const verifiedRole = guild.roles.cache.find(
-        role => role.name === (config.verification?.verifiedRole || 'Member')
-      );
-
-      const unverifiedRole = guild.roles.cache.find(
-        role => role.name === (config.verification?.unverifiedRole || 'Unverified')
-      );
-
+      
+      // Get config
+      const config = this.getConfig();
+      
+      // Check if verification is enabled
+      if (!config.enabled) {
+        return interaction.editReply({
+          content: '❌ Verification is currently disabled.',
+          ephemeral: true
+        });
+      }
+      
+      // Get verified role
+      const verifiedRoleId = config.verifiedRoleId;
+      if (!verifiedRoleId) {
+        this.log('error', `Verified role ID not set in guild: ${guild.name} (${guild.id})`);
+        return interaction.editReply({
+          content: '❌ Verification failed: Verified role not configured. Please contact an administrator.',
+          ephemeral: true
+        });
+      }
+      
+      const verifiedRole = await guild.roles.fetch(verifiedRoleId).catch(() => null);
       if (!verifiedRole) {
-        logger.error(`Verified role not found in guild: ${guild.name}`);
-        return interaction.editReply({ content: 'Verification failed: Verified role not found. Please contact an administrator.', ephemeral: true });
+        this.log('error', `Verified role not found in guild: ${guild.name} (${guild.id})`);
+        return interaction.editReply({
+          content: '❌ Verification failed: Verified role not found. Please contact an administrator.',
+          ephemeral: true
+        });
       }
-
-      if (member.roles.cache.has(verifiedRole.id)) {
-        return interaction.editReply({ content: 'You are already verified!', ephemeral: true });
+      
+      // Check if user is already verified
+      if (member.roles.cache.has(verifiedRoleId)) {
+        return interaction.editReply({
+          content: '✅ You are already verified!',
+          ephemeral: true
+        });
       }
-
+      
       // Add verified role
       await member.roles.add(verifiedRole);
-      logger.info(`User ${member.user.tag} verified in guild: ${guild.name}`);
-
-      // Remove unverified role if it exists
-      if (unverifiedRole && member.roles.cache.has(unverifiedRole.id)) {
-        await member.roles.remove(unverifiedRole);
+      
+      // Remove unverified role if configured
+      const unverifiedRoleId = config.unverifiedRoleId;
+      if (unverifiedRoleId && member.roles.cache.has(unverifiedRoleId)) {
+        const unverifiedRole = await guild.roles.fetch(unverifiedRoleId).catch(() => null);
+        if (unverifiedRole) {
+          await member.roles.remove(unverifiedRole);
+        }
       }
-
+      
       // Record verification in database
-      if (interaction.client.db && interaction.client.db.isConnected) {
-        try {
-          await interaction.client.db.query(
-            'INSERT INTO verifications (user_id, guild_id, timestamp) VALUES (?, ?, ?)',
-            [member.id, guild.id, new Date()]
+      try {
+        const database = await this.getDatabase();
+        if (database) {
+          await database.query(
+            'INSERT INTO verifications (user_id, guild_id, verified_at) VALUES (?, ?, ?)',
+            [member.id, guild.id, new Date().toISOString()]
           );
+          
+          // Add to verified users set
+          this.verifiedUsers.add(member.id);
+        }
+      } catch (error) {
+        this.log('error', `Failed to record verification in database: ${error.message}`, error.stack);
+      }
+      
+      // Log verification
+      this.log('info', `User ${member.user.tag} (${member.id}) verified in guild: ${guild.name} (${guild.id})`);
+      
+      // Send welcome message if enabled
+      if (config.welcomeMessage) {
+        try {
+          await member.send({
+            embeds: [
+              new EmbedBuilder()
+                .setTitle(`Welcome to ${guild.name}!`)
+                .setDescription('Thank you for verifying! You now have access to the server.')
+                .setColor('#00ff00')
+                .setTimestamp()
+            ]
+          });
         } catch (error) {
-          logger.error(`Failed to record verification in database: ${error.message}`);
+          this.log('debug', `Could not send welcome DM to ${member.user.tag}: ${error.message}`);
         }
       }
-
-      // Send welcome message if configured
-      if (config.verification?.sendWelcomeMessage && config.verification?.welcomeChannel) {
-        const welcomeChannel = guild.channels.cache.find(
-          channel => channel.name === config.verification.welcomeChannel || channel.id === config.verification.welcomeChannel
-        );
-
-        if (welcomeChannel) {
-          // Disable the welcome message to prevent duplicates
-          // The welcome message is already sent by the guildMemberAdd event
-          /*
-          const welcomeEmbed = new EmbedBuilder()
-            .setTitle('New Member')
-            .setDescription(`Welcome to the server, ${member}! Thanks for verifying.`)
-            .setColor('#00FF00')
-            .setThumbnail(member.user.displayAvatarURL({ dynamic: true }))
-            .setTimestamp();
-
-          await welcomeChannel.send({ embeds: [welcomeEmbed] });
-          */
-        }
-      }
-
-      // Send verification success message
-      return interaction.editReply({ 
-        content: config.verification?.successMessage || 'You have been successfully verified! You now have access to the server.', 
-        ephemeral: true 
+      
+      // Send success message
+      return interaction.editReply({
+        content: '✅ You have been successfully verified! You now have access to the server.',
+        ephemeral: true
       });
     } catch (error) {
-      logger.error(`Error verifying user: ${error.message}`);
-      return interaction.editReply({ 
-        content: 'An error occurred during verification. Please try again or contact an administrator.', 
-        ephemeral: true 
+      this.log('error', `Error verifying user: ${error.message}`, error.stack);
+      
+      return interaction.editReply({
+        content: `❌ An error occurred during verification: ${error.message}`,
+        ephemeral: true
       });
     }
   }
+
+  /**
+   * Check if a user is verified
+   * @param {string} userId - User ID to check
+   * @returns {boolean} Whether the user is verified
+   */
+  isUserVerified(userId) {
+    return this.verifiedUsers.has(userId);
+  }
+
+  /**
+   * Manually verify a user
+   * @param {GuildMember} member - Guild member to verify
+   * @param {User} verifier - User who verified the member
+   * @returns {Promise<boolean>} Whether verification was successful
+   */
+  async verifyUser(member, verifier) {
+    try {
+      // Get config
+      const config = this.getConfig();
+      
+      // Check if verification is enabled
+      if (!config.enabled) {
+        return false;
+      }
+      
+      // Get verified role
+      const verifiedRoleId = config.verifiedRoleId;
+      if (!verifiedRoleId) {
+        this.log('error', `Verified role ID not set in guild: ${member.guild.name} (${member.guild.id})`);
+        return false;
+      }
+      
+      const verifiedRole = await member.guild.roles.fetch(verifiedRoleId).catch(() => null);
+      if (!verifiedRole) {
+        this.log('error', `Verified role not found in guild: ${member.guild.name} (${member.guild.id})`);
+        return false;
+      }
+      
+      // Check if user is already verified
+      if (member.roles.cache.has(verifiedRoleId)) {
+        return true;
+      }
+      
+      // Add verified role
+      await member.roles.add(verifiedRole);
+      
+      // Remove unverified role if configured
+      const unverifiedRoleId = config.unverifiedRoleId;
+      if (unverifiedRoleId && member.roles.cache.has(unverifiedRoleId)) {
+        const unverifiedRole = await member.guild.roles.fetch(unverifiedRoleId).catch(() => null);
+        if (unverifiedRole) {
+          await member.roles.remove(unverifiedRole);
+        }
+      }
+      
+      // Record verification in database
+      try {
+        const database = await this.getDatabase();
+        if (database) {
+          await database.query(
+            'INSERT INTO verifications (user_id, guild_id, verified_by, verified_at) VALUES (?, ?, ?, ?)',
+            [member.id, member.guild.id, verifier?.id || null, new Date().toISOString()]
+          );
+          
+          // Add to verified users set
+          this.verifiedUsers.add(member.id);
+        }
+      } catch (error) {
+        this.log('error', `Failed to record verification in database: ${error.message}`, error.stack);
+      }
+      
+      // Log verification
+      this.log('info', `User ${member.user.tag} (${member.id}) manually verified by ${verifier?.tag || 'system'} in guild: ${member.guild.name} (${member.guild.id})`);
+      
+      return true;
+    } catch (error) {
+      this.log('error', `Error manually verifying user: ${error.message}`, error.stack);
+      return false;
+    }
+  }
+
+  /**
+   * Shutdown the verification module
+   * @returns {Promise<void>}
+   */
+  async shutdown() {
+    this.log('info', 'Verification module shutting down');
+    await super.shutdown();
+  }
 }
 
-module.exports = new VerificationSystem();
+module.exports = VerificationModule;

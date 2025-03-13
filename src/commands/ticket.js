@@ -9,9 +9,6 @@
  */
 
 const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
-const tickets = require('../modules/tickets');
-const logger = require('../utils/logger');
-const config = require('../../config.json');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -52,45 +49,64 @@ module.exports = {
     )
     .addSubcommand(subcommand =>
       subcommand
+        .setName('transcript')
+        .setDescription('Generate a transcript of the current ticket')
+    )
+    .addSubcommand(subcommand =>
+      subcommand
         .setName('rename')
         .setDescription('Rename the current ticket')
         .addStringOption(option =>
           option
             .setName('name')
-            .setDescription('The new name for the ticket')
+            .setDescription('New name for the ticket')
             .setRequired(true)
+        )
+    )
+    .addSubcommand(subcommand =>
+      subcommand
+        .setName('priority')
+        .setDescription('Set the priority of the current ticket')
+        .addStringOption(option =>
+          option
+            .setName('level')
+            .setDescription('Priority level')
+            .setRequired(true)
+            .addChoices(
+              { name: 'Low', value: 'low' },
+              { name: 'Medium', value: 'medium' },
+              { name: 'High', value: 'high' },
+              { name: 'Urgent', value: 'urgent' }
+            )
         )
     ),
 
   async execute(interaction) {
+    // Get managers from global object
+    const { logger, database, bot } = global.managers;
+    
     try {
-      const { channel, guild, member } = interaction;
       const subcommand = interaction.options.getSubcommand();
       
-      // Check if the channel is a ticket
-      if (!tickets.activeTickets.has(channel.id)) {
+      // Get tickets module from bot manager
+      const ticketsModule = bot.getModuleRegistry().getModule('tickets');
+      
+      if (!ticketsModule) {
         return interaction.reply({
-          content: 'This command can only be used in ticket channels.',
+          content: '❌ Tickets module is not available.',
           ephemeral: true
         });
       }
       
-      // Get ticket data
-      const ticketData = tickets.activeTickets.get(channel.id);
+      // Get config from bot manager
+      const config = bot.getConfigManager().getConfig();
       
-      // Check if user has permission to manage tickets
-      const supportRole = guild.roles.cache.find(
-        role => role.name === (config.tickets?.supportRole || 'Support')
-      );
+      // Check if the channel is a ticket channel
+      const isTicketChannel = await ticketsModule.isTicketChannel(interaction.channel);
       
-      const canManageTicket = 
-        member.id === ticketData.userId || 
-        (supportRole && member.roles.cache.has(supportRole.id)) ||
-        member.permissions.has(PermissionFlagsBits.ManageChannels);
-      
-      if (!canManageTicket) {
+      if (!isTicketChannel && !['list', 'panel'].includes(subcommand)) {
         return interaction.reply({
-          content: 'You do not have permission to manage this ticket.',
+          content: '❌ This command can only be used in a ticket channel.',
           ephemeral: true
         });
       }
@@ -101,175 +117,163 @@ module.exports = {
         
         await interaction.deferReply();
         
-        // Create closing message
-        const closingEmbed = new EmbedBuilder()
-          .setTitle(`Ticket #${ticketData.ticketId} Closed`)
-          .setDescription(`This ticket has been closed by ${member}.`)
-          .addFields({ name: 'Reason', value: reason })
-          .setColor('#ff0000')
-          .setTimestamp();
-        
-        await interaction.editReply({ embeds: [closingEmbed] });
-        
-        // Update ticket status in database
-        if (interaction.client.db && interaction.client.db.isConnected) {
-          try {
-            await interaction.client.db.query(
-              'UPDATE tickets SET status = ?, closed_at = ?, closed_by = ? WHERE channel_id = ?',
-              ['closed', new Date(), member.id, channel.id]
-            );
-          } catch (error) {
-            logger.error(`Failed to update ticket status in database: ${error.message}`);
-          }
+        try {
+          // Close the ticket
+          await ticketsModule.closeTicket(interaction.channel, interaction.user, reason);
+          
+          // Log the action
+          logger.info('commands', `Ticket ${interaction.channel.name} closed by ${interaction.user.tag} (${interaction.user.id}) with reason: ${reason}`);
+          
+          // No need to reply as the channel will be deleted
+        } catch (error) {
+          logger.error('commands', `Error closing ticket: ${error.message}`, error.stack);
+          
+          return interaction.editReply({
+            content: `❌ An error occurred while closing the ticket: ${error.message}`
+          });
         }
-        
-        // Remove ticket from active tickets
-        tickets.activeTickets.delete(channel.id);
-        
-        // Archive transcript if configured
-        if (config.tickets?.saveTranscripts) {
-          await tickets.saveTicketTranscript(channel, ticketData);
-        }
-        
-        // Delete channel after delay
-        setTimeout(async () => {
-          try {
-            await channel.delete();
-            logger.info(`Ticket #${ticketData.ticketId} channel deleted`);
-          } catch (error) {
-            logger.error(`Failed to delete ticket channel: ${error.message}`);
-          }
-        }, config.tickets?.deleteDelay || 5000);
       }
       
       // Handle add subcommand
       else if (subcommand === 'add') {
         const user = interaction.options.getUser('user');
-        const targetMember = await guild.members.fetch(user.id).catch(() => null);
+        const member = await interaction.guild.members.fetch(user.id);
         
-        if (!targetMember) {
+        if (!member) {
           return interaction.reply({
-            content: 'Could not find that user in the server.',
+            content: '❌ User not found in this server.',
             ephemeral: true
           });
         }
         
-        // Check if user is already in the ticket
-        if (channel.permissionsFor(targetMember).has(PermissionFlagsBits.ViewChannel)) {
+        try {
+          // Add user to ticket
+          await ticketsModule.addUserToTicket(interaction.channel, member);
+          
+          // Log the action
+          logger.info('commands', `User ${user.tag} (${user.id}) added to ticket ${interaction.channel.name} by ${interaction.user.tag} (${interaction.user.id})`);
+          
           return interaction.reply({
-            content: `${user} is already in this ticket.`,
+            content: `✅ Added ${user} to the ticket.`
+          });
+        } catch (error) {
+          logger.error('commands', `Error adding user to ticket: ${error.message}`, error.stack);
+          
+          return interaction.reply({
+            content: `❌ An error occurred: ${error.message}`,
             ephemeral: true
           });
-        }
-        
-        // Add user to ticket
-        await channel.permissionOverwrites.edit(targetMember, {
-          ViewChannel: true,
-          SendMessages: true,
-          ReadMessageHistory: true
-        });
-        
-        // Send confirmation
-        await interaction.reply({
-          content: `${user} has been added to the ticket.`
-        });
-        
-        // Log in database
-        if (interaction.client.db && interaction.client.db.isConnected) {
-          try {
-            await interaction.client.db.query(
-              'INSERT INTO ticket_actions (ticket_id, user_id, action_by, action_type, timestamp) VALUES (?, ?, ?, ?, ?)',
-              [ticketData.ticketId, user.id, member.id, 'add_user', new Date()]
-            );
-          } catch (error) {
-            logger.error(`Failed to log ticket action in database: ${error.message}`);
-          }
         }
       }
       
       // Handle remove subcommand
       else if (subcommand === 'remove') {
         const user = interaction.options.getUser('user');
+        const member = await interaction.guild.members.fetch(user.id);
         
-        // Check if user is the ticket creator
-        if (user.id === ticketData.userId) {
+        if (!member) {
           return interaction.reply({
-            content: 'You cannot remove the ticket creator from the ticket.',
+            content: '❌ User not found in this server.',
             ephemeral: true
           });
         }
         
-        const targetMember = await guild.members.fetch(user.id).catch(() => null);
-        
-        if (!targetMember) {
+        try {
+          // Remove user from ticket
+          await ticketsModule.removeUserFromTicket(interaction.channel, member);
+          
+          // Log the action
+          logger.info('commands', `User ${user.tag} (${user.id}) removed from ticket ${interaction.channel.name} by ${interaction.user.tag} (${interaction.user.id})`);
+          
           return interaction.reply({
-            content: 'Could not find that user in the server.',
+            content: `✅ Removed ${user} from the ticket.`
+          });
+        } catch (error) {
+          logger.error('commands', `Error removing user from ticket: ${error.message}`, error.stack);
+          
+          return interaction.reply({
+            content: `❌ An error occurred: ${error.message}`,
             ephemeral: true
           });
         }
+      }
+      
+      // Handle transcript subcommand
+      else if (subcommand === 'transcript') {
+        await interaction.deferReply();
         
-        // Check if user is in the ticket
-        if (!channel.permissionsFor(targetMember).has(PermissionFlagsBits.ViewChannel)) {
-          return interaction.reply({
-            content: `${user} is not in this ticket.`,
-            ephemeral: true
+        try {
+          // Generate transcript
+          const transcriptUrl = await ticketsModule.generateTranscript(interaction.channel);
+          
+          // Log the action
+          logger.info('commands', `Transcript generated for ticket ${interaction.channel.name} by ${interaction.user.tag} (${interaction.user.id})`);
+          
+          return interaction.editReply({
+            content: `✅ Transcript generated: ${transcriptUrl}`
           });
-        }
-        
-        // Remove user from ticket
-        await channel.permissionOverwrites.edit(targetMember, {
-          ViewChannel: false,
-          SendMessages: false,
-          ReadMessageHistory: false
-        });
-        
-        // Send confirmation
-        await interaction.reply({
-          content: `${user} has been removed from the ticket.`
-        });
-        
-        // Log in database
-        if (interaction.client.db && interaction.client.db.isConnected) {
-          try {
-            await interaction.client.db.query(
-              'INSERT INTO ticket_actions (ticket_id, user_id, action_by, action_type, timestamp) VALUES (?, ?, ?, ?, ?)',
-              [ticketData.ticketId, user.id, member.id, 'remove_user', new Date()]
-            );
-          } catch (error) {
-            logger.error(`Failed to log ticket action in database: ${error.message}`);
-          }
+        } catch (error) {
+          logger.error('commands', `Error generating transcript: ${error.message}`, error.stack);
+          
+          return interaction.editReply({
+            content: `❌ An error occurred: ${error.message}`
+          });
         }
       }
       
       // Handle rename subcommand
       else if (subcommand === 'rename') {
         const newName = interaction.options.getString('name');
-        const formattedName = `ticket-${newName.toLowerCase().replace(/[^a-z0-9]/g, '')}-${ticketData.ticketId}`;
         
-        // Rename channel
-        await channel.setName(formattedName);
+        try {
+          // Rename ticket
+          await ticketsModule.renameTicket(interaction.channel, newName);
+          
+          // Log the action
+          logger.info('commands', `Ticket renamed to ${newName} by ${interaction.user.tag} (${interaction.user.id})`);
+          
+          return interaction.reply({
+            content: `✅ Ticket renamed to ${newName}.`
+          });
+        } catch (error) {
+          logger.error('commands', `Error renaming ticket: ${error.message}`, error.stack);
+          
+          return interaction.reply({
+            content: `❌ An error occurred: ${error.message}`,
+            ephemeral: true
+          });
+        }
+      }
+      
+      // Handle priority subcommand
+      else if (subcommand === 'priority') {
+        const priority = interaction.options.getString('level');
         
-        // Send confirmation
-        await interaction.reply({
-          content: `Ticket has been renamed to ${formattedName}.`
-        });
-        
-        // Log in database
-        if (interaction.client.db && interaction.client.db.isConnected) {
-          try {
-            await interaction.client.db.query(
-              'INSERT INTO ticket_actions (ticket_id, action_by, action_type, details, timestamp) VALUES (?, ?, ?, ?, ?)',
-              [ticketData.ticketId, member.id, 'rename', newName, new Date()]
-            );
-          } catch (error) {
-            logger.error(`Failed to log ticket action in database: ${error.message}`);
-          }
+        try {
+          // Set priority
+          await ticketsModule.setTicketPriority(interaction.channel, priority);
+          
+          // Log the action
+          logger.info('commands', `Ticket ${interaction.channel.name} priority set to ${priority} by ${interaction.user.tag} (${interaction.user.id})`);
+          
+          return interaction.reply({
+            content: `✅ Ticket priority set to ${priority}.`
+          });
+        } catch (error) {
+          logger.error('commands', `Error setting ticket priority: ${error.message}`, error.stack);
+          
+          return interaction.reply({
+            content: `❌ An error occurred: ${error.message}`,
+            ephemeral: true
+          });
         }
       }
     } catch (error) {
-      logger.error(`Error in ticket command: ${error.message}`);
+      // Log error
+      logger.error('commands', `Error in ticket command: ${error.message}`, error.stack);
+      
       return interaction.reply({
-        content: 'An error occurred while executing this command.',
+        content: `❌ An error occurred: ${error.message}`,
         ephemeral: true
       });
     }

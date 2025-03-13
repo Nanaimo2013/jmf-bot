@@ -9,9 +9,6 @@
  */
 
 const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
-const verification = require('../modules/verification');
-const logger = require('../utils/logger');
-const config = require('../../config.json');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -42,107 +39,105 @@ module.exports = {
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles),
 
   async execute(interaction) {
+    // Get managers from global object
+    const { logger, database, bot } = global.managers;
+    
     try {
       const subcommand = interaction.options.getSubcommand();
       
       // Handle verify user subcommand
       if (subcommand === 'user') {
         const targetUser = interaction.options.getUser('user');
-        const targetMember = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
+        const targetMember = await interaction.guild.members.fetch(targetUser.id);
         
-        if (!targetMember) {
+        // Get verification module from bot manager
+        const verificationModule = bot.getModuleRegistry().getModule('verification');
+        if (!verificationModule) {
           return interaction.reply({
-            content: 'Could not find that user in the server.',
+            content: '❌ Verification module is not available.',
             ephemeral: true
           });
         }
         
-        // Get verified role
-        const verifiedRole = interaction.guild.roles.cache.find(
-          role => role.name === (config.verification?.verifiedRole || 'Member')
-        );
+        // Get verified role ID from config
+        const config = bot.getConfigManager().getConfig();
+        const verifiedRoleId = config.verification?.roleId;
+        
+        if (!verifiedRoleId) {
+          return interaction.reply({
+            content: '❌ Verified role is not set. Use `/verify role` to set it first.',
+            ephemeral: true
+          });
+        }
+        
+        // Get the role
+        const verifiedRole = await interaction.guild.roles.fetch(verifiedRoleId);
         
         if (!verifiedRole) {
           return interaction.reply({
-            content: 'Verified role not found. Please set up the verification system first.',
+            content: '❌ Verified role not found. It may have been deleted.',
             ephemeral: true
           });
         }
         
-        // Check if user is already verified
-        if (targetMember.roles.cache.has(verifiedRole.id)) {
+        // Check if user already has the role
+        if (targetMember.roles.cache.has(verifiedRoleId)) {
           return interaction.reply({
-            content: `${targetUser} is already verified.`,
+            content: `✅ ${targetUser.tag} is already verified.`,
             ephemeral: true
           });
         }
         
-        // Get unverified role
-        const unverifiedRole = interaction.guild.roles.cache.find(
-          role => role.name === (config.verification?.unverifiedRole || 'Unverified')
-        );
-        
-        // Add verified role
+        // Add the role
         await targetMember.roles.add(verifiedRole);
         
-        // Remove unverified role if it exists
-        if (unverifiedRole && targetMember.roles.cache.has(unverifiedRole.id)) {
-          await targetMember.roles.remove(unverifiedRole);
-        }
+        // Log verification in database
+        await database.query(
+          'INSERT INTO verifications (user_id, guild_id, verified_by, verified_at) VALUES (?, ?, ?, ?)',
+          [targetUser.id, interaction.guild.id, interaction.user.id, new Date().toISOString()]
+        );
         
-        // Record verification in database
-        if (interaction.client.db && interaction.client.db.isConnected) {
-          try {
-            await interaction.client.db.query(
-              'INSERT INTO verifications (user_id, guild_id, timestamp) VALUES (?, ?, ?)',
-              [targetMember.id, interaction.guild.id, new Date()]
-            );
-          } catch (error) {
-            logger.error(`Failed to record verification in database: ${error.message}`);
-          }
-        }
+        // Log the action
+        logger.info('commands', `User ${targetUser.tag} (${targetUser.id}) manually verified by ${interaction.user.tag} (${interaction.user.id})`);
         
-        // Send confirmation
         return interaction.reply({
-          content: `${targetUser} has been manually verified.`,
+          content: `✅ Successfully verified ${targetUser.tag}.`,
           ephemeral: true
         });
       }
       
-      // Handle verify role subcommand
+      // Handle set role subcommand
       else if (subcommand === 'role') {
         const role = interaction.options.getRole('role');
         
-        // Check if bot can manage the role
-        if (role.position >= interaction.guild.members.me.roles.highest.position) {
-          return interaction.reply({
-            content: `I cannot assign the role ${role} as it is positioned higher than or equal to my highest role.`,
-            ephemeral: true
-          });
+        // Get config from bot manager
+        const configManager = bot.getConfigManager();
+        const config = configManager.getConfig();
+        
+        // Update config
+        if (!config.verification) {
+          config.verification = {};
         }
         
-        // Update settings in database
-        if (interaction.client.db && interaction.client.db.isConnected) {
-          try {
-            await interaction.client.db.query(
-              'INSERT INTO settings (guild_id, module, setting_key, setting_value, updated_by) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), updated_by = VALUES(updated_by), updated_at = NOW()',
-              [interaction.guild.id, 'verification', 'verifiedRole', role.id, interaction.user.id]
-            );
-          } catch (error) {
-            logger.error(`Failed to update verification role in database: ${error.message}`);
-          }
-        }
+        config.verification.roleId = role.id;
         
-        // Send confirmation
+        // Save config
+        await configManager.saveConfig();
+        
+        // Log the action
+        logger.info('commands', `Verification role set to ${role.name} (${role.id}) by ${interaction.user.tag} (${interaction.user.id})`);
+        
         return interaction.reply({
-          content: `Verified role has been set to ${role}.`,
+          content: `✅ Verified role set to ${role.name}.`,
           ephemeral: true
         });
       }
     } catch (error) {
-      logger.error(`Error in verify command: ${error.message}`);
+      // Log error
+      logger.error('commands', `Error in verify command: ${error.message}`, error.stack);
+      
       return interaction.reply({
-        content: 'An error occurred while executing this command.',
+        content: `❌ An error occurred: ${error.message}`,
         ephemeral: true
       });
     }

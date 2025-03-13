@@ -3,11 +3,11 @@
  * Version: 1.0.0
  * Last Updated: 03/12/2025
  * 
- * This manager handles all test-related operations including unit tests,
- * integration tests, and end-to-end tests. It provides a comprehensive
- * testing framework with detailed reporting and logging.
+ * This manager handles testing of the bot and its components,
+ * including unit tests, integration tests, and end-to-end tests.
  * 
  * © 2025 JMFHosting. All Rights Reserved.
+ * Developed by Nanaimo2013 (https://github.com/Nanaimo2013)
  */
 
 const BaseManager = require('../base.manager');
@@ -15,239 +15,252 @@ const path = require('path');
 const fs = require('fs').promises;
 
 class TestManager extends BaseManager {
-    constructor() {
-        super('test');
-        this.results = new Map();
-        this.testSuites = new Map();
-        this.currentSuite = null;
-        this.startTime = null;
-        this.options = {
-            timeout: 5000,
-            bail: false,
-            parallel: false,
-            retries: 0,
-            reporters: ['console']
-        };
-    }
-
     /**
-     * Initialize test environment
-     * @param {Object} config - Test configuration
+     * Create a new Test manager
+     * @param {Object} [options] - Manager options
      */
-    async initialize(config = {}) {
-        await super.initialize(config);
-        this.options = { ...this.options, ...config };
-        await this._setupTestEnvironment();
-    }
-
-    /**
-     * Set up the test environment
-     * @private
-     */
-    async _setupTestEnvironment() {
-        try {
-            this.logger.info(this.name, `${this.logger.defaultIcons.start} Setting up test environment...`);
-            
-            // Create test directories if they don't exist
-            const testDirs = [
-                path.join(process.cwd(), 'tests'),
-                path.join(process.cwd(), 'tests', 'unit'),
-                path.join(process.cwd(), 'tests', 'integration'),
-                path.join(process.cwd(), 'tests', 'e2e'),
-                path.join(process.cwd(), 'tests', 'fixtures')
-            ];
-
-            for (const dir of testDirs) {
-                await fs.mkdir(dir, { recursive: true });
-            }
-
-            this.logger.success(this.name, `${this.logger.defaultIcons.success} Test environment setup complete`);
-        } catch (error) {
-            this.logger.error(this.name, `${this.logger.defaultIcons.error} Failed to setup test environment:`, error);
-            throw error;
-        }
-    }
-
-    /**
-     * Run pre-test setup for all modules
-     */
-    async preTestSetup() {
-        try {
-            this.logger.info(this.name, `${this.logger.defaultIcons.setup} Running pre-test setup...`);
-            
-            for (const [name, module] of this.modules) {
-                try {
-                    if (typeof module.setup === 'function') {
-                        await module.setup();
-                        this.logger.debug(this.name, `${this.logger.defaultIcons.success} Setup complete for module: ${name}`);
-                    }
-                } catch (error) {
-                    this.logger.error(this.name, `${this.logger.defaultIcons.error} Setup failed for module ${name}:`, error);
-                    throw error;
+    constructor(options = {}) {
+        super('test', {
+            version: '1.0.0',
+            defaultConfig: {
+                enabled: true,
+                testDir: path.join(process.cwd(), 'tests'),
+                reporters: ['console'],
+                timeout: 5000,
+                bail: false,
+                coverage: {
+                    enabled: false,
+                    directory: path.join(process.cwd(), 'coverage'),
+                    reporters: ['text', 'lcov'],
+                    excludes: ['node_modules/**', 'tests/**']
                 }
-            }
+            },
+            ...options
+        });
 
-            this.logger.success(this.name, `${this.logger.defaultIcons.success} Pre-test setup completed`);
-        } catch (error) {
-            this.logger.error(this.name, `${this.logger.defaultIcons.error} Pre-test setup failed:`, error);
-            throw error;
-        }
-    }
-
-    /**
-     * Run all tests
-     * @param {Object} options - Test options
-     */
-    async runTests(options = {}) {
-        try {
-            this.startTime = Date.now();
-            this.options = { ...this.options, ...options };
-            
-            this.logger.info(this.name, `${this.logger.defaultIcons.start} Starting test run with options:`, this.options);
-            
-            await this.preTestSetup();
-
-            const results = [];
-            for (const [name, module] of this.modules) {
-                this.logger.info(this.name, `${this.logger.defaultIcons.test} Running tests for module: ${name}`);
-                
-                try {
-                    const moduleResults = await module.runTests(this.options);
-                    results.push({
-                        module: name,
-                        ...moduleResults,
-                        duration: moduleResults.duration || 0,
-                        timestamp: new Date().toISOString()
-                    });
-                    
-                    this.logger.info(this.name, `${this.logger.defaultIcons.success} Completed tests for module: ${name}`);
-                } catch (error) {
-                    this.logger.error(this.name, `${this.logger.defaultIcons.error} Tests failed for module ${name}:`, error);
-                    
-                    results.push({
-                        module: name,
-                        error: error.message,
-                        stack: error.stack,
-                        failed: true,
-                        timestamp: new Date().toISOString()
-                    });
-
-                    if (this.options.bail) {
-                        throw error;
-                    }
-                }
-            }
-
-            this.results = new Map(results.map(result => [result.module, result]));
-            const summary = this.generateSummary();
-            
-            await this._saveTestResults(summary);
-            await this.cleanup();
-
-            this.logger.info(this.name, `${this.logger.defaultIcons.report} Test summary:`, summary);
-            return summary;
-        } catch (error) {
-            this.logger.error(this.name, `${this.logger.defaultIcons.error} Test run failed:`, error);
-            throw error;
-        }
-    }
-
-    /**
-     * Clean up after tests
-     */
-    async cleanup() {
-        this.logger.info(this.name, `${this.logger.defaultIcons.cleanup} Running test cleanup...`);
-        
-        for (const [name, module] of this.modules) {
-            if (typeof module.cleanup === 'function') {
-                try {
-                    await module.cleanup();
-                    this.logger.debug(this.name, `${this.logger.defaultIcons.success} Cleanup complete for module: ${name}`);
-                } catch (error) {
-                    this.logger.error(this.name, `${this.logger.defaultIcons.error} Cleanup failed for module ${name}:`, error);
-                }
-            }
-        }
-
-        this.logger.success(this.name, `${this.logger.defaultIcons.success} Test cleanup completed`);
-    }
-
-    /**
-     * Generate test summary
-     */
-    generateSummary() {
-        const summary = {
-            totalTests: 0,
+        // Test results
+        this.results = {
             passed: 0,
             failed: 0,
             skipped: 0,
-            duration: Date.now() - this.startTime,
-            timestamp: new Date().toISOString(),
-            moduleResults: {}
+            total: 0,
+            duration: 0,
+            suites: []
         };
 
-        for (const [name, result] of this.results) {
-            summary.totalTests += result.total || 0;
-            summary.passed += result.passed || 0;
-            summary.failed += result.failed || 0;
-            summary.skipped += result.skipped || 0;
-            summary.moduleResults[name] = result;
-        }
-
-        return summary;
+        // Register event handlers
+        this.registerEvent('testStarted', this._onTestStarted.bind(this));
+        this.registerEvent('testCompleted', this._onTestCompleted.bind(this));
+        this.registerEvent('suiteStarted', this._onSuiteStarted.bind(this));
+        this.registerEvent('suiteCompleted', this._onSuiteCompleted.bind(this));
     }
 
     /**
-     * Save test results to file
+     * Initialize the Test manager
+     * @param {Object} [config] - Configuration options
+     * @returns {Promise<void>}
+     */
+    async initialize(config = {}) {
+        await super.initialize(config);
+        this.logger.info('test', 'Test manager initialized');
+    }
+
+    /**
+     * Run tests
+     * @param {Object} [options] - Test options
+     * @returns {Promise<Object>} Test results
+     */
+    async runTests(options = {}) {
+        if (!this.config.enabled) {
+            this.logger.info('test', 'Testing is disabled in configuration');
+            return this.results;
+        }
+
+        const testOptions = { ...this.config, ...options };
+        this.logger.info('test', 'Running tests...');
+
+        try {
+            // Reset results
+            this.results = {
+                passed: 0,
+                failed: 0,
+                skipped: 0,
+                total: 0,
+                duration: 0,
+                suites: []
+            };
+
+            // Start timer
+            const startTime = Date.now();
+
+            // Find test files
+            const testFiles = await this._findTestFiles(testOptions.testDir);
+            this.logger.debug('test', `Found ${testFiles.length} test files`);
+
+            // Run tests
+            for (const file of testFiles) {
+                await this._runTestFile(file, testOptions);
+            }
+
+            // Calculate duration
+            this.results.duration = Date.now() - startTime;
+
+            // Log results
+            this._logResults();
+
+            return this.results;
+        } catch (error) {
+            this.logger.error('test', `Test execution failed: ${error.message}`);
+            throw error;
+        }
+    }
+
+    /**
+     * Find test files
+     * @param {string} testDir - Test directory
+     * @returns {Promise<string[]>} Test files
      * @private
      */
-    async _saveTestResults(summary) {
+    async _findTestFiles(testDir) {
         try {
-            const resultsDir = path.join(process.cwd(), 'tests', 'results');
-            await fs.mkdir(resultsDir, { recursive: true });
-
-            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-            const resultsPath = path.join(resultsDir, `test-results-${timestamp}.json`);
-
-            await fs.writeFile(
-                resultsPath,
-                JSON.stringify(summary, null, 2),
-                'utf8'
-            );
-
-            this.logger.info(this.name, `${this.logger.defaultIcons.save} Test results saved to: ${resultsPath}`);
+            const files = await fs.readdir(testDir);
+            return files
+                .filter(file => file.endsWith('.test.js') || file.endsWith('.spec.js'))
+                .map(file => path.join(testDir, file));
         } catch (error) {
-            this.logger.error(this.name, `${this.logger.defaultIcons.error} Failed to save test results:`, error);
+            this.logger.error('test', `Failed to find test files: ${error.message}`);
+            return [];
+        }
+    }
+
+    /**
+     * Run a test file
+     * @param {string} file - Test file path
+     * @param {Object} options - Test options
+     * @returns {Promise<void>}
+     * @private
+     */
+    async _runTestFile(file, options) {
+        this.logger.debug('test', `Running test file: ${file}`);
+
+        try {
+            // Load test file
+            const testModule = require(file);
+            
+            // Run tests
+            if (typeof testModule.run === 'function') {
+                await testModule.run(this, options);
+            } else {
+                this.logger.warn('test', `Test file ${file} does not export a run function`);
+            }
+        } catch (error) {
+            this.logger.error('test', `Failed to run test file ${file}: ${error.message}`);
+            
+            // Add failed suite
+            this.results.suites.push({
+                name: path.basename(file),
+                file,
+                passed: 0,
+                failed: 1,
+                skipped: 0,
+                total: 1,
+                duration: 0,
+                error: error.message,
+                tests: []
+            });
+            
+            this.results.failed++;
+            this.results.total++;
+            
+            // Bail if configured
+            if (options.bail) {
+                throw error;
+            }
+        }
+    }
+
+    /**
+     * Log test results
+     * @private
+     */
+    _logResults() {
+        const { passed, failed, skipped, total, duration } = this.results;
+        
+        this.logger.info('test', `Test results: ${passed} passed, ${failed} failed, ${skipped} skipped (${total} total)`);
+        this.logger.info('test', `Test duration: ${duration}ms`);
+        
+        if (failed > 0) {
+            this.logger.error('test', `${failed} tests failed`);
+        } else {
+            this.logger.success('test', 'All tests passed');
         }
     }
 
     /**
      * Get test results
-     * @param {string} [moduleName] - Optional module name to filter results
      * @returns {Object} Test results
      */
-    getTestResults(moduleName) {
-        if (moduleName) {
-            const result = this.results.get(moduleName);
-            if (!result) {
-                throw new Error(`No test results found for module: ${moduleName}`);
-            }
-            return result;
-        }
-        return Object.fromEntries(this.results);
+    getTestResults() {
+        return this.results;
     }
 
     /**
-     * Get the status of the test manager
+     * Handle test started event
+     * @param {Object} test - Test information
+     * @private
      */
-    async getStatus() {
-        const status = await super.getStatus();
-        return {
-            ...status,
-            options: this.options,
-            lastRun: this.startTime ? new Date(this.startTime).toISOString() : null,
-            results: this.generateSummary()
-        };
+    _onTestStarted(test) {
+        this.logger.debug('test', `Test started: ${test.name}`);
+    }
+
+    /**
+     * Handle test completed event
+     * @param {Object} test - Test information
+     * @private
+     */
+    _onTestCompleted(test) {
+        this.logger.debug('test', `Test completed: ${test.name} (${test.status})`);
+        
+        // Update results
+        if (test.status === 'passed') {
+            this.results.passed++;
+        } else if (test.status === 'failed') {
+            this.results.failed++;
+        } else if (test.status === 'skipped') {
+            this.results.skipped++;
+        }
+        
+        this.results.total++;
+    }
+
+    /**
+     * Handle suite started event
+     * @param {Object} suite - Suite information
+     * @private
+     */
+    _onSuiteStarted(suite) {
+        this.logger.debug('test', `Suite started: ${suite.name}`);
+    }
+
+    /**
+     * Handle suite completed event
+     * @param {Object} suite - Suite information
+     * @private
+     */
+    _onSuiteCompleted(suite) {
+        this.logger.debug('test', `Suite completed: ${suite.name}`);
+        
+        // Add suite to results
+        this.results.suites.push(suite);
+    }
+
+    /**
+     * Shut down the Test manager
+     * @returns {Promise<void>}
+     */
+    async shutdown() {
+        this.logger.info('test', 'Shutting down Test manager');
+        await super.shutdown();
     }
 }
 

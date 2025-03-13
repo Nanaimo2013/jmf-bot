@@ -9,17 +9,20 @@
  */
 
 const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
-const logger = require('../../utils/logger');
-const config = require('../../../config.json');
 const fs = require('fs/promises');
 const path = require('path');
 
 class NodeStatusManager {
-  constructor() {
-    this.nodesChannelId = config.channels?.nodes || null;
+  constructor(managers) {
+    this.managers = managers;
+    this.nodesChannelId = null;
     this.nodeStatusMessageId = null;
     this.updateInterval = null;
     this.client = null;
+    
+    // Get config from bot manager
+    const config = this.managers.bot.getConfigManager().getConfig();
+    this.nodesChannelId = config.channels?.nodes || null;
   }
   
   /**
@@ -32,7 +35,7 @@ class NodeStatusManager {
     // Start automatic updates
     this.startAutoUpdates();
     
-    logger.info('Node status manager initialized');
+    this.managers.logger.info('system', 'Node status manager initialized');
   }
   
   /**
@@ -53,6 +56,7 @@ class NodeStatusManager {
     if (this.updateInterval) {
       clearInterval(this.updateInterval);
       this.updateInterval = null;
+      this.managers.logger.info('system', 'Node status auto-updates stopped');
     }
   }
   
@@ -63,455 +67,477 @@ class NodeStatusManager {
    * @param {string} status - The node status
    * @param {string} location - The node location
    * @param {string} reason - The reason for the status
-   * @param {string} description - Additional description
-   * @returns {Promise<Object>} The updated node data
+   * @param {string} description - The node description
    */
   async updateNode(interaction, nodeId, status, location, reason, description) {
-    // Validate reason for non-online status
-    if (status !== 'online' && !reason) {
-      throw new Error('A reason is required for maintenance, offline, or degraded status.');
-    }
-    
-    // Load existing nodes data
+    // Load current nodes data
     const nodes = await this.loadNodesData();
     
-    // Update or add the node
+    // Update or add node
     nodes[nodeId] = {
       id: nodeId,
       status,
       location,
-      reason,
-      description,
+      reason: reason || '',
+      description: description || '',
       lastUpdated: new Date().toISOString(),
-      updatedBy: {
-        id: interaction.user.id,
-        tag: interaction.user.tag
-      }
+      updatedBy: interaction.user.tag
     };
     
-    // Save the updated nodes data
+    // Save nodes data
     await this.saveNodesData(nodes);
     
-    // Refresh the node status embed
-    await this.refreshNodeEmbed();
+    // Refresh the node embed
+    await this.refreshNodeEmbed(true);
+    
+    // Log the update
+    this.managers.logger.info('commands', `Node ${nodeId} updated by ${interaction.user.tag} (${interaction.user.id}): status=${status}, location=${location}`);
     
     return nodes[nodeId];
   }
   
   /**
-   * Remove a node from the status list
+   * Remove a node
    * @param {Object} interaction - The interaction object
-   * @param {string} nodeId - The node ID to remove
-   * @returns {Promise<boolean>} Whether the node was removed
+   * @param {string} nodeId - The node ID
    */
   async removeNode(interaction, nodeId) {
-    // Load existing nodes data
+    // Load current nodes data
     const nodes = await this.loadNodesData();
     
-    // Check if the node exists
+    // Check if node exists
     if (!nodes[nodeId]) {
       return false;
     }
     
-    // Remove the node
+    // Remove node
     delete nodes[nodeId];
     
-    // Save the updated nodes data
+    // Save nodes data
     await this.saveNodesData(nodes);
     
-    // Refresh the node status embed
-    await this.refreshNodeEmbed();
+    // Refresh the node embed
+    await this.refreshNodeEmbed(true);
+    
+    // Log the removal
+    this.managers.logger.info('commands', `Node ${nodeId} removed by ${interaction.user.tag} (${interaction.user.id})`);
     
     return true;
   }
   
   /**
-   * Refresh the node status embed in the nodes channel
-   * @param {boolean} force - Whether to force a refresh even if no changes
-   * @returns {Promise<void>}
+   * Refresh the node status embed
+   * @param {boolean} force - Force refresh even if no changes
    */
   async refreshNodeEmbed(force = false) {
-    if (!this.nodesChannelId || !this.client) return;
+    if (!this.client || !this.nodesChannelId) {
+      return;
+    }
     
     try {
-      const nodesChannel = await this.client.channels.fetch(this.nodesChannelId).catch(() => null);
+      // Get the nodes channel
+      const channel = await this.client.channels.fetch(this.nodesChannelId).catch(() => null);
       
-      if (!nodesChannel) {
-        logger.warn('Nodes channel not found');
+      if (!channel) {
         return;
       }
       
       // Load nodes data
       const nodes = await this.loadNodesData();
       
-      if (Object.keys(nodes).length === 0) {
-        return;
-      }
-      
-      // Create node status embed
-      const nodeStatusEmbed = new EmbedBuilder()
-        .setColor(config.embedColor)
+      // Create embed
+      const embed = new EmbedBuilder()
         .setTitle('JMF Hosting Node Status')
         .setDescription('Current status of all hosting nodes')
+        .setColor('#0099ff')
         .setTimestamp()
-        .setFooter({ text: `Last updated: ${new Date().toLocaleString()}` });
+        .setFooter({ text: 'Last updated' });
       
-      // Sort nodes by ID
-      const sortedNodes = Object.values(nodes).sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }));
+      // Add fields for each node
+      const nodeIds = Object.keys(nodes).sort();
       
-      // Group nodes by location
-      const nodesByLocation = {};
-      
-      for (const node of sortedNodes) {
-        if (!nodesByLocation[node.location]) {
-          nodesByLocation[node.location] = [];
-        }
-        nodesByLocation[node.location].push(node);
-      }
-      
-      // Add fields for each location
-      for (const [location, locationNodes] of Object.entries(nodesByLocation)) {
-        let nodeList = '';
-        
-        for (const node of locationNodes) {
+      if (nodeIds.length === 0) {
+        embed.addFields({ name: 'No Nodes', value: 'No nodes have been added yet.' });
+      } else {
+        for (const nodeId of nodeIds) {
+          const node = nodes[nodeId];
           const statusEmoji = this.getStatusEmoji(node.status);
-          nodeList += `${statusEmoji} **${node.id}**: ${node.status.charAt(0).toUpperCase() + node.status.slice(1)}`;
+          const lastUpdated = new Date(node.lastUpdated).toLocaleString();
+          
+          let fieldValue = `**Status:** ${statusEmoji} ${node.status}\n`;
+          fieldValue += `**Location:** ${node.location}\n`;
           
           if (node.reason) {
-            nodeList += ` - ${node.reason}`;
+            fieldValue += `**Reason:** ${node.reason}\n`;
           }
           
-          nodeList += '\n';
-        }
-        
-        nodeStatusEmbed.addFields({ name: `📍 ${location}`, value: nodeList, inline: false });
-      }
-      
-      // Try to find existing status message
-      if (!this.nodeStatusMessageId) {
-        const messages = await nodesChannel.messages.fetch({ limit: 10 });
-        const botMessages = messages.filter(msg => 
-          msg.author.id === this.client.user.id && 
-          msg.embeds.length > 0 && 
-          msg.embeds[0].title === 'JMF Hosting Node Status'
-        );
-        
-        if (botMessages.size > 0) {
-          this.nodeStatusMessageId = botMessages.first().id;
+          if (node.description) {
+            fieldValue += `**Description:** ${node.description}\n`;
+          }
+          
+          fieldValue += `**Last Updated:** ${lastUpdated}\n`;
+          fieldValue += `**Updated By:** ${node.updatedBy}`;
+          
+          embed.addFields({ name: `Node ${node.id}`, value: fieldValue });
         }
       }
       
+      // Find existing message or send new one
       if (this.nodeStatusMessageId) {
-        // Update existing message
         try {
-          const statusMessage = await nodesChannel.messages.fetch(this.nodeStatusMessageId);
-          await statusMessage.edit({ embeds: [nodeStatusEmbed] });
+          const message = await channel.messages.fetch(this.nodeStatusMessageId);
+          await message.edit({ embeds: [embed] });
         } catch (error) {
-          // If message not found, reset ID and send new message
-          logger.warn(`Node status message not found, creating new one: ${error.message}`);
-          this.nodeStatusMessageId = null;
-          const newMessage = await nodesChannel.send({ embeds: [nodeStatusEmbed] });
-          this.nodeStatusMessageId = newMessage.id;
+          // Message not found, send new one
+          const message = await channel.send({ embeds: [embed] });
+          this.nodeStatusMessageId = message.id;
         }
       } else {
         // Send new message
-        const newMessage = await nodesChannel.send({ embeds: [nodeStatusEmbed] });
-        this.nodeStatusMessageId = newMessage.id;
+        const message = await channel.send({ embeds: [embed] });
+        this.nodeStatusMessageId = message.id;
       }
-      
     } catch (error) {
-      logger.error(`Error refreshing node embed: ${error.message}`);
+      this.managers.logger.error('system', `Error refreshing node embed: ${error.message}`, error.stack);
     }
   }
   
   /**
    * Load nodes data from file
-   * @returns {Promise<Object>} The nodes data
+   * @returns {Object} The nodes data
    */
   async loadNodesData() {
     try {
-      const dataDir = path.join(__dirname, '../../../data');
-      const filePath = path.join(dataDir, 'nodes.json');
+      // Get data directory from database manager
+      const dataDir = this.managers.database.getConfig('dataDirectory') || path.join(process.cwd(), 'data');
+      const nodesFile = path.join(dataDir, 'nodes.json');
       
-      // Create data directory if it doesn't exist
-      await fs.mkdir(dataDir, { recursive: true });
-      
+      // Check if file exists
       try {
-        const data = await fs.readFile(filePath, 'utf8');
-        return JSON.parse(data);
+        await fs.access(nodesFile);
       } catch (error) {
-        // If file doesn't exist or is invalid, return empty object
-        if (error.code === 'ENOENT' || error instanceof SyntaxError) {
-          return {};
-        }
-        throw error;
+        // File doesn't exist, return empty object
+        return {};
       }
+      
+      // Read and parse file
+      const data = await fs.readFile(nodesFile, 'utf8');
+      return JSON.parse(data);
     } catch (error) {
-      logger.error(`Error loading nodes data: ${error.message}`);
-      throw error;
+      this.managers.logger.error('system', `Error loading nodes data: ${error.message}`, error.stack);
+      return {};
     }
   }
   
   /**
    * Save nodes data to file
-   * @param {Object} nodes - The nodes data to save
-   * @returns {Promise<void>}
+   * @param {Object} nodes - The nodes data
    */
   async saveNodesData(nodes) {
     try {
-      const dataDir = path.join(__dirname, '../../../data');
-      const filePath = path.join(dataDir, 'nodes.json');
+      // Get data directory from database manager
+      const dataDir = this.managers.database.getConfig('dataDirectory') || path.join(process.cwd(), 'data');
+      const nodesFile = path.join(dataDir, 'nodes.json');
       
-      // Create data directory if it doesn't exist
+      // Ensure directory exists
       await fs.mkdir(dataDir, { recursive: true });
       
-      await fs.writeFile(filePath, JSON.stringify(nodes, null, 2), 'utf8');
+      // Write file
+      await fs.writeFile(nodesFile, JSON.stringify(nodes, null, 2), 'utf8');
     } catch (error) {
-      logger.error(`Error saving nodes data: ${error.message}`);
-      throw error;
+      this.managers.logger.error('system', `Error saving nodes data: ${error.message}`, error.stack);
     }
   }
   
   /**
-   * Get emoji for a node status
+   * Get emoji for node status
    * @param {string} status - The node status
    * @returns {string} The status emoji
    */
   getStatusEmoji(status) {
-    switch (status) {
+    switch (status.toLowerCase()) {
       case 'online':
         return '🟢';
-      case 'maintenance':
-        return '🟡';
       case 'offline':
         return '🔴';
-      case 'degraded':
+      case 'maintenance':
         return '🟠';
+      case 'issues':
+        return '🟡';
+      case 'planned':
+        return '🔵';
       default:
         return '⚪';
     }
   }
   
   /**
-   * Get color for a node status
+   * Get color for node status
    * @param {string} status - The node status
    * @returns {string} The status color
    */
   getStatusColor(status) {
-    switch (status) {
+    switch (status.toLowerCase()) {
       case 'online':
-        return '#00FF00';
-      case 'maintenance':
-        return '#FFFF00';
+        return '#00ff00';
       case 'offline':
-        return '#FF0000';
-      case 'degraded':
-        return '#FFA500';
+        return '#ff0000';
+      case 'maintenance':
+        return '#ff9900';
+      case 'issues':
+        return '#ffff00';
+      case 'planned':
+        return '#0099ff';
       default:
-        return config.embedColor;
+        return '#ffffff';
     }
   }
 }
 
-// Create a singleton instance
-const nodeStatusManager = new NodeStatusManager();
-
-// Export the slash command
+// Create the command
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('node')
-    .setDescription('Manage node status information')
+    .setDescription('Manage hosting nodes')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addSubcommand(subcommand =>
       subcommand
         .setName('update')
         .setDescription('Update a node\'s status')
         .addStringOption(option =>
-          option.setName('node_id')
-            .setDescription('The ID of the node (e.g., node1, node2)')
-            .setRequired(true))
+          option
+            .setName('id')
+            .setDescription('The node ID')
+            .setRequired(true)
+        )
         .addStringOption(option =>
-          option.setName('status')
-            .setDescription('The status of the node')
+          option
+            .setName('status')
+            .setDescription('The node status')
             .setRequired(true)
             .addChoices(
-              { name: '🟢 Online', value: 'online' },
-              { name: '🟡 Maintenance', value: 'maintenance' },
-              { name: '🔴 Offline', value: 'offline' },
-              { name: '🟠 Degraded', value: 'degraded' }
-            ))
+              { name: 'Online', value: 'online' },
+              { name: 'Offline', value: 'offline' },
+              { name: 'Maintenance', value: 'maintenance' },
+              { name: 'Issues', value: 'issues' },
+              { name: 'Planned', value: 'planned' }
+            )
+        )
         .addStringOption(option =>
-          option.setName('location')
-            .setDescription('The location of the node')
-            .setRequired(true))
+          option
+            .setName('location')
+            .setDescription('The node location')
+            .setRequired(true)
+        )
         .addStringOption(option =>
-          option.setName('reason')
-            .setDescription('The reason for the status (required for maintenance/offline/degraded)')
-            .setRequired(false))
+          option
+            .setName('reason')
+            .setDescription('The reason for the status')
+            .setRequired(false)
+        )
         .addStringOption(option =>
-          option.setName('description')
-            .setDescription('Additional description or details about the node')
-            .setRequired(false)))
+          option
+            .setName('description')
+            .setDescription('The node description')
+            .setRequired(false)
+        )
+    )
     .addSubcommand(subcommand =>
       subcommand
         .setName('list')
-        .setDescription('List all nodes and their status'))
+        .setDescription('List all nodes')
+    )
     .addSubcommand(subcommand =>
       subcommand
         .setName('refresh')
-        .setDescription('Refresh the node status embed in the nodes channel'))
+        .setDescription('Refresh the node status embed')
+    )
     .addSubcommand(subcommand =>
       subcommand
         .setName('remove')
-        .setDescription('Remove a node from the status list')
+        .setDescription('Remove a node')
         .addStringOption(option =>
-          option.setName('node_id')
-            .setDescription('The ID of the node to remove')
-            .setRequired(true)))
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
-  
-  // Export the manager for initialization
-  nodeStatusManager,
+          option
+            .setName('id')
+            .setDescription('The node ID')
+            .setRequired(true)
+        )
+    ),
+    
+  nodeStatusManager: null,
   
   async execute(interaction) {
+    // Get managers from global object
+    const { logger, database, bot } = global.managers;
+    
+    try {
+      // Initialize node status manager if not already initialized
+      if (!this.nodeStatusManager) {
+        this.nodeStatusManager = new NodeStatusManager(global.managers);
+        await this.nodeStatusManager.init(interaction.client);
+      }
+      
+      const subcommand = interaction.options.getSubcommand();
+      
+      // Handle subcommands
+      if (subcommand === 'update') {
+        await this.handleUpdateNode(interaction);
+      } else if (subcommand === 'list') {
+        await this.handleListNodes(interaction);
+      } else if (subcommand === 'refresh') {
+        await this.handleRefreshNodeEmbed(interaction);
+      } else if (subcommand === 'remove') {
+        await this.handleRemoveNode(interaction);
+      }
+    } catch (error) {
+      logger.error('commands', `Error in node command: ${error.message}`, error.stack);
+      
+      return interaction.reply({
+        content: `❌ An error occurred: ${error.message}`,
+        ephemeral: true
+      });
+    }
+  },
+  
+  /**
+   * Handle the update node subcommand
+   * @param {Object} interaction - The interaction object
+   */
+  async handleUpdateNode(interaction) {
+    const nodeId = interaction.options.getString('id');
+    const status = interaction.options.getString('status');
+    const location = interaction.options.getString('location');
+    const reason = interaction.options.getString('reason');
+    const description = interaction.options.getString('description');
+    
     await interaction.deferReply({ ephemeral: true });
     
     try {
-      const subcommand = interaction.options.getSubcommand();
-      
-      switch (subcommand) {
-        case 'update':
-          await this.handleUpdateNode(interaction);
-          break;
-        case 'list':
-          await this.handleListNodes(interaction);
-          break;
-        case 'refresh':
-          await this.handleRefreshNodeEmbed(interaction);
-          break;
-        case 'remove':
-          await this.handleRemoveNode(interaction);
-          break;
-      }
-    } catch (error) {
-      logger.error(`Error in node command: ${error.message}`);
-      await interaction.editReply({ content: `❌ An error occurred: ${error.message}` });
-    }
-  },
-  
-  async handleUpdateNode(interaction) {
-    const nodeId = interaction.options.getString('node_id');
-    const status = interaction.options.getString('status');
-    const location = interaction.options.getString('location');
-    const reason = interaction.options.getString('reason') || '';
-    const description = interaction.options.getString('description') || '';
-    
-    try {
-      const updatedNode = await nodeStatusManager.updateNode(
-        interaction, nodeId, status, location, reason, description
+      const node = await this.nodeStatusManager.updateNode(
+        interaction,
+        nodeId,
+        status,
+        location,
+        reason,
+        description
       );
       
-      // Create success embed
-      const statusEmoji = nodeStatusManager.getStatusEmoji(status);
-      const statusColor = nodeStatusManager.getStatusColor(status);
-      
-      const successEmbed = new EmbedBuilder()
-        .setColor(statusColor)
-        .setTitle('Node Status Updated')
-        .setDescription(`✅ Node **${nodeId}** has been updated.`)
-        .addFields(
-          { name: 'Node ID', value: nodeId, inline: true },
-          { name: 'Status', value: `${statusEmoji} ${status.charAt(0).toUpperCase() + status.slice(1)}`, inline: true },
-          { name: 'Location', value: location, inline: true }
-        )
-        .setTimestamp()
-        .setFooter({ text: config.footerText });
-      
-      if (reason) {
-        successEmbed.addFields({ name: 'Reason', value: reason, inline: false });
-      }
-      
-      if (description) {
-        successEmbed.addFields({ name: 'Description', value: description, inline: false });
-      }
-      
-      await interaction.editReply({ embeds: [successEmbed] });
-      
+      return interaction.editReply({
+        content: `✅ Node ${nodeId} has been updated with status: ${status}`,
+        ephemeral: true
+      });
     } catch (error) {
-      await interaction.editReply({ content: `❌ Error updating node: ${error.message}` });
+      global.managers.logger.error('commands', `Error updating node: ${error.message}`, error.stack);
+      
+      return interaction.editReply({
+        content: `❌ An error occurred while updating the node: ${error.message}`,
+        ephemeral: true
+      });
     }
   },
   
+  /**
+   * Handle the list nodes subcommand
+   * @param {Object} interaction - The interaction object
+   */
   async handleListNodes(interaction) {
+    await interaction.deferReply({ ephemeral: true });
+    
     try {
-      const nodes = await nodeStatusManager.loadNodesData();
+      const nodes = await this.nodeStatusManager.loadNodesData();
+      const nodeIds = Object.keys(nodes);
       
-      if (Object.keys(nodes).length === 0) {
-        return interaction.editReply({ content: '❌ No nodes have been added yet.' });
-      }
-      
-      const nodeListEmbed = new EmbedBuilder()
-        .setColor(config.embedColor)
-        .setTitle('Node Status List')
-        .setDescription('Current status of all nodes')
-        .setTimestamp()
-        .setFooter({ text: config.footerText });
-      
-      // Sort nodes by ID
-      const sortedNodes = Object.values(nodes).sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }));
-      
-      for (const node of sortedNodes) {
-        const statusEmoji = nodeStatusManager.getStatusEmoji(node.status);
-        const lastUpdated = new Date(node.lastUpdated);
-        
-        nodeListEmbed.addFields({
-          name: `${statusEmoji} ${node.id} (${node.location})`,
-          value: `**Status:** ${node.status.charAt(0).toUpperCase() + node.status.slice(1)}\n` +
-                 `**Last Updated:** <t:${Math.floor(lastUpdated.getTime() / 1000)}:R>\n` +
-                 `**Updated By:** ${node.updatedBy.tag}\n` +
-                 (node.reason ? `**Reason:** ${node.reason}\n` : '') +
-                 (node.description ? `**Description:** ${node.description}` : ''),
-          inline: false
+      if (nodeIds.length === 0) {
+        return interaction.editReply({
+          content: 'No nodes have been added yet.',
+          ephemeral: true
         });
       }
       
-      await interaction.editReply({ embeds: [nodeListEmbed] });
+      const embed = new EmbedBuilder()
+        .setTitle('JMF Hosting Nodes')
+        .setDescription(`Total nodes: ${nodeIds.length}`)
+        .setColor('#0099ff')
+        .setTimestamp();
       
-    } catch (error) {
-      await interaction.editReply({ content: `❌ Error listing nodes: ${error.message}` });
-    }
-  },
-  
-  async handleRefreshNodeEmbed(interaction) {
-    try {
-      await nodeStatusManager.refreshNodeEmbed(true);
-      await interaction.editReply({ content: '✅ Node status embed has been refreshed in the nodes channel.' });
-    } catch (error) {
-      await interaction.editReply({ content: `❌ Error refreshing node embed: ${error.message}` });
-    }
-  },
-  
-  async handleRemoveNode(interaction) {
-    const nodeId = interaction.options.getString('node_id');
-    
-    try {
-      const removed = await nodeStatusManager.removeNode(interaction, nodeId);
-      
-      if (!removed) {
-        return interaction.editReply({ content: `❌ Node **${nodeId}** not found.` });
+      for (const nodeId of nodeIds) {
+        const node = nodes[nodeId];
+        const statusEmoji = this.nodeStatusManager.getStatusEmoji(node.status);
+        
+        embed.addFields({
+          name: `Node ${node.id}`,
+          value: `**Status:** ${statusEmoji} ${node.status}\n**Location:** ${node.location}`
+        });
       }
       
-      // Create success embed
-      const successEmbed = new EmbedBuilder()
-        .setColor(config.embedColor)
-        .setTitle('Node Removed')
-        .setDescription(`✅ Node **${nodeId}** has been removed from the status list.`)
-        .setTimestamp()
-        .setFooter({ text: config.footerText });
-      
-      await interaction.editReply({ embeds: [successEmbed] });
-      
+      return interaction.editReply({
+        embeds: [embed],
+        ephemeral: true
+      });
     } catch (error) {
-      await interaction.editReply({ content: `❌ Error removing node: ${error.message}` });
+      global.managers.logger.error('commands', `Error listing nodes: ${error.message}`, error.stack);
+      
+      return interaction.editReply({
+        content: `❌ An error occurred while listing nodes: ${error.message}`,
+        ephemeral: true
+      });
+    }
+  },
+  
+  /**
+   * Handle the refresh node embed subcommand
+   * @param {Object} interaction - The interaction object
+   */
+  async handleRefreshNodeEmbed(interaction) {
+    await interaction.deferReply({ ephemeral: true });
+    
+    try {
+      await this.nodeStatusManager.refreshNodeEmbed(true);
+      
+      return interaction.editReply({
+        content: '✅ Node status embed has been refreshed.',
+        ephemeral: true
+      });
+    } catch (error) {
+      global.managers.logger.error('commands', `Error refreshing node embed: ${error.message}`, error.stack);
+      
+      return interaction.editReply({
+        content: `❌ An error occurred while refreshing the node embed: ${error.message}`,
+        ephemeral: true
+      });
+    }
+  },
+  
+  /**
+   * Handle the remove node subcommand
+   * @param {Object} interaction - The interaction object
+   */
+  async handleRemoveNode(interaction) {
+    const nodeId = interaction.options.getString('id');
+    
+    await interaction.deferReply({ ephemeral: true });
+    
+    try {
+      const success = await this.nodeStatusManager.removeNode(interaction, nodeId);
+      
+      if (!success) {
+        return interaction.editReply({
+          content: `❌ Node ${nodeId} not found.`,
+          ephemeral: true
+        });
+      }
+      
+      return interaction.editReply({
+        content: `✅ Node ${nodeId} has been removed.`,
+        ephemeral: true
+      });
+    } catch (error) {
+      global.managers.logger.error('commands', `Error removing node: ${error.message}`, error.stack);
+      
+      return interaction.editReply({
+        content: `❌ An error occurred while removing the node: ${error.message}`,
+        ephemeral: true
+      });
     }
   }
 }; 

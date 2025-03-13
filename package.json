@@ -7,55 +7,49 @@
     "start": "node src/index.js",
     "stop": "node scripts/stop.js",
     "dev": "nodemon src/index.js",
-    
     "install:manager": "node src/managers/install/index.js",
     "install:check": "node src/managers/install/check.js",
     "install:deps": "node src/managers/install/dependencies.js",
     "install:config": "node src/managers/install/config.js",
-    
     "update:manager": "node src/managers/update/index.js",
     "update:check": "node src/managers/update/check.js",
     "update:backup": "node src/managers/update/backup.js",
     "update:migrate": "node src/managers/update/migrate.js",
-    
     "test:manager": "node src/managers/test/index.js",
     "test:unit": "node src/managers/test/unit.js",
     "test:integration": "node src/managers/test/integration.js",
     "test:e2e": "node src/managers/test/e2e.js",
-    
     "monitor:manager": "node src/managers/monitor/index.js",
     "monitor:start": "node src/managers/monitor/start.js",
     "monitor:stop": "node src/managers/monitor/stop.js",
     "monitor:status": "node src/managers/monitor/status.js",
-    
     "docker:manager": "node src/managers/docker/index.js",
     "docker:build": "node src/managers/docker/build.js",
     "docker:start": "node src/managers/docker/start.js",
     "docker:stop": "node src/managers/docker/stop.js",
     "docker:logs": "node src/managers/docker/logs.js",
-    
     "db:manager": "node src/managers/database/index.js",
     "db:init": "node src/managers/database/init.js",
     "db:migrate": "node src/managers/database/migrate.js",
     "db:backup": "node src/managers/database/backup.js",
     "db:restore": "node src/managers/database/restore.js",
-    
+    "db:seed": "node src/managers/database/seed.js",
+    "db:status": "node src/managers/database/status.js",
     "deploy": "node src/deploy-commands.js",
     "deploy:global": "node src/deploy-commands.js --global",
     "deploy:guild": "node src/deploy-commands.js --guild",
-    
-    "register": "node register-commands.js",
-    "register:global": "node register-commands.js --global",
-    "register:guild": "node register-commands.js --guild",
-    "register:all": "node register-commands.js --all",
-    
+    "register": "node src/register-commands.js",
+    "register:global": "node src/register-commands.js --global",
+    "register:guild": "node src/register-commands.js --guild",
+    "register:all": "node src/register-commands.js --all",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    
     "setup:env": "node scripts/setup-env.js",
     "check:token": "node scripts/check-token.js",
     "fix:all": "node scripts/fix-all.js",
-    "set-perms": "node scripts/set-permissions.js"
+    "set-perms": "node scripts/set-permissions.js",
+    "config:init": "node scripts/init-config.js",
+    "config:validate": "node scripts/validate-config.js"
   },
   "keywords": [
     "discord",
@@ -77,33 +71,48 @@
     "url": "https://github.com/Nanaimo2013/Jmf-Bot/issues"
   },
   "dependencies": {
-    "discord.js": "^14.14.1",
-    "dotenv": "^16.3.1",
-    "node-fetch": "^3.3.2",
-    "moment": "^2.29.4",
-    "winston": "^3.11.0",
-    "winston-daily-rotate-file": "^5.0.0",
-    "cron": "^4.1.0",
-    "node-cron": "^3.0.2",
-    "express": "^4.18.2",
+    "archiver": "^7.0.1",
     "axios": "^1.6.2",
+    "better-sqlite3": "^9.4.3",
+    "body-parser": "^1.20.3",
     "canvas": "^2.11.2",
+    "chalk": "^4.1.2",
     "chart.js": "^3.9.1",
     "chartjs-node-canvas": "^4.1.6",
+    "cors": "^2.8.5",
+    "cron": "^4.1.0",
+    "discord.js": "^14.18.0",
+    "dockerode": "^4.0.4",
+    "dotenv": "^16.3.1",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "figures": "^3.2.0",
     "fs-extra": "^11.2.0",
+    "glob": "^10.3.10",
+    "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "knex": "^3.1.0",
+    "moment": "^2.29.4",
+    "morgan": "^1.10.0",
+    "mysql2": "^3.13.0",
+    "node-cron": "^3.0.2",
+    "node-fetch": "^3.3.2",
+    "pg": "^8.11.3",
+    "redis": "^4.6.13",
+    "sqlite": "^5.1.1",
     "sqlite3": "^5.1.6",
-    "sqlite": "^5.0.1",
-    "eslint": "^9.22.0",
-    "nodemon": "^3.0.2",
-    "yargs": "^17.7.1",
-    "chalk": "^4.1.2",
-    "figures": "^3.2.0"
+    "systeminformation": "^5.21.24",
+    "winston": "^3.11.0",
+    "winston-daily-rotate-file": "^5.0.0",
+    "yargs": "^17.7.1"
   },
   "devDependencies": {
+    "eslint": "^9.22.0",
+    "jest": "^29.7.0",
     "nodemon": "^3.0.2",
-    "eslint": "^9.22.0"
+    "supertest": "^6.3.4"
   },
   "engines": {
     "node": ">=16.9.0"
   }
-} 
+}

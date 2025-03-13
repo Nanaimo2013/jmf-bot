@@ -1,194 +1,217 @@
-const { EventEmitter } = require('events');
+/**
+ * JMF Hosting Discord Bot - Docker Manager
+ * Version: 1.0.0
+ * Last Updated: 03/12/2025
+ * 
+ * This manager handles Docker operations for the bot, including
+ * building, starting, stopping, and viewing logs for Docker containers.
+ * 
+ * © 2025 JMFHosting. All Rights Reserved.
+ * Developed by Nanaimo2013 (https://github.com/Nanaimo2013)
+ */
+
+const BaseManager = require('../base.manager');
 const path = require('path');
-const fs = require('fs').promises;
-const logger = require('../../utils/logger');
+const { exec } = require('child_process');
+const util = require('util');
+const execPromise = util.promisify(exec);
 
-class DockerManager extends EventEmitter {
-    constructor() {
-        super();
-        this.modulesPath = path.join(__dirname, 'modules');
-        this.modules = new Map();
-        this.config = null;
-    }
-
-    async loadModules() {
-        try {
-            const files = await fs.readdir(this.modulesPath);
-            const moduleFiles = files.filter(file => file.endsWith('.js'));
-
-            for (const file of moduleFiles) {
-                const modulePath = path.join(this.modulesPath, file);
-                const moduleClass = require(modulePath);
-                const moduleInstance = new moduleClass(this);
-                this.modules.set(moduleInstance.name, moduleInstance);
-                logger.info(`Loaded docker module: ${moduleInstance.name}`);
-            }
-        } catch (error) {
-            logger.error('Error loading docker modules:', error);
-            throw error;
-        }
-    }
-
-    async initialize(config) {
-        this.config = config;
-
-        try {
-            // Initialize all docker modules
-            for (const [name, module] of this.modules) {
-                if (typeof module.initialize === 'function') {
-                    await module.initialize(config);
+class DockerManager extends BaseManager {
+    /**
+     * Create a new Docker manager
+     * @param {Object} [options] - Manager options
+     */
+    constructor(options = {}) {
+        super('docker', {
+            version: '1.0.0',
+            defaultConfig: {
+                socketPath: '/var/run/docker.sock',
+                containerName: 'jmf-bot',
+                imageName: 'jmf-bot',
+                imageTag: 'latest',
+                buildArgs: {},
+                ports: {
+                    '3000': '3000'
+                },
+                volumes: {
+                    './data': '/app/data',
+                    './logs': '/app/logs',
+                    './config': '/app/config'
+                },
+                env: {
+                    NODE_ENV: 'production'
                 }
+            },
+            ...options
+        });
+    }
+
+    /**
+     * Initialize the Docker manager
+     * @param {Object} [config] - Configuration options
+     * @returns {Promise<void>}
+     */
+    async initialize(config = {}) {
+        await super.initialize(config);
+        this.logger.info('docker', 'Docker manager initialized');
+    }
+
+    /**
+     * Build the Docker image
+     * @param {Object} [options] - Build options
+     * @returns {Promise<void>}
+     */
+    async build(options = {}) {
+        const { imageName, imageTag, buildArgs } = { ...this.config, ...options };
+        const buildArgsString = Object.entries(buildArgs)
+            .map(([key, value]) => `--build-arg ${key}=${value}`)
+            .join(' ');
+        
+        this.logger.info('docker', `Building Docker image: ${imageName}:${imageTag}`);
+        
+        try {
+            const { stdout, stderr } = await execPromise(
+                `docker build -t ${imageName}:${imageTag} ${buildArgsString} .`
+            );
+            
+            this.logger.debug('docker', `Build stdout: ${stdout}`);
+            if (stderr) {
+                this.logger.warn('docker', `Build stderr: ${stderr}`);
             }
-
-            logger.info('Docker manager initialized successfully');
+            
+            this.logger.success('docker', `Docker image built: ${imageName}:${imageTag}`);
         } catch (error) {
-            logger.error('Failed to initialize docker manager:', error);
+            this.logger.error('docker', `Failed to build Docker image: ${error.message}`);
             throw error;
         }
     }
 
-    async buildImage(options = {}) {
-        const module = this.getModuleByType('build');
-        if (!module) {
-            throw new Error('Docker build module not found');
-        }
-
+    /**
+     * Start the Docker container
+     * @param {Object} [options] - Start options
+     * @returns {Promise<void>}
+     */
+    async start(options = {}) {
+        const { containerName, imageName, imageTag, ports, volumes, env } = { ...this.config, ...options };
+        
+        // Format ports
+        const portsString = Object.entries(ports)
+            .map(([host, container]) => `-p ${host}:${container}`)
+            .join(' ');
+        
+        // Format volumes
+        const volumesString = Object.entries(volumes)
+            .map(([host, container]) => `-v ${host}:${container}`)
+            .join(' ');
+        
+        // Format environment variables
+        const envString = Object.entries(env)
+            .map(([key, value]) => `-e ${key}=${value}`)
+            .join(' ');
+        
+        this.logger.info('docker', `Starting Docker container: ${containerName}`);
+        
         try {
-            const result = await module.buildImage(options);
-            logger.info('Docker image built successfully');
-            return result;
+            // Check if container exists
+            const { stdout: containerList } = await execPromise(
+                `docker ps -a --filter "name=${containerName}" --format "{{.Names}}"`
+            );
+            
+            if (containerList.includes(containerName)) {
+                // Container exists, start it
+                await execPromise(`docker start ${containerName}`);
+            } else {
+                // Container doesn't exist, create and start it
+                await execPromise(
+                    `docker run -d --name ${containerName} ${portsString} ${volumesString} ${envString} ${imageName}:${imageTag}`
+                );
+            }
+            
+            this.logger.success('docker', `Docker container started: ${containerName}`);
         } catch (error) {
-            logger.error('Failed to build docker image:', error);
+            this.logger.error('docker', `Failed to start Docker container: ${error.message}`);
             throw error;
         }
     }
 
-    async runContainer(options = {}) {
-        const module = this.getModuleByType('container');
-        if (!module) {
-            throw new Error('Docker container module not found');
-        }
-
+    /**
+     * Stop the Docker container
+     * @param {Object} [options] - Stop options
+     * @returns {Promise<void>}
+     */
+    async stop(options = {}) {
+        const { containerName } = { ...this.config, ...options };
+        
+        this.logger.info('docker', `Stopping Docker container: ${containerName}`);
+        
         try {
-            const containerId = await module.runContainer(options);
-            logger.info(`Docker container started: ${containerId}`);
-            return containerId;
+            await execPromise(`docker stop ${containerName}`);
+            this.logger.success('docker', `Docker container stopped: ${containerName}`);
         } catch (error) {
-            logger.error('Failed to run docker container:', error);
+            this.logger.error('docker', `Failed to stop Docker container: ${error.message}`);
             throw error;
         }
     }
 
-    async stopContainer(containerId, options = {}) {
-        const module = this.getModuleByType('container');
-        if (!module) {
-            throw new Error('Docker container module not found');
-        }
-
+    /**
+     * Get logs from the Docker container
+     * @param {Object} [options] - Log options
+     * @returns {Promise<string>} Container logs
+     */
+    async logs(options = {}) {
+        const { containerName, tail = 100 } = { ...this.config, ...options };
+        
+        this.logger.info('docker', `Getting logs from Docker container: ${containerName}`);
+        
         try {
-            await module.stopContainer(containerId, options);
-            logger.info(`Docker container stopped: ${containerId}`);
+            const { stdout } = await execPromise(`docker logs --tail ${tail} ${containerName}`);
+            return stdout;
         } catch (error) {
-            logger.error('Failed to stop docker container:', error);
+            this.logger.error('docker', `Failed to get Docker logs: ${error.message}`);
             throw error;
         }
     }
 
-    async removeContainer(containerId, options = {}) {
-        const module = this.getModuleByType('container');
-        if (!module) {
-            throw new Error('Docker container module not found');
-        }
-
+    /**
+     * Get the status of the Docker container
+     * @param {Object} [options] - Status options
+     * @returns {Promise<Object>} Container status
+     */
+    async getStatus(options = {}) {
+        const { containerName } = { ...this.config, ...options };
+        
         try {
-            await module.removeContainer(containerId, options);
-            logger.info(`Docker container removed: ${containerId}`);
+            // Check if container exists
+            const { stdout: containerList } = await execPromise(
+                `docker ps -a --filter "name=${containerName}" --format "{{.Names}}"`
+            );
+            
+            if (!containerList.includes(containerName)) {
+                return { exists: false, running: false };
+            }
+            
+            // Check if container is running
+            const { stdout: runningList } = await execPromise(
+                `docker ps --filter "name=${containerName}" --format "{{.Names}}"`
+            );
+            
+            return {
+                exists: true,
+                running: runningList.includes(containerName)
+            };
         } catch (error) {
-            logger.error('Failed to remove docker container:', error);
-            throw error;
+            this.logger.error('docker', `Failed to get Docker status: ${error.message}`);
+            return { exists: false, running: false, error: error.message };
         }
     }
 
-    async pushImage(options = {}) {
-        const module = this.getModuleByType('registry');
-        if (!module) {
-            throw new Error('Docker registry module not found');
-        }
-
-        try {
-            await module.pushImage(options);
-            logger.info('Docker image pushed successfully');
-        } catch (error) {
-            logger.error('Failed to push docker image:', error);
-            throw error;
-        }
-    }
-
-    async pullImage(options = {}) {
-        const module = this.getModuleByType('registry');
-        if (!module) {
-            throw new Error('Docker registry module not found');
-        }
-
-        try {
-            await module.pullImage(options);
-            logger.info('Docker image pulled successfully');
-        } catch (error) {
-            logger.error('Failed to pull docker image:', error);
-            throw error;
-        }
-    }
-
-    async getContainerLogs(containerId, options = {}) {
-        const module = this.getModuleByType('logs');
-        if (!module) {
-            throw new Error('Docker logs module not found');
-        }
-
-        try {
-            return await module.getContainerLogs(containerId, options);
-        } catch (error) {
-            logger.error('Failed to get container logs:', error);
-            throw error;
-        }
-    }
-
-    async composeUp(options = {}) {
-        const module = this.getModuleByType('compose');
-        if (!module) {
-            throw new Error('Docker compose module not found');
-        }
-
-        try {
-            await module.up(options);
-            logger.info('Docker compose up completed successfully');
-        } catch (error) {
-            logger.error('Failed to run docker compose up:', error);
-            throw error;
-        }
-    }
-
-    async composeDown(options = {}) {
-        const module = this.getModuleByType('compose');
-        if (!module) {
-            throw new Error('Docker compose module not found');
-        }
-
-        try {
-            await module.down(options);
-            logger.info('Docker compose down completed successfully');
-        } catch (error) {
-            logger.error('Failed to run docker compose down:', error);
-            throw error;
-        }
-    }
-
-    getModuleByType(type) {
-        return Array.from(this.modules.values()).find(module => module.type === type);
-    }
-
-    getModule(name) {
-        return this.modules.get(name);
+    /**
+     * Shut down the Docker manager
+     * @returns {Promise<void>}
+     */
+    async shutdown() {
+        this.logger.info('docker', 'Shutting down Docker manager');
+        await super.shutdown();
     }
 }
 

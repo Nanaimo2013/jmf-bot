@@ -16,9 +16,13 @@ class BaseDatabaseModule {
     constructor(name) {
         this.name = name;
         this.logger = new LoggerManager();
+        
+        // Ensure name is a string to avoid path.join errors
+        const moduleName = typeof name === 'string' ? name : 'unknown';
+        
         this.logger.initialize({
             level: 'info',
-            directory: path.join(process.cwd(), 'logs', 'database', name)
+            directory: path.join(process.cwd(), 'logs', 'database', moduleName)
         });
     }
 

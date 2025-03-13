@@ -11,6 +11,10 @@ class ContainerDocker {
 
     async initialize(config) {
         try {
+            // Ensure config exists and has default values
+            config = config || {};
+            
+            // Initialize Docker with empty object if config.docker is undefined
             this.docker = new Docker(config.docker || {});
             await this.docker.ping();
             logger.info('Docker container module initialized successfully');
