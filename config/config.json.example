@@ -1,45 +1,229 @@
 {
   "bot": {
     "token": "YOUR_BOT_TOKEN_HERE",
-    "clientId": "YOUR_CLIENT_ID_HERE",
+    "clientId": "YOUR_CLIENT_ID_HERE", 
     "guildId": "YOUR_GUILD_ID_HERE",
     "prefix": "!",
     "embedColor": "#00AAFF",
     "footerText": "JMF Hosting | Game Server Solutions",
     "owners": ["OWNER_ID_1", "OWNER_ID_2"],
-    "admins": ["ADMIN_ID_1", "ADMIN_ID_2"]
+    "admins": ["ADMIN_ID_1", "ADMIN_ID_2"],
+    "sendWelcomeDM": true,
+    "welcomeDMMessage": "Thanks for joining our server! If you need any help, feel free to create a ticket in our support channel."
+  },
+  "managers": {
+    "enabled": true,
+    "roles": ["Owner", "Manager"],
+    "permissions": {
+      "manageBot": true,
+      "manageUsers": true,
+      "manageServers": true,
+      "viewAnalytics": true,
+      "manageEconomy": true,
+      "manageGames": true
+    },
+    "notifications": {
+      "enabled": true,
+      "channelId": "YOUR_CHANNEL_ID",
+      "mentions": true,
+      "events": {
+        "serverStatus": true,
+        "userReports": true,
+        "systemAlerts": true,
+        "backupStatus": true
+      }
+    },
+    "dashboard": {
+      "enabled": true,
+      "port": 3000,
+      "secret": "YOUR_DASHBOARD_SECRET"
+    }
   },
   "database": {
     "type": "sqlite",
+    "migrations": {
+      "directory": "./src/database/migrations",
+      "tableName": "migrations",
+      "extension": "js"
+    },
+    "backup": {
+      "enabled": true,
+      "directory": "./backups/database",
+      "interval": "1d",
+      "maxBackups": 10,
+      "compression": true
+    },
     "connections": {
       "sqlite": {
-        "driver": "sqlite3",
         "filename": "./data/database.sqlite",
         "useNullAsDefault": true,
         "foreign_key_constraints": true
-      },
-      "mysql": {
-        "driver": "mysql2",
-        "host": "localhost",
-        "port": 3306,
-        "database": "jmf_bot",
-        "user": "jmf_bot",
-        "password": "",
-        "charset": "utf8mb4",
-        "timezone": "UTC"
       }
+    },
+    "pool": {
+      "min": 2,
+      "max": 10,
+      "idleTimeoutMillis": 30000
     }
   },
   "logging": {
     "level": "info",
     "format": "simple",
-    "colors": true,
-    "timestamp": true,
     "directory": "./logs",
     "console": true,
     "file": true,
     "maxSize": "10m",
-    "maxFiles": 30
+    "maxFiles": 30,
+    "categories": {
+      "system": {
+        "level": "debug",
+        "filename": "system.log"
+      },
+      "commands": {
+        "level": "info",
+        "filename": "commands.log"
+      },
+      "events": {
+        "level": "info",
+        "filename": "events.log"
+      },
+      "errors": {
+        "level": "error",
+        "filename": "errors.log"
+      },
+      "database": {
+        "level": "info",
+        "filename": "database.log"
+      },
+      "api": {
+        "level": "info",
+        "filename": "api.log"
+      }
+    },
+    "rotation": {
+      "enabled": true,
+      "interval": "1d",
+      "maxFiles": 30
+    }
+  },
+  "install": {
+    "configDir": "./config",
+    "dataDir": "./data",
+    "logsDir": "./logs",
+    "dependencies": [
+      "discord.js",
+      "express",
+      "winston",
+      "sqlite3",
+      "mysql2"
+    ],
+    "setup": {
+      "createDirectories": true,
+      "installDependencies": true,
+      "runMigrations": true,
+      "generateConfig": true
+    },
+    "permissions": {
+      "dataDir": "0755",
+      "configFiles": "0644"
+    }
+  },
+  "docker": {
+    "enabled": true,
+    "containerName": "jmf-bot",
+    "imageName": "jmf-bot",
+    "imageTag": "latest",
+    "ports": {
+      "3000": "3000"
+    },
+    "volumes": {
+      "./data": "/app/data",
+      "./logs": "/app/logs",
+      "./config": "/app/config"
+    },
+    "env": {
+      "NODE_ENV": "production"
+    },
+    "networks": {
+      "default": "jmf-network",
+      "subnet": "172.20.0.0/16"
+    },
+    "security": {
+      "privileged": false,
+      "capDrop": ["ALL"],
+      "capAdd": ["NET_ADMIN"],
+      "securityOpt": ["no-new-privileges"]
+    },
+    "logging": {
+      "driver": "json-file",
+      "options": {
+        "max-size": "10m",
+        "max-file": "3"
+      }
+    }
+  },
+  "welcomeSystem": {
+    "enabled": true,
+    "channelId": "YOUR_CHANNEL_ID",
+    "channelName": "join-leave",
+    "message": "Welcome to the JMF Hosting Discord server, {user}! We're glad to have you here. Please read our rules in {rules} and enjoy your stay!",
+    "embedColor": "#00FF00",
+    "mentionUser": true,
+    "showJoinDate": true,
+    "showAccountAge": true
+  },
+  "verification": {
+    "enabled": true,
+    "verifiedRole": "Member",
+    "unverifiedRole": "Unverified",
+    "message": "Welcome to the server! Please click the button below to verify yourself and gain access to the server.",
+    "buttonText": "Verify",
+    "successMessage": "You have been successfully verified! You now have access to the server.",
+    "embedColor": "#00FF00",
+    "sendWelcomeMessage": true,
+    "welcomeChannel": "welcome",
+    "instructionsChannel": "verification"
+  },
+  "channels": {
+    "welcome": "YOUR_CHANNEL_ID",
+    "joinLeave": "YOUR_CHANNEL_ID",
+    "announcements": "YOUR_CHANNEL_ID",
+    "rules": "YOUR_CHANNEL_ID",
+    "general": "YOUR_CHANNEL_ID",
+    "createTicket": "YOUR_CHANNEL_ID",
+    "botCommands": "🤖︱bot-commands",
+    "modLogs": "📝︱mod-logs",
+    "ticketLogs": "YOUR_CHANNEL_ID",
+    "staffChat": "💬︱staff-chat",
+    "verification": "YOUR_CHANNEL_ID",
+    "logs": "📝︱logs",
+    "moderationLogs": "📝︱mod-logs",
+    "nodes": "🖥️︱node-status",
+    "status": "⚙️︱service-status",
+    "maintenanceAnnouncements": "🔧︱maintenance-announcements",
+    "uptime": "📈︱uptime",
+    "leveling": "⭐︱leveling",
+    "leaderboard": "🏆︱leaderboard",
+    "mining": "⛏️︱mining",
+    "shop": "🛒︱shop",
+    "inventory": "🎒︱inventory",
+    "economy": "💰︱economy"
+  },
+  "roles": {
+    "owner": "Owner",
+    "admin": "Administrator",
+    "moderator": "Moderator",
+    "support": "Support Staff",
+    "developer": "Developer",
+    "partner": "Partner",
+    "contentCreator": "Content Creator",
+    "premiumTier3": "Premium Tier 3",
+    "premiumTier2": "Premium Tier 2",
+    "premiumTier1": "Premium Tier 1",
+    "activeMember": "Active Member",
+    "member": "Member",
+    "bot": "Bot",
+    "unverified": "Unverified"
   },
   "api": {
     "enabled": true,
@@ -50,26 +234,61 @@
       "windowMs": 900000,
       "max": 100
     },
-    "secretKey": "YOUR_SECRET_KEY_HERE"
+    "secretKey": "YOUR_API_SECRET_KEY_HERE",
+    "cors": {
+      "enabled": true,
+      "origin": "*",
+      "methods": ["GET", "POST", "PUT", "DELETE"]
+    },
+    "routes": {
+      "auth": true,
+      "users": true,
+      "servers": true,
+      "stats": true
+    }
   },
   "gameServers": {
+    "statusChannel": "server-status",
+    "updateInterval": 300,
     "pterodactyl": {
       "enabled": true,
       "apiKey": "YOUR_PTERODACTYL_API_KEY_HERE",
-      "url": "https://panel.example.com"
+      "url": "https://panel.jmfhosting.com/api/client",
+      "nodes": [
+        {
+          "name": "Node 1",
+          "location": "US East",
+          "id": 1
+        }
+      ]
     }
   },
   "monitoring": {
     "enabled": true,
     "interval": 60000,
-    "webhookUrl": "YOUR_WEBHOOK_URL_HERE"
+    "webhookUrl": "YOUR_WEBHOOK_URL_HERE",
+    "metrics": {
+      "system": true,
+      "discord": true,
+      "database": true,
+      "api": true
+    },
+    "alerts": {
+      "discord": true,
+      "email": false
+    }
   },
   "backup": {
     "enabled": true,
     "interval": 86400000,
     "directory": "./backups",
     "maxAge": 604800000,
-    "compress": true
+    "compress": true,
+    "types": {
+      "database": true,
+      "config": true,
+      "logs": false
+    }
   },
   "features": {
     "tickets": true,
@@ -78,30 +297,22 @@
     "analytics": true,
     "automod": true,
     "welcome": true,
-    "leveling": true
+    "leveling": true,
+    "economy": true,
+    "verification": true,
+    "miningGame": true
   },
-  "roles": {
-    "member": "ROLE_ID_HERE",
-    "moderator": "ROLE_ID_HERE",
-    "admin": "ROLE_ID_HERE",
-    "muted": "ROLE_ID_HERE",
-    "verified": "ROLE_ID_HERE"
+  "categories": {
+    "information": "📢 INFORMATION",
+    "community": "🎮 COMMUNITY",
+    "support": "🎫 SUPPORT",
+    "games": "🎲 GAMES",
+    "tutorials": "🔧 TUTORIALS",
+    "voice": "💬 VOICE CHANNELS",
+    "staff": "👥 STAFF AREA",
+    "development": "💻 DEVELOPMENT",
+    "status": "📊 STATUS",
+    "economy": "💰🎮 ECONOMY & GAMES"
   },
-  "channels": {
-    "welcome": "CHANNEL_ID_HERE",
-    "rules": "CHANNEL_ID_HERE",
-    "announcements": "CHANNEL_ID_HERE",
-    "logs": {
-      "moderation": "CHANNEL_ID_HERE",
-      "server": "CHANNEL_ID_HERE",
-      "join": "CHANNEL_ID_HERE",
-      "leave": "CHANNEL_ID_HERE",
-      "voice": "CHANNEL_ID_HERE",
-      "message": "CHANNEL_ID_HERE"
-    },
-    "tickets": {
-      "category": "CATEGORY_ID_HERE",
-      "logs": "CHANNEL_ID_HERE"
-    }
-  }
-} 
+  "welcomeMessage": "Welcome to the JMF Hosting Discord server, {user}! Please read the rules in <#RULES_CHANNEL_ID> and verify yourself to gain access to the rest of the server."
+}

@@ -14,6 +14,7 @@
 const { EventEmitter } = require('events');
 const path = require('path');
 const fs = require('fs').promises;
+const utils = require('../../utils');
 
 class BaseModule extends EventEmitter {
     /**
@@ -28,20 +29,20 @@ class BaseModule extends EventEmitter {
     constructor(manager, options = {}) {
         super();
         this.manager = manager;
-        this.name = options.name || this.constructor.name.replace(/Module$/, '').toLowerCase();
-        this.version = options.version || '1.0.0';
+        this.bot = manager.bot;
         this.logger = manager.logger;
-        this.config = options.defaultConfig || {};
+        this.name = options.name || this.constructor.name;
+        this.version = options.version || '1.0.0';
+        this._enabled = false;
         this._initialized = false;
-        this._enabled = true;
-        this._permissions = new Set(options.requiredPermissions || []);
+        this._permissions = new Set();
         this._dependencies = new Set();
         this._hooks = new Map();
         this._dataDir = path.join(process.cwd(), 'data', manager.name, 'modules', this.name);
         this._metrics = {
             operations: 0,
             errors: 0,
-            startTime: Date.now()
+            lastError: null
         };
         this._prefixes = {
             commands: '!',
@@ -63,31 +64,42 @@ class BaseModule extends EventEmitter {
      */
     async initialize(config = {}) {
         if (this._initialized) {
-            this.logger.warn(this.manager.name, `Module ${this.name} already initialized`);
+            this.logger.warn(this.name, `Module already initialized`);
             return;
         }
-        
+
         try {
-            this.logger.info(this.manager.name, `Initializing module: ${this.name}`);
+            this.logger.info(this.name, `Initializing module...`);
             
-            // Merge config with defaults
-            this._config = { ...this._defaultConfig, ...config };
+            // Load configuration from new structure
+            const moduleConfig = this.manager._config.modules?.[this.name] || {};
+            this._config = utils.deepMerge({
+                enabled: true,
+                permissions: [],
+                commands: {},
+                features: {}
+            }, moduleConfig, config);
             
-            // Check dependencies
-            await this._checkDependencies();
+            // Set up permissions based on new structure
+            if (this._config.permissions) {
+                this.setPermissions(this._config.permissions);
+            }
             
-            // Register hooks
-            this._registerHooks();
-            
-            // Set up event listeners
-            this._setupEventListeners();
+            // Register commands with new permission structure
+            if (this._config.commands) {
+                for (const [name, cmdConfig] of Object.entries(this._config.commands)) {
+                    this.registerCommand(name, {
+                        ...cmdConfig,
+                        permissions: cmdConfig.permissions || []
+                    });
+                }
+            }
             
             this._initialized = true;
-            this.emit('initialized', { module: this.name });
-            this.logger.debug(this.manager.name, `Module ${this.name} initialized successfully`);
+            this._enabled = this._config.enabled;
+            this.logger.success(this.name, `Module initialized successfully`);
         } catch (error) {
-            this.logger.error(this.manager.name, `Module ${this.name} initialization failed:`, error);
-            this.emit('error', { error });
+            this.logger.error(this.name, `Module initialization failed:`, error);
             throw error;
         }
     }
@@ -184,7 +196,7 @@ class BaseModule extends EventEmitter {
      */
     async shutdown() {
         try {
-            this.logger.debug(this.manager.name, `Shutting down module: ${this.name}`);
+            this.logger.debug(this.name, `Shutting down module: ${this.name}`);
             
             // Run before shutdown hook
             await this._runHook('beforeShutdown');
@@ -196,9 +208,9 @@ class BaseModule extends EventEmitter {
             await this._runHook('afterShutdown');
             
             this.emit('shutdown', { module: this.name });
-            this.logger.debug(this.manager.name, `Module ${this.name} shut down successfully`);
+            this.logger.debug(this.name, `Module ${this.name} shut down successfully`);
         } catch (error) {
-            this.logger.error(this.manager.name, `Module ${this.name} shutdown failed:`, error);
+            this.logger.error(this.name, `Module ${this.name} shutdown failed:`, error);
             throw error;
         }
     }
@@ -445,11 +457,13 @@ class BaseModule extends EventEmitter {
             throw new Error(`Command is disabled: ${name}`);
         }
         
-        // Check permissions
+        // Check permissions using new structure
         if (command.permissions.length > 0 && context.userId) {
-            const hasPermission = command.permissions.every(permission => 
-                this.manager.hasPermission(context.userId, permission)
-            );
+            const hasPermission = command.permissions.every(permission => {
+                // Convert permission to flag format if needed
+                const permFlag = permission.includes('_') ? permission : permission.replace(/([A-Z])/g, '_$1').toLowerCase();
+                return this.manager.hasPermission(context.userId, permFlag);
+            });
             
             if (!hasPermission) {
                 throw new Error('Insufficient permissions');
@@ -461,7 +475,7 @@ class BaseModule extends EventEmitter {
             return await command.handler(context, args);
         } catch (error) {
             this._metrics.errors++;
-            this.log('error', `Error executing command ${name}:`, error);
+            this.logger.error(this.name, `Error executing command ${name}:`, error);
             throw error;
         }
     }
@@ -746,7 +760,7 @@ class BaseModule extends EventEmitter {
      */
     log(level, message, ...args) {
         if (this.logger && typeof this.logger[level] === 'function') {
-            this.logger[level](this.manager.name, `[${this.name}] ${message}`, ...args);
+            this.logger[level](this.name, `[${this.name}] ${message}`, ...args);
         }
     }
 
@@ -770,7 +784,7 @@ class BaseModule extends EventEmitter {
      */
     getConfig(key, defaultValue = null) {
         const keys = key.split('.');
-        let value = this.config;
+        let value = this._config;
         
         for (const k of keys) {
             if (value === undefined || value === null || typeof value !== 'object') {
@@ -789,7 +803,7 @@ class BaseModule extends EventEmitter {
      */
     setConfig(key, value) {
         const keys = key.split('.');
-        let obj = this.config;
+        let obj = this._config;
         
         for (let i = 0; i < keys.length - 1; i++) {
             const k = keys[i];

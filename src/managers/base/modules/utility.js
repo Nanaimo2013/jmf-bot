@@ -1,12 +1,12 @@
 /**
  * JMF Hosting Discord Bot - Utility Module
  * Version: 1.1.0
- * Last Updated: 03/12/2025
+ * Last Updated: 03/13/2025
  * 
  * This module provides utility functions for the bot manager,
  * including string formatting, data validation, and common operations.
  * 
- * © 2025 JMFHosting. All Rights Reserved.
+ * © 2024 JMFHosting. All Rights Reserved.
  * Developed by Nanaimo2013 (https://github.com/Nanaimo2013)
  */
 
@@ -14,7 +14,9 @@ const BaseModule = require('../base.module');
 const path = require('path');
 const fs = require('fs').promises;
 const crypto = require('crypto');
-const { setTimeout } = require('timers/promises');
+
+// Custom promise-based timeout function to replace timers/promises
+const customSetTimeout = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 class UtilityModule extends BaseModule {
     /**
@@ -199,7 +201,7 @@ class UtilityModule extends BaseModule {
                 this.log('debug', `Retry attempt ${i + 1}/${attempts} failed: ${error.message}`);
                 
                 if (i < attempts - 1) {
-                    await setTimeout(delay);
+                    await customSetTimeout(delay);
                 }
             }
         }
@@ -478,7 +480,7 @@ class UtilityModule extends BaseModule {
      * @returns {Promise<void>} Promise that resolves after the wait
      */
     async wait(ms) {
-        return setTimeout(ms);
+        return customSetTimeout(ms);
     }
 
     /**

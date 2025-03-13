@@ -22,7 +22,7 @@ A powerful Discord bot for JMF Hosting server management and automation.
 [![Node.js](https://img.shields.io/badge/node.js-%3E%3D16.9.0-brightgreen.svg?style=for-the-badge)](https://nodejs.org/)
 [![MySQL](https://img.shields.io/badge/mysql-v8-orange.svg?style=for-the-badge)](https://www.mysql.com/)
 [![SQLite](https://img.shields.io/badge/sqlite-v3-blue.svg?style=for-the-badge)](https://www.sqlite.org/)
-[![Version](https://img.shields.io/badge/VERSION-1.1.1-blue.svg?style=for-the-badge)](https://github.com/Nanaimo2013/Jmf-Bot/releases)
+[![Version](https://img.shields.io/badge/VERSION-1.2.0-blue.svg?style=for-the-badge)](https://github.com/Nanaimo2013/Jmf-Bot/releases)
 [![Docker](https://img.shields.io/badge/docker-supported-2496ED.svg?style=for-the-badge&logo=docker)](https://github.com/Nanaimo2013/Jmf-Bot/pkgs/container/jmf-bot)
 
 <br/>
@@ -47,6 +47,7 @@ A powerful Discord bot for JMF Hosting server management and automation.
 - **User Verification**: Secure server access
 - **Support Tickets**: Streamlined ticket management
 - **Moderation Tools**: Comprehensive moderation commands
+- **Role Management**: Advanced permission system
 
 </td>
 <td>
@@ -55,6 +56,7 @@ A powerful Discord bot for JMF Hosting server management and automation.
 - **Pterodactyl Panel**: Game server management
 - **Server Status**: Real-time server monitoring
 - **Server Control**: Start, stop, and restart servers
+- **Resource Tracking**: Monitor server resources
 
 </td>
 </tr>
@@ -62,17 +64,19 @@ A powerful Discord bot for JMF Hosting server management and automation.
 <td>
 
 ### 💰 Economy System
-- **Mining**: Mine for resources and earn coins
-- **Leveling**: Balanced XP progression with configurable rates
-- **Leaderboards**: Compete with other users
+- **Mining**: Advanced mining system with upgrades
+- **Leveling**: Balanced XP progression
+- **Leaderboards**: Global and server rankings
+- **Resource Market**: Trading system (Coming Soon)
 
 </td>
 <td>
 
-### 🛠️ Administration
-- **Custom Commands**: Create custom commands
-- **Welcome Messages**: Customize welcome messages
-- **Auto Roles**: Automatically assign roles
+### ⚙️ Configuration
+- **Advanced Config**: Flexible configuration system
+- **Validation**: Schema-based config validation
+- **Backup/Restore**: Config version control
+- **Migration**: Automated config updates
 
 </td>
 </tr>
@@ -242,7 +246,7 @@ For more detailed instructions, see [Docker Usage](docs/deployment/DOCKER-USAGE.
 
 The bot uses environment variables for sensitive configuration. Copy `.env.example` to `.env` and update the values:
 
-```
+```env
 # Discord Bot Token (Required)
 DISCORD_TOKEN=your_discord_bot_token
 
@@ -250,16 +254,32 @@ DISCORD_TOKEN=your_discord_bot_token
 DB_TYPE=sqlite  # or mysql
 DB_PATH=./data/database.sqlite  # for SQLite
 
-# MySQL Configuration (if using MySQL)
-# DB_HOST=localhost
-# DB_PORT=3306
-# DB_DATABASE=jmf_bot
-# DB_USERNAME=jmf_bot
-# DB_PASSWORD=your_secure_password_here
+# Configuration
+CONFIG_BACKUP_DIR=./backups/config
+CONFIG_VALIDATION=true
+CONFIG_AUTO_REPAIR=false
 
 # Other settings
 NODE_ENV=production  # or development
 LOG_LEVEL=info  # debug, info, warn, error
+```
+
+### Configuration Management
+
+The bot now features an advanced configuration management system:
+
+```bash
+# Validate configuration
+npm run config:validate
+
+# Backup configuration
+npm run config:backup
+
+# Restore configuration
+npm run config:restore
+
+# Update configuration
+npm run config:update
 ```
 
 ### Bot Configuration

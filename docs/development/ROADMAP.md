@@ -4,12 +4,12 @@ By JMFHosting
 <div align="center">
 
 [![Status](https://img.shields.io/badge/Status-Active%20Development-blue.svg?style=for-the-badge)](https://github.com/Nanaimo2013/Jmf-Bot)
-[![Version](https://img.shields.io/badge/Version-1.1.1-green.svg?style=for-the-badge)](https://github.com/Nanaimo2013/Jmf-Bot/releases)
-[![Progress](https://img.shields.io/badge/Progress-78%25-orange.svg?style=for-the-badge)](https://github.com/Nanaimo2013/Jmf-Bot/milestones)
+[![Version](https://img.shields.io/badge/Version-1.2.0-green.svg?style=for-the-badge)](https://github.com/Nanaimo2013/Jmf-Bot/releases)
+[![Progress](https://img.shields.io/badge/Progress-85%25-orange.svg?style=for-the-badge)](https://github.com/Nanaimo2013/Jmf-Bot/milestones)
 
 </div>
 
-## 🚀 Current Status (v1.1.1)
+## 🚀 Current Status (v1.2.0)
 
 <table>
 <tr>
@@ -23,6 +23,7 @@ By JMFHosting
   - [x] Error handling
   - [x] Logging system
   - [x] Configuration management
+  - [x] Script management system
   - [x] Unified database schema
 - [x] User Management
   - [x] Verification system
@@ -58,7 +59,7 @@ By JMFHosting
   - [x] Mining game basics
   - [x] Resource collection
   - [x] Upgrade system
-  - [ ] Crafting system
+  - [x] Configuration system
   - [ ] Trading marketplace
 - [ ] Dashboard Integration
   - [x] Basic API endpoints
@@ -79,9 +80,14 @@ By JMFHosting
 
 ## 📅 Development Timeline
 
-### 🎯 Milestone 2: Advanced Features (v1.1.0)
+### 🎯 Milestone 2: Advanced Features (v1.2.0)
 [![Status](https://img.shields.io/badge/Status-In%20Progress-blue.svg)](https://github.com/Nanaimo2013/Jmf-Bot/milestone/2)
 #### Q2 2025
+- [x] Configuration Management
+  - [x] Advanced config system
+  - [x] Config validation
+  - [x] Backup/restore
+  - [x] Migration tools
 - [ ] Advanced Game Features
   - [ ] Crafting system
   - [ ] Trading marketplace
@@ -98,7 +104,7 @@ By JMFHosting
   - [ ] Raid protection
   - [ ] Temporary punishments
 
-### 🎯 Milestone 3: Integrations & Expansion (v1.2.0)
+### 🎯 Milestone 3: Integrations & Expansion (v1.3.0)
 [![Status](https://img.shields.io/badge/Status-Planned-yellow.svg)](https://github.com/Nanaimo2013/Jmf-Bot/milestone/3)
 #### Q3 2025
 - [ ] External Integrations
@@ -117,7 +123,7 @@ By JMFHosting
   - [ ] Command usage statistics
   - [ ] Growth analytics
 
-### 🎯 Milestone 4: AI & Automation (v1.3.0)
+### 🎯 Milestone 4: AI & Automation (v1.4.0)
 [![Status](https://img.shields.io/badge/Status-Planned-yellow.svg)](https://github.com/Nanaimo2013/Jmf-Bot/milestone/4)
 #### Q4 2025
 - [ ] AI Assistance

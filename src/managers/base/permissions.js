@@ -1,7 +1,7 @@
 /**
  * JMF Hosting Discord Bot - Permissions System
- * Version: 1.0.0
- * Last Updated: 03/12/2025
+ * Version: 1.1.0
+ * Last Updated: 03/13/2025
  * 
  * This module provides a comprehensive permissions system for the bot,
  * allowing fine-grained control over what actions different users,
@@ -29,6 +29,14 @@ const PermissionLevel = {
  * @type {Object}
  */
 const PermissionFlag = {
+    // Manager permissions
+    MANAGE_BOT: 'manageBot',
+    MANAGE_USERS: 'manageUsers',
+    MANAGE_SERVERS: 'manageServers',
+    VIEW_ANALYTICS: 'viewAnalytics',
+    MANAGE_ECONOMY: 'manageEconomy',
+    MANAGE_GAMES: 'manageGames',
+    
     // General permissions
     VIEW: 'view',
     CREATE: 'create',
@@ -36,7 +44,6 @@ const PermissionFlag = {
     DELETE: 'delete',
     
     // User management
-    MANAGE_USERS: 'manage_users',
     MANAGE_ROLES: 'manage_roles',
     
     // System permissions
@@ -45,7 +52,6 @@ const PermissionFlag = {
     SHUTDOWN: 'shutdown',
     
     // Bot permissions
-    MANAGE_BOT: 'manage_bot',
     MANAGE_COMMANDS: 'manage_commands',
     
     // Database permissions
@@ -75,44 +81,75 @@ const PermissionFlag = {
 const PermissionSets = {
     USER: [
         PermissionFlag.VIEW
+    ],
+    MODERATOR: [
+        PermissionFlag.VIEW,
+        PermissionFlag.CREATE,
+        PermissionFlag.EDIT,
+        PermissionFlag.MANAGE_USERS,
+        PermissionFlag.VIEW_LOGS,
+        PermissionFlag.BYPASS_COOLDOWN
+    ],
+    ADMIN: [
+        PermissionFlag.VIEW,
+        PermissionFlag.CREATE,
+        PermissionFlag.EDIT,
+        PermissionFlag.DELETE,
+        PermissionFlag.MANAGE_USERS,
+        PermissionFlag.MANAGE_ROLES,
+        PermissionFlag.VIEW_LOGS,
+        PermissionFlag.MANAGE_BOT,
+        PermissionFlag.MANAGE_COMMANDS,
+        PermissionFlag.BACKUP_DATABASE,
+        PermissionFlag.API_ACCESS,
+        PermissionFlag.API_ADMIN,
+        PermissionFlag.MANAGE_MODULES,
+        PermissionFlag.BYPASS_COOLDOWN
+    ],
+    OWNER: [
+        PermissionFlag.MANAGE_BOT,
+        PermissionFlag.MANAGE_USERS,
+        PermissionFlag.MANAGE_SERVERS,
+        PermissionFlag.VIEW_ANALYTICS,
+        PermissionFlag.MANAGE_ECONOMY,
+        PermissionFlag.MANAGE_GAMES,
+        PermissionFlag.VIEW,
+        PermissionFlag.CREATE,
+        PermissionFlag.EDIT,
+        PermissionFlag.DELETE,
+        PermissionFlag.MANAGE_ROLES,
+        PermissionFlag.VIEW_LOGS,
+        PermissionFlag.MANAGE_SYSTEM,
+        PermissionFlag.SHUTDOWN,
+        PermissionFlag.MANAGE_COMMANDS,
+        PermissionFlag.MANAGE_DATABASE,
+        PermissionFlag.BACKUP_DATABASE,
+        PermissionFlag.RESTORE_DATABASE,
+        PermissionFlag.API_ACCESS,
+        PermissionFlag.API_ADMIN,
+        PermissionFlag.MANAGE_MODULES,
+        PermissionFlag.INSTALL_MODULES,
+        PermissionFlag.UNINSTALL_MODULES,
+        PermissionFlag.BYPASS_COOLDOWN,
+        PermissionFlag.BYPASS_RESTRICTIONS,
+        PermissionFlag.EXECUTE_RESTRICTED
+    ],
+    MANAGER: [
+        PermissionFlag.MANAGE_BOT,
+        PermissionFlag.MANAGE_USERS,
+        PermissionFlag.MANAGE_SERVERS,
+        PermissionFlag.VIEW_ANALYTICS,
+        PermissionFlag.MANAGE_ECONOMY,
+        PermissionFlag.MANAGE_GAMES,
+        PermissionFlag.VIEW,
+        PermissionFlag.CREATE,
+        PermissionFlag.EDIT,
+        PermissionFlag.DELETE,
+        PermissionFlag.MANAGE_ROLES,
+        PermissionFlag.VIEW_LOGS,
+        PermissionFlag.API_ACCESS
     ]
 };
-
-// Add MODERATOR permissions
-PermissionSets.MODERATOR = [
-    ...PermissionSets.USER,
-    PermissionFlag.CREATE,
-    PermissionFlag.EDIT,
-    PermissionFlag.MANAGE_USERS,
-    PermissionFlag.VIEW_LOGS,
-    PermissionFlag.BYPASS_COOLDOWN
-];
-
-// Add ADMIN permissions
-PermissionSets.ADMIN = [
-    ...PermissionSets.MODERATOR,
-    PermissionFlag.DELETE,
-    PermissionFlag.MANAGE_ROLES,
-    PermissionFlag.MANAGE_BOT,
-    PermissionFlag.MANAGE_COMMANDS,
-    PermissionFlag.BACKUP_DATABASE,
-    PermissionFlag.API_ACCESS,
-    PermissionFlag.API_ADMIN,
-    PermissionFlag.MANAGE_MODULES
-];
-
-// Add OWNER permissions
-PermissionSets.OWNER = [
-    ...PermissionSets.ADMIN,
-    PermissionFlag.MANAGE_SYSTEM,
-    PermissionFlag.SHUTDOWN,
-    PermissionFlag.MANAGE_DATABASE,
-    PermissionFlag.RESTORE_DATABASE,
-    PermissionFlag.INSTALL_MODULES,
-    PermissionFlag.UNINSTALL_MODULES,
-    PermissionFlag.BYPASS_RESTRICTIONS,
-    PermissionFlag.EXECUTE_RESTRICTED
-];
 
 /**
  * Class for managing permissions
@@ -129,20 +166,23 @@ class PermissionManager {
      * @param {Object} config - Configuration options
      */
     initialize(config = {}) {
-        // Set up default roles
+        // Set up default roles with new structure
         this._setupDefaultRoles();
         
         // Apply custom configuration
         if (config.roles) {
-            for (const [roleName, permissions] of Object.entries(config.roles)) {
+            for (const roleName of config.roles) {
+                const permissions = PermissionSets[roleName.toUpperCase()] || [];
                 this.defineRole(roleName, permissions);
             }
         }
         
-        // Apply user permissions
-        if (config.users) {
-            for (const [userId, userConfig] of Object.entries(config.users)) {
-                this.setUserPermissions(userId, userConfig.roles || [], userConfig.permissions || []);
+        // Apply custom permissions
+        if (config.permissions) {
+            for (const [permission, enabled] of Object.entries(config.permissions)) {
+                if (enabled && PermissionFlag[permission.toUpperCase()]) {
+                    this.addGlobalPermission(PermissionFlag[permission.toUpperCase()]);
+                }
             }
         }
     }
@@ -156,7 +196,19 @@ class PermissionManager {
         this.defineRole('moderator', PermissionSets.MODERATOR);
         this.defineRole('admin', PermissionSets.ADMIN);
         this.defineRole('owner', PermissionSets.OWNER);
-        this.defineRole('system', PermissionSets.SYSTEM);
+        this.defineRole('manager', PermissionSets.MANAGER);
+    }
+
+    /**
+     * Add a global permission
+     * @param {string} permission - Permission to add
+     */
+    addGlobalPermission(permission) {
+        for (const [roleName, permissions] of this.roles.entries()) {
+            if (roleName !== 'user') {
+                permissions.add(permission);
+            }
+        }
     }
 
     /**

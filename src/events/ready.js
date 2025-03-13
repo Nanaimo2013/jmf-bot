@@ -16,6 +16,8 @@ const economy = require('../modules/economy');
 const miningGame = require('../modules/mining');
 const config = require('../../config.json');
 const cron = require('node-cron');
+const fs = require('fs');
+const path = require('path');
 
 module.exports = {
   name: Events.ClientReady,
@@ -790,11 +792,6 @@ async function registerCommands(client) {
   try {
     logger.info('Registering slash commands...');
     
-    // Import required modules
-      const { REST, Routes } = require('discord.js');
-      const fs = require('node:fs');
-      const path = require('node:path');
-      
     // Collect all command data
       const commands = [];
       const foldersPath = path.join(__dirname, '../commands');

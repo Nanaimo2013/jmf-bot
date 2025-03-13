@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/Version-1.1.1-blue.svg?style=for-the-badge)](https://github.com/Nanaimo2013/Jmf-Bot/releases)
+[![Version](https://img.shields.io/badge/Version-1.2.0-blue.svg?style=for-the-badge)](https://github.com/Nanaimo2013/Jmf-Bot/releases)
 [![Architecture](https://img.shields.io/badge/Architecture-Modular-green.svg?style=for-the-badge)](https://github.com/Nanaimo2013/Jmf-Bot/docs/ARCHITECTURE.md)
 
 </div>
@@ -17,47 +17,49 @@ The JMF Bot uses a modular manager-based architecture to organize and handle dif
 
 The `BaseManager` class serves as the foundation for all managers, providing:
 - Event handling and emission
-- Logging capabilities through LoggerManager
-- Utility methods
+- Logging capabilities
+- Configuration management
 - State management
 - Error handling
+- Module loading
+- Permission management
 
 ### Manager Types
 
-1. **Install Manager** (`src/managers/install/`)
-   - Handles bot installation and setup
-   - Manages dependencies
-   - Configures environment
-   - Validates requirements
-   - Performs system checks
+1. **Bot Manager** (`src/managers/bot/`)
+   - Core bot functionality
+   - Event handling
+   - Command management
+   - Module coordination
+   - Client state management
 
-2. **Update Manager** (`src/managers/update/`)
-   - Manages bot updates
-   - Handles version migrations
-   - Updates dependencies
-   - Maintains update history
-   - Performs rollbacks if needed
+2. **Config Manager** (`src/managers/bot/modules/config.manager.js`)
+   - Configuration loading and validation
+   - Environment variable management
+   - Dynamic config updates
+   - Config file management
+   - Default config handling
 
 3. **Monitor Manager** (`src/managers/monitor/`)
-   - Tracks bot health
-   - Monitors system resources
-   - Handles alerts
-   - Manages logging
-   - Provides status reporting
+   - System health monitoring
+   - Performance tracking
+   - Resource usage monitoring
+   - Alert management
+   - Status reporting
 
 4. **Database Manager** (`src/managers/database/`)
-   - Handles database operations
-   - Manages migrations
-   - Performs backups
-   - Handles data seeding
-   - Manages rollbacks
+   - Database connections
+   - Query execution
+   - Migration management
+   - Backup handling
+   - Data validation
 
-5. **Docker Manager** (`src/managers/docker/`)
-   - Manages containerization
-   - Handles container lifecycle
-   - Manages volumes
-   - Handles networking
-   - Manages container logs
+5. **Event Manager** (`src/managers/bot/modules/event.bus.js`)
+   - Event distribution
+   - Event filtering
+   - Namespace management
+   - Handler registration
+   - Event statistics
 
 ## Directory Structure
 
@@ -66,58 +68,74 @@ src/managers/
 ├── base/
 │   ├── base.manager.js    # Base manager class
 │   └── base.module.js     # Base module class
-├── install/
-│   ├── index.js           # Install manager
-│   ├── base.module.js     # Install base module
-│   ├── check.js           # Installation checks
-│   ├── dependencies.js    # Dependency management
-│   └── config.js          # Configuration setup
-├── update/
-│   ├── index.js           # Update manager
-│   └── base.module.js     # Update base module
+├── bot/
+│   ├── index.js           # Bot manager
+│   ├── bot.manager.js     # Bot manager implementation
+│   └── modules/
+│       ├── base.module.js # Bot base module
+│       ├── config.manager.js # Configuration manager
+│       ├── event.bus.js   # Event bus module
+│       └── command.manager.js # Command manager
 ├── monitor/
 │   ├── index.js           # Monitor manager
-│   └── base.module.js     # Monitor base module
+│   └── modules/
+│       ├── system.js      # System monitoring
+│       ├── performance.js # Performance tracking
+│       └── alerts.js      # Alert management
 ├── database/
 │   ├── index.js           # Database manager
-│   ├── migrate.js         # Migration handling
-│   ├── rollback.js        # Rollback handling
-│   ├── seed.js           # Data seeding
-│   ├── backup.js         # Backup management
-│   └── restore.js        # Restore operations
-└── docker/
-    ├── index.js           # Docker manager
-    └── base.module.js     # Docker base module
+│   └── modules/
+│       ├── migrations.js  # Migration handling
+│       ├── backup.js      # Backup management
+│       └── queries.js     # Query execution
+└── events/
+    ├── index.js           # Event manager
+    └── modules/
+        ├── handlers.js    # Event handlers
+        └── filters.js     # Event filters
 ```
 
 ## Implementation Patterns
 
-### Event-Based Architecture
+### Event-Based Communication
 
-Managers use an event-based system for communication:
+Managers use an event bus for communication:
 
 ```javascript
-// Emitting events
-this.emit('installStart', { type: 'dependencies' });
+// Publishing events
+await this.publishEvent('userJoined', {
+    userId: user.id,
+    guildId: guild.id,
+    timestamp: Date.now()
+});
 
-// Listening to events
-this.on('installComplete', (data) => {
-    this.logger.info(`Installation completed: ${data.type}`);
+// Subscribing to events
+await this.subscribeToEvent('userJoined', async (data) => {
+    await this.handleNewUser(data);
 });
 ```
 
-### Module Loading
+### Configuration Management
 
-Managers dynamically load their modules:
+Managers use a centralized configuration system:
 
 ```javascript
-class InstallManager extends BaseManager {
-    async loadModules() {
-        this.checkModule = await import('./check.js');
-        this.dependenciesModule = await import('./dependencies.js');
-        this.configModule = await import('./config.js');
-    }
+// Loading configuration
+const config = this.getConfig();
+const dbConfig = config.database;
+
+// Validating configuration
+if (!this.validateConfig(config)) {
+    throw new Error('Invalid configuration');
 }
+
+// Updating configuration
+await this.updateConfig({
+    database: {
+        ...dbConfig,
+        maxConnections: 10
+    }
+});
 ```
 
 ### Error Handling
@@ -128,10 +146,10 @@ Standardized error handling across managers:
 try {
     await this.performOperation();
 } catch (error) {
-    this.logger.error('Operation failed', {
-        error: error.message,
-        stack: error.stack,
-        context: this.context
+    this.log('error', `Operation failed: ${error.message}`, {
+        error: error,
+        context: this.context,
+        module: this.name
     });
     await this.handleError(error);
 }
@@ -142,61 +160,69 @@ try {
 1. **Initialization**
    ```javascript
    async init() {
-       await this.loadModules();
+       await this.loadConfig();
        await this.validateEnvironment();
-       await this.setupListeners();
-       await this.initialize();
+       await this.setupEventHandlers();
+       await this.initializeModules();
    }
    ```
 
 2. **Operation**
    ```javascript
    async start() {
-       await this.preStart();
-       await this.executeOperation();
-       await this.postStart();
+       await this.connect();
+       await this.registerHandlers();
+       await this.startModules();
+       this.emit('ready');
    }
    ```
 
 3. **Cleanup**
    ```javascript
-   async cleanup() {
-       await this.saveState();
-       await this.closeConnections();
-       await this.removeListeners();
+   async shutdown() {
+       await this.stopModules();
+       await this.unregisterHandlers();
+       await this.disconnect();
+       this.emit('shutdown');
    }
    ```
 
 ## Usage Examples
 
-### Install Manager
+### Bot Manager
 
 ```javascript
-const manager = new InstallManager();
+const manager = new BotManager();
 
-// Run all installation steps
+// Initialize and start the bot
 await manager.init();
-await manager.runAll();
+await manager.start();
 
-// Run specific steps
-await manager.check();
-await manager.installDependencies();
-await manager.setupConfig();
+// Register commands
+await manager.commands.registerAll();
+
+// Handle events
+manager.on('ready', () => {
+    console.log('Bot is ready!');
+});
 ```
 
-### Database Manager
+### Config Manager
 
 ```javascript
-const dbManager = new DatabaseManager();
+const configManager = new ConfigManager();
 
-// Run migrations
-await dbManager.migrate();
+// Load configuration
+await configManager.load();
 
-// Create backup
-await dbManager.backup();
+// Get specific config
+const dbConfig = configManager.get('database');
 
-// Restore from backup
-await dbManager.restore('backup_20240101.sql');
+// Update config
+await configManager.update('database.maxConnections', 20);
+
+// Save changes
+await configManager.save();
 ```
 
 ### Monitor Manager
@@ -205,69 +231,79 @@ await dbManager.restore('backup_20240101.sql');
 const monitor = new MonitorManager();
 
 // Start monitoring
-await monitor.start();
+await monitor.start({
+    interval: 60000,
+    metrics: ['cpu', 'memory', 'disk']
+});
 
-// Check status
+// Get status
 const status = await monitor.getStatus();
 
-// Stop monitoring
-await monitor.stop();
+// Set up alerts
+monitor.on('alert', async (alert) => {
+    await handleAlert(alert);
+});
 ```
 
 ## Development Guidelines
 
 ### Creating a New Manager
 
-1. Create the manager directory:
+1. Create the manager structure:
    ```bash
-   mkdir src/managers/new-manager
+   mkdir -p src/managers/new-manager/modules
    ```
 
 2. Create the base files:
    ```bash
    touch src/managers/new-manager/index.js
-   touch src/managers/new-manager/base.module.js
+   touch src/managers/new-manager/modules/base.module.js
    ```
 
 3. Implement the manager:
    ```javascript
-   import { BaseManager } from '../base/base.manager.js';
+   const { BaseManager } = require('../base/base.manager');
 
    class NewManager extends BaseManager {
-       constructor() {
-           super('NewManager');
+       constructor(options = {}) {
+           super('NewManager', options);
+           this.setupModules();
        }
 
        async init() {
-           // Implementation
+           await this.loadConfig();
+           await this.initializeModules();
        }
    }
    ```
 
 ### Testing
 
-1. Unit Tests:
-   ```javascript
-   describe('NewManager', () => {
-       it('should initialize correctly', async () => {
-           const manager = new NewManager();
-           await manager.init();
-           expect(manager.isInitialized).toBe(true);
-       });
-   });
-   ```
+Managers should be thoroughly tested:
 
-2. Integration Tests:
-   ```javascript
-   describe('NewManager Integration', () => {
-       it('should work with other managers', async () => {
-           const newManager = new NewManager();
-           const otherManager = new OtherManager();
-           await newManager.connectTo(otherManager);
-           expect(newManager.isConnected).toBe(true);
-       });
-   });
-   ```
+```javascript
+describe('NewManager', () => {
+    let manager;
+
+    beforeEach(() => {
+        manager = new NewManager();
+    });
+
+    it('should initialize correctly', async () => {
+        await manager.init();
+        expect(manager.isInitialized).toBe(true);
+    });
+
+    it('should handle errors properly', async () => {
+        const error = new Error('Test error');
+        const handler = jest.fn();
+        manager.on('error', handler);
+        
+        await manager.handleError(error);
+        expect(handler).toHaveBeenCalledWith(error);
+    });
+});
+```
 
 ## Best Practices
 

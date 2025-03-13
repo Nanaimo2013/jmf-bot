@@ -308,4 +308,267 @@ Made with ❤️ by JMFHosting
 ## References
 - [Discord.js Documentation](https://discord.js.org/)
 - [Discord API Documentation](https://discord.com/developers/docs)
-- [Pterodactyl API Documentation](https://dashflo.net/docs/api/pterodactyl/v1/) 
+- [Pterodactyl API Documentation](https://dashflo.net/docs/api/pterodactyl/v1/)
+
+## 📜 Script Architecture
+
+<table>
+<tr>
+<td width="50%">
+
+### 🔧 Script System Structure
+```
+scripts/
+├── config/         # Configuration scripts
+│   ├── manage-config.js
+│   └── validate-config.js
+├── database/       # Database scripts
+│   ├── manage-database.js
+│   └── fix-database.js
+├── development/    # Development scripts
+│   ├── dev-server.js
+│   └── test-runner.js
+├── deployment/     # Deployment scripts
+│   ├── deploy.js
+│   └── docker-deploy.js
+└── utils/         # Utility scripts
+    ├── generate-docs.js
+    └── cleanup.js
+```
+
+</td>
+<td width="50%">
+
+### 🔄 Script Workflow
+```mermaid
+graph TD
+    A[Script Entry] --> B{Script Type}
+    B -->|Config| C[Load Config]
+    B -->|Database| D[Connect DB]
+    B -->|Development| E[Setup Dev]
+    C --> F[Execute]
+    D --> F
+    E --> F
+    F --> G[Cleanup]
+```
+
+</td>
+</tr>
+</table>
+
+### 📋 Script Base Classes
+
+<table>
+<tr>
+<td width="50%">
+
+#### BaseScript
+```javascript
+class BaseScript {
+    constructor(options) {
+        this.name = options.name;
+        this.logger = options.logger;
+        this.config = options.config;
+    }
+
+    async initialize() {
+        await this.loadConfig();
+        await this.validate();
+    }
+
+    async execute() {
+        throw new Error('Must implement');
+    }
+
+    async cleanup() {
+        // Cleanup resources
+    }
+}
+```
+
+</td>
+<td width="50%">
+
+#### ConfigScript
+```javascript
+class ConfigScript extends BaseScript {
+    constructor(options) {
+        super(options);
+        this.configPath = options.configPath;
+        this.backupDir = options.backupDir;
+    }
+
+    async validate() {
+        // Validate configuration
+    }
+
+    async backup() {
+        // Create backup
+    }
+
+    async restore() {
+        // Restore from backup
+    }
+}
+```
+
+</td>
+</tr>
+</table>
+
+### 🔌 Script Integration
+
+<table>
+<tr>
+<td width="33%">
+
+#### Event System
+```javascript
+// Script events
+this.emit('scriptStart', {
+    name: this.name,
+    type: 'config',
+    timestamp: Date.now()
+});
+
+// Error events
+this.emit('scriptError', {
+    error: error,
+    context: this.context
+});
+```
+
+</td>
+<td width="33%">
+
+#### Logging System
+```javascript
+// Script logging
+this.logger.info('Starting script', {
+    script: this.name,
+    args: process.argv
+});
+
+// Error logging
+this.logger.error('Script failed', {
+    error: error,
+    stack: error.stack
+});
+```
+
+</td>
+<td width="33%">
+
+#### Progress Tracking
+```javascript
+// Progress updates
+this.progress.update({
+    stage: 'backup',
+    percent: 50,
+    message: 'Creating backup'
+});
+
+// Completion
+this.progress.complete({
+    success: true,
+    duration: 1500
+});
+```
+
+</td>
+</tr>
+</table>
+
+### 🛠️ Script Utilities
+
+<table>
+<tr>
+<td width="50%">
+
+#### Configuration Utilities
+```javascript
+// Load configuration
+async loadConfig() {
+    const config = await readConfig();
+    await validateConfig(config);
+    return config;
+}
+
+// Save configuration
+async saveConfig(config) {
+    await validateConfig(config);
+    await writeConfig(config);
+    await createBackup(config);
+}
+```
+
+</td>
+<td width="50%">
+
+#### Database Utilities
+```javascript
+// Database operations
+async connectDatabase() {
+    const connection = await createConnection();
+    await validateConnection(connection);
+    return connection;
+}
+
+// Migration utilities
+async runMigration(migration) {
+    await validateMigration(migration);
+    await executeMigration(migration);
+    await logMigration(migration);
+}
+```
+
+</td>
+</tr>
+</table>
+
+### 🔒 Script Security
+
+<table>
+<tr>
+<td width="50%">
+
+#### Permission Checking
+```javascript
+// Check permissions
+async checkPermissions() {
+    const perms = await getPermissions();
+    validatePermissions(perms);
+    return perms;
+}
+
+// Validate user
+async validateUser() {
+    const user = await getCurrentUser();
+    validateUserPermissions(user);
+    return user;
+}
+```
+
+</td>
+<td width="50%">
+
+#### File Operations
+```javascript
+// Safe file operations
+async safeWrite(path, data) {
+    await validatePath(path);
+    await createBackup(path);
+    await atomicWrite(path, data);
+}
+
+// Secure deletion
+async secureDelete(path) {
+    await validatePath(path);
+    await createBackup(path);
+    await shredFile(path);
+}
+```
+
+</td>
+</tr>
+</table> 

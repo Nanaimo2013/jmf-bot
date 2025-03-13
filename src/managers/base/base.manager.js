@@ -187,12 +187,42 @@ class BaseManager extends EventEmitter {
             // Run before initialize hook
             await managerUtils.runHook(this, 'beforeInitialize');
             
-            // Load configuration
-            await this.loadConfig();
-            this._config = utils.deepMerge(this._config, config);
+            // Load configuration from new structure
+            const managerConfig = this.bot.config.managers || {};
+            this._config = utils.deepMerge({
+                enabled: managerConfig.enabled || false,
+                roles: managerConfig.roles || ["Owner", "Manager"],
+                permissions: managerConfig.permissions || {
+                    manageBot: true,
+                    manageUsers: true,
+                    manageServers: true,
+                    viewAnalytics: true,
+                    manageEconomy: true,
+                    manageGames: true
+                },
+                notifications: managerConfig.notifications || {
+                    enabled: true,
+                    channelId: null,
+                    mentions: true,
+                    events: {
+                        serverStatus: true,
+                        userReports: true,
+                        systemAlerts: true,
+                        backupStatus: true
+                    }
+                },
+                dashboard: managerConfig.dashboard || {
+                    enabled: true,
+                    port: 3000,
+                    secret: null
+                }
+            }, config);
             
-            // Initialize permission manager
-            this._permissionManager.initialize(this._config.permissions || {});
+            // Initialize permission manager with new structure
+            this._permissionManager.initialize({
+                roles: this._config.roles,
+                permissions: this._config.permissions
+            });
             
             // Create necessary directories
             await managerUtils.ensureDirectories(this);
@@ -202,6 +232,16 @@ class BaseManager extends EventEmitter {
             
             // Load modules
             await this.loadModules();
+            
+            // Set up notifications if enabled
+            if (this._config.notifications.enabled && this._config.notifications.channelId) {
+                this.setupNotifications();
+            }
+            
+            // Set up dashboard if enabled
+            if (this._config.dashboard.enabled) {
+                await this.setupDashboard();
+            }
             
             // Run after initialization hook
             await managerUtils.runHook(this, 'afterInitialize');
@@ -883,6 +923,78 @@ module.exports = ${moduleName.charAt(0).toUpperCase() + moduleName.slice(1)}Modu
             this.logger.error(this.name, `Failed to load dependency: ${dependencyName}`, error);
             throw error;
         }
+    }
+
+    /**
+     * Set up notifications system
+     * @private
+     */
+    setupNotifications() {
+        const { channelId, mentions, events } = this._config.notifications;
+        
+        // Set up event listeners for notifications
+        if (events.serverStatus) {
+            this.on('serverStatusChange', (status) => {
+                this.sendNotification('Server Status Update', status, mentions);
+            });
+        }
+        
+        if (events.userReports) {
+            this.on('userReport', (report) => {
+                this.sendNotification('User Report', report, mentions);
+            });
+        }
+        
+        if (events.systemAlerts) {
+            this.on('systemAlert', (alert) => {
+                this.sendNotification('System Alert', alert, mentions);
+            });
+        }
+        
+        if (events.backupStatus) {
+            this.on('backupStatus', (status) => {
+                this.sendNotification('Backup Status', status, mentions);
+            });
+        }
+    }
+
+    /**
+     * Send a notification to the configured channel
+     * @param {string} title - Notification title
+     * @param {Object} data - Notification data
+     * @param {boolean} mention - Whether to mention roles
+     * @private
+     */
+    async sendNotification(title, data, mention = false) {
+        const channel = await this.bot.channels.fetch(this._config.notifications.channelId);
+        if (!channel) return;
+
+        const embed = {
+            title: title,
+            description: typeof data === 'string' ? data : JSON.stringify(data, null, 2),
+            color: 0x00AAFF,
+            timestamp: new Date(),
+            footer: {
+                text: `${this.name} Manager`
+            }
+        };
+
+        const content = mention ? `<@&${this._config.roles.join('> <@&')}> ` : '';
+        await channel.send({ content, embeds: [embed] });
+    }
+
+    /**
+     * Set up the dashboard
+     * @private
+     */
+    async setupDashboard() {
+        if (!this._config.dashboard.secret) {
+            this.logger.warn(this.name, 'Dashboard secret not configured, skipping dashboard setup');
+            return;
+        }
+
+        // Dashboard setup code here
+        // This would typically involve setting up Express routes, authentication, etc.
     }
 }
 

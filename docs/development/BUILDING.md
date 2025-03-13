@@ -175,6 +175,234 @@ docker-compose up -d
 </tr>
 </table>
 
+## 📜 Script Management
+
+<table>
+<tr>
+<td width="50%">
+
+### 🔧 Configuration Scripts
+```bash
+# Manage configuration
+node scripts/manage-config.js validate
+node scripts/manage-config.js update
+node scripts/manage-config.js backup
+node scripts/manage-config.js restore
+
+# Initialize configuration
+node scripts/manage-config.js init
+
+# Validate specific sections
+node scripts/manage-config.js validate economy
+node scripts/manage-config.js validate mining
+```
+
+</td>
+<td width="50%">
+
+### 💾 Database Scripts
+```bash
+# Database management
+node scripts/manage-database.js migrate
+node scripts/manage-database.js backup
+node scripts/manage-database.js restore
+node scripts/manage-database.js validate
+
+# Fix database issues
+node scripts/fix-database.js --check
+node scripts/fix-database.js --fix
+node scripts/fix-database.js --backup
+```
+
+</td>
+</tr>
+</table>
+
+<table>
+<tr>
+<td width="33%">
+
+### 🛠️ Development Scripts
+```bash
+# Start development server
+node scripts/dev-server.js --watch
+node scripts/dev-server.js --debug
+
+# Run tests
+node scripts/test-runner.js --unit
+node scripts/test-runner.js --integration
+node scripts/test-runner.js --coverage
+```
+
+</td>
+<td width="33%">
+
+### 🚀 Deployment Scripts
+```bash
+# Deploy bot
+node scripts/deploy.js --production
+node scripts/deploy.js --staging
+
+# Docker deployment
+node scripts/docker-deploy.js --build
+node scripts/docker-deploy.js --push
+```
+
+</td>
+<td width="33%">
+
+### 🔨 Utility Scripts
+```bash
+# Generate documentation
+node scripts/generate-docs.js
+
+# Clean up files
+node scripts/cleanup.js --logs
+node scripts/cleanup.js --temp
+node scripts/cleanup.js --all
+```
+
+</td>
+</tr>
+</table>
+
+### 📋 Script Configuration
+
+<table>
+<tr>
+<td width="50%">
+
+#### Configuration Management
+```json
+{
+  "scripts": {
+    "configDir": "./config",
+    "backupDir": "./backups/config",
+    "validation": {
+      "schema": "./schemas/config.schema.json",
+      "strict": true
+    },
+    "backup": {
+      "maxBackups": 10,
+      "compression": true,
+      "interval": "1d"
+    }
+  }
+}
+```
+
+</td>
+<td width="50%">
+
+#### Database Management
+```json
+{
+  "scripts": {
+    "database": {
+      "migrations": "./src/database/migrations",
+      "backups": "./backups/database",
+      "maxBackups": 10,
+      "validateOnStart": true,
+      "autoRepair": false
+    }
+  }
+}
+```
+
+</td>
+</tr>
+</table>
+
+### 🔍 Script Usage Examples
+
+<table>
+<tr>
+<td width="50%">
+
+#### Configuration Management
+```bash
+# Update specific config value
+node scripts/manage-config.js update database.maxConnections 10
+
+# Backup with custom name
+node scripts/manage-config.js backup custom_backup
+
+# Restore from specific backup
+node scripts/manage-config.js restore config_backup_20240312.json
+
+# Validate specific section
+node scripts/manage-config.js validate economy
+```
+
+</td>
+<td width="50%">
+
+#### Database Operations
+```bash
+# Run specific migration
+node scripts/manage-database.js migrate 20240312_add_mining_table
+
+# Create backup with compression
+node scripts/manage-database.js backup --compress
+
+# Restore with validation
+node scripts/manage-database.js restore backup.sql --validate
+
+# Fix specific issues
+node scripts/fix-database.js --fix=accounts,mining
+```
+
+</td>
+</tr>
+</table>
+
+### ⚠️ Common Script Issues
+
+<table>
+<tr>
+<td width="50%">
+
+#### Configuration Scripts
+1. **Validation Errors**
+   ```
+   Error: Invalid configuration format
+   ```
+   - Check JSON syntax
+   - Verify required fields
+   - Check value types
+
+2. **Backup Failures**
+   ```
+   Error: Cannot create backup
+   ```
+   - Check write permissions
+   - Verify backup directory exists
+   - Check disk space
+
+</td>
+<td width="50%">
+
+#### Database Scripts
+1. **Migration Failures**
+   ```
+   Error: Migration failed
+   ```
+   - Check database connection
+   - Verify migration syntax
+   - Check for conflicts
+
+2. **Repair Issues**
+   ```
+   Error: Cannot fix database
+   ```
+   - Check permissions
+   - Verify backup exists
+   - Check error logs
+
+</td>
+</tr>
+</table>
+
 ## ⚙️ Configuration
 
 <table>
@@ -349,127 +577,3 @@ tail -f logs/bot.log
 
 2. **Environment Variables**
    ```
-   Error: Token invalid
-   ```
-   - Check .env file exists
-   - Verify Discord token is valid
-   - Ensure environment variables are loaded
-
-3. **Permission Issues**
-   ```
-   Error: EACCES: permission denied
-   ```
-   - Check file permissions
-   - Run with proper privileges
-   - Check directory ownership
-
-4. Initialize the database:
-```bash
-# For SQLite (default)
-node scripts/database/apply-unified-schema.js
-
-# For MySQL
-# First, create a database and update .env with your MySQL credentials
-# Then run:
-DB_TYPE=mysql node scripts/database/apply-unified-schema.js
-```
-
-</td>
-<td width="50%">
-
-### ⚠️ Runtime Issues
-1. **Discord API Errors**
-   ```
-   DiscordAPIError: Missing Access
-   ```
-   - Check bot permissions
-   - Verify token is valid
-   - Check intents configuration
-
-2. **Database Connection**
-   ```
-   Error: Connection refused
-   ```
-   - Check database credentials
-   - Verify database is running
-   - Check network connectivity
-
-3. **Command Registration**
-   ```
-   Error: Unknown application command
-   ```
-   - Run `npm run deploy` to register commands
-   - Check command structure
-   - Verify bot has applications.commands scope
-
-5. Register commands with Discord:
-```bash
-# For SQLite (default)
-node scripts/deploy-commands.js
-
-# For MySQL
-# First, create a database and update .env with your MySQL credentials
-# Then run:
-DB_TYPE=mysql node scripts/deploy-commands.js
-```
-
-</td>
-</tr>
-</table>
-
-## 🔄 Continuous Integration
-
-<table>
-<tr>
-<td width="50%">
-
-### 👷 GitHub Actions Workflow
-```yaml
-name: JMF Bot CI/CD
-
-on:
-  push:
-    branches: [ main ]
-    tags: [ 'v*' ]
-  pull_request:
-    branches: [ main ]
-
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-    - name: Use Node.js
-      uses: actions/setup-node@v4
-    - name: Install dependencies
-      run: npm ci
-    - name: Run linting
-      run: npm run lint
-```
-
-</td>
-<td width="50%">
-
-### 🎯 CI/CD Pipeline
-- **Lint**: Check code quality
-- **Test**: Run automated tests
-- **Build**: Build Docker image
-- **Push**: Push to GitHub Packages
-- **Deploy**: Deploy to production (optional)
-- **Notify**: Send notifications
-
-</td>
-</tr>
-</table>
-
----
-
-<div align="center">
-
-**[🏠 Home](../README.md)** •
-**[📖 Documentation](README.md)** •
-**[🚀 Roadmap](ROADMAP.md)**
-
-Made with ❤️ by JMFHosting
-
-</div> 
