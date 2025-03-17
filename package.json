@@ -78,7 +78,7 @@
     "better-sqlite3": "^9.4.3",
     "body-parser": "^1.20.3",
     "canvas": "^2.11.2",
-    "chalk": "^4.1.2",
+    "chalk": "^5.4.1",
     "chart.js": "^3.9.1",
     "chartjs-node-canvas": "^4.1.6",
     "cors": "^2.8.5",
