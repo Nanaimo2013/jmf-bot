@@ -88,7 +88,7 @@
     "dotenv": "^16.4.5",
     "express": "^4.21.2",
     "express-rate-limit": "^7.5.0",
-    "figures": "^3.2.0",
+    "figures": "^6.1.0",
     "fs-extra": "^11.2.0",
     "glob": "^10.3.10",
     "helmet": "^8.0.0",
