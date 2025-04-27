@@ -103,7 +103,7 @@ jobs:
     # Build and push standard image if selected
     - name: Build and push standard image
       if: ${{ env.IMAGE_TYPE == 'standard' || env.IMAGE_TYPE == 'both' }}
-      uses: docker/build-push-action@v5
+      uses: docker/build-push-action@v6
       with:
         context: .
         push: ${{ env.PUSH == 'true' }}
@@ -121,7 +121,7 @@ jobs:
     # Build and push light image if selected
     - name: Build and push light image
       if: ${{ env.IMAGE_TYPE == 'light' || env.IMAGE_TYPE == 'both' }}
-      uses: docker/build-push-action@v5
+      uses: docker/build-push-action@v6
       with:
         context: .
         file: ./Dockerfile.light
