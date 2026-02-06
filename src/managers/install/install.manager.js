@@ -10,7 +10,7 @@
  * Developed by Nanaimo2013 (https://github.com/Nanaimo2013)
  */
 
-const BaseManager = require('../base.manager');
+const BaseManager = require('../base/base.manager');
 const path = require('path');
 const fs = require('fs').promises;
 const { execSync } = require('child_process');

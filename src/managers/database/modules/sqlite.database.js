@@ -13,10 +13,17 @@ class SQLiteDatabase {
     }
 
     async initialize(config) {
-        this.config = config;
+        this.config = config || {};
+
+        // Ensure config has sqlite property
+        if (!this.config.sqlite) {
+            this.config.sqlite = {
+                path: path.join(process.cwd(), 'data', 'database', 'sqlite', 'bot.db')
+            };
+        }
 
         // Ensure database directory exists
-        const dbDir = path.dirname(config.sqlite.path);
+        const dbDir = path.dirname(this.config.sqlite.path);
         await fs.mkdir(dbDir, { recursive: true });
 
         // Ensure migrations directory exists

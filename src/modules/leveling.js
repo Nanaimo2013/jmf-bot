@@ -1,22 +1,33 @@
 /**
- * JMF Hosting Discord Bot
+ * JMF Hosting Discord Bot - Leveling Module
+ * Version: 1.0.0
+ * Last Updated: 03/14/2025
+ * 
+ * This module handles the user leveling system for the bot.
  * 
  * © 2025 JMFHosting. All Rights Reserved.
  * Developed by Nanaimo2013 (https://github.com/Nanaimo2013)
- * 
- * This source code is licensed under the MIT license found in the
- * LICENSE file in the root directory of this source tree.
  */
 
+const Module = require('./base.module');
 const { EmbedBuilder } = require('discord.js');
 const fs = require('fs/promises');
 const path = require('path');
 const logger = require('../utils/logger');
-const config = require('../../config.json');
 const database = require('../utils/database');
 
-class LevelingSystem {
+class LevelingModule extends Module {
+  /**
+   * Create a new leveling module
+   */
   constructor() {
+    super({
+      name: 'leveling',
+      description: 'Handles the user leveling system for the bot',
+      enabled: true,
+      dependencies: ['database']
+    });
+    
     this.userDataPath = path.join(process.cwd(), 'data', 'users');
     this.messageCooldowns = new Map();
     this.voiceTimeTracking = new Map();
@@ -41,181 +52,246 @@ class LevelingSystem {
     // Track voice time in minutes for XP rewards
     this.voiceTimeCounter = new Map();
     
-    // Configure how often to reward XP
-    this.messageRewardFrequency = config.levelSystem?.messageRewardFrequency || 5; // Every 5th message
-    this.voiceRewardFrequency = config.levelSystem?.voiceRewardFrequency || 10; // Every 10 minutes
-    
-    this.init();
+    // Configure how often to reward XP (will be updated from config in initialize)
+    this.messageRewardFrequency = 5; // Default: Every 5th message
+    this.voiceRewardFrequency = 10; // Default: Every 10 minutes
   }
 
   /**
-   * Initialize the leveling system
+   * Initialize the leveling module
+   * @param {Client} client - The Discord.js client
+   * @returns {Promise<boolean>}
    */
-  async init() {
+  async initialize(client) {
     try {
+      await super.initialize(client);
+      
+      // Create user data directory if it doesn't exist
       await fs.mkdir(this.userDataPath, { recursive: true });
-      logger.info('Leveling system initialized');
-    } catch (error) {
-      logger.error(`Error initializing leveling system: ${error.message}`);
-    }
-  }
-
-  /**
-   * Initialize with client and database
-   * @param {Client} client - Discord client
-   * @param {Object} db - Database connection
-   */
-  async initWithClient(client, db) {
-    try {
-      this.client = client;
-      this.db = db;
       
-      // Set up voice XP processing interval
-      setInterval(() => this.processVoiceXP(), 60000); // Every minute
+      // Get leveling system config
+      const levelSystemConfig = this.configManager.getConfig('levelSystem') || {};
       
-      // Set up cleanup intervals
-      setInterval(() => this.cleanupExpiredLocks(), 60000); // Every minute
-      setInterval(() => this.cleanupCounters(), 3600000); // Every hour
+      // Configure how often to reward XP from module config
+      this.messageRewardFrequency = levelSystemConfig.messageRewardFrequency || 5;
+      this.voiceRewardFrequency = levelSystemConfig.voiceRewardFrequency || 10;
       
       // Load data from database if available
-      if (this.db && this.db.isConnected) {
+      if (this.database && this.database.isConnected) {
         await this.migrateFileDataToDatabase();
-        logger.info('Leveling system initialized with database');
+        this.logger.info(this.name, 'Leveling system initialized with database');
+      } else {
+        this.logger.warn(this.name, 'Database not available, leveling data will use file storage');
       }
       
-      this.isInitialized = true;
+      return true;
     } catch (error) {
-      logger.error(`Error initializing leveling system with client: ${error.message}`);
+      this.handleError('initialize', error);
+      return false;
+    }
+  }
+  
+  /**
+   * Start the leveling module
+   * @returns {Promise<boolean>}
+   */
+  async start() {
+    try {
+      await super.start();
+      
+      // Set up voice XP processing interval
+      this.voiceXPInterval = setInterval(() => this.processVoiceXP(), 60000); // Every minute
+      
+      // Set up cleanup intervals
+      this.cleanupLocksInterval = setInterval(() => this.cleanupExpiredLocks(), 60000); // Every minute
+      this.cleanupCountersInterval = setInterval(() => this.cleanupCounters(), 3600000); // Every hour
+      
+      // Register message and voice state update handlers
+      this.client.on('messageCreate', this.handleMessage.bind(this));
+      this.client.on('voiceStateUpdate', this.handleVoiceStateUpdate.bind(this));
+      
+      return true;
+    } catch (error) {
+      this.handleError('start', error);
+      return false;
+    }
+  }
+  
+  /**
+   * Stop the leveling module
+   * @returns {Promise<boolean>}
+   */
+  async stop() {
+    try {
+      // Clear intervals
+      if (this.voiceXPInterval) {
+        clearInterval(this.voiceXPInterval);
+        this.voiceXPInterval = null;
+      }
+      
+      if (this.cleanupLocksInterval) {
+        clearInterval(this.cleanupLocksInterval);
+        this.cleanupLocksInterval = null;
+      }
+      
+      if (this.cleanupCountersInterval) {
+        clearInterval(this.cleanupCountersInterval);
+        this.cleanupCountersInterval = null;
+      }
+      
+      // Remove event listeners
+      this.client.removeListener('messageCreate', this.handleMessage.bind(this));
+      this.client.removeListener('voiceStateUpdate', this.handleVoiceStateUpdate.bind(this));
+      
+      await super.stop();
+      return true;
+    } catch (error) {
+      this.handleError('stop', error);
+      return false;
     }
   }
 
   /**
    * Migrate file-based data to database
+   * @returns {Promise<void>}
    */
   async migrateFileDataToDatabase() {
     try {
-      if (!this.db || !this.db.isConnected) return;
+      if (!this.database || !this.database.isConnected) {
+        throw new Error('Database not available');
+      }
       
       // Check if we have files to migrate
       const files = await fs.readdir(this.userDataPath).catch(() => []);
       
-      if (files.length === 0) return;
+      if (files.length === 0) {
+        this.logger.debug(this.name, 'No files to migrate to database');
+        return;
+      }
       
-      logger.info(`Migrating ${files.length} user level files to database...`);
+      this.logger.info(this.name, `Found ${files.length} user files to check for migration`);
+      
+      let migratedCount = 0;
       
       for (const file of files) {
         if (!file.endsWith('.json')) continue;
         
-        const userId = file.replace('.json', '');
-        const filePath = path.join(this.userDataPath, file);
-        
         try {
-          const data = await fs.readFile(filePath, 'utf8');
-          const userData = JSON.parse(data);
+          const filePath = path.join(this.userDataPath, file);
+          const fileContent = await fs.readFile(filePath, 'utf8');
+          const userData = JSON.parse(fileContent);
           
-          // For each guild in the user data
-          for (const [guildId, guildData] of Object.entries(userData)) {
-            await this.db.query(`
-              INSERT INTO user_levels 
-              (user_id, guild_id, level, xp, last_message_timestamp, last_voice_timestamp, total_messages, total_voice_minutes) 
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-              ON DUPLICATE KEY UPDATE 
-              level = VALUES(level),
-              xp = VALUES(xp),
-              last_message_timestamp = VALUES(last_message_timestamp),
-              last_voice_timestamp = VALUES(last_voice_timestamp),
-              total_messages = VALUES(total_messages),
-              total_voice_minutes = VALUES(total_voice_minutes)
-            `, [
-              userId,
-              guildId,
-              guildData.level || 1,
-              guildData.xp || 0,
-              guildData.lastMessageTimestamp ? new Date(guildData.lastMessageTimestamp) : null,
-              guildData.lastVoiceTimestamp ? new Date(guildData.lastVoiceTimestamp) : null,
-              guildData.totalMessages || 0,
-              guildData.totalVoiceMinutes || 0
-            ]);
+          // Extract user ID and guild ID from filename (format: userId_guildId.json)
+          const [userId, guildId] = file.replace('.json', '').split('_');
+          
+          if (!userId || !guildId) continue;
+          
+          // Check if user data already exists in database
+          const existingData = await this.database.query(
+            'SELECT * FROM user_levels WHERE user_id = ? AND guild_id = ?',
+            [userId, guildId]
+          );
+          
+          if (existingData && existingData.length > 0) {
+            // Skip if data already exists and is newer than file data
+            const dbTimestamp = new Date(existingData[0].last_updated).getTime();
+            const fileTimestamp = userData.lastUpdated ? new Date(userData.lastUpdated).getTime() : 0;
+            
+            if (dbTimestamp >= fileTimestamp) {
+              continue;
+            }
           }
+          
+          // Insert or update user data in database
+          await this.database.query(
+            `INSERT INTO user_levels 
+            (user_id, guild_id, level, xp, total_xp, total_messages, total_voice_minutes, last_updated) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?) 
+            ON DUPLICATE KEY UPDATE 
+            level = ?, xp = ?, total_xp = ?, total_messages = ?, total_voice_minutes = ?, last_updated = ?`,
+            [
+              userId, guildId, 
+              userData.level || 0, 
+              userData.xp || 0, 
+              userData.totalXP || userData.xp || 0, 
+              userData.totalMessages || 0, 
+              userData.totalVoiceMinutes || 0, 
+              userData.lastUpdated || new Date(),
+              userData.level || 0, 
+              userData.xp || 0, 
+              userData.totalXP || userData.xp || 0, 
+              userData.totalMessages || 0, 
+              userData.totalVoiceMinutes || 0, 
+              userData.lastUpdated || new Date()
+            ]
+          );
+          
+          migratedCount++;
           
           // Rename the file to indicate it's been migrated
           await fs.rename(filePath, `${filePath}.migrated`);
         } catch (error) {
-          logger.error(`Error migrating user ${userId} level data: ${error.message}`);
+          this.handleError('migrateFileData', error);
         }
       }
       
-      logger.info('Level data migration completed');
+      this.logger.info(this.name, `Migrated ${migratedCount} user files to database`);
     } catch (error) {
-      logger.error(`Error migrating level data to database: ${error.message}`);
+      this.handleError('migrateFileDataToDatabase', error);
     }
   }
 
   /**
-   * Handle message for XP
-   * @param {Message} message - Discord message
+   * Handle a message for XP
+   * @param {Message} message - The message object
+   * @returns {Promise<void>}
    */
   async handleMessage(message) {
     try {
-      if (!config.levelSystem || !config.levelSystem.enabled) return;
+      // Skip if message is from a bot or not in a guild
+      if (message.author.bot || !message.guild) return;
       
-      const { author, guild, channel } = message;
+      // Skip if leveling is disabled for this guild
+      if (this.moduleConfig.disabledGuilds?.includes(message.guild.id)) return;
       
-      // Ignore DMs
-      if (!guild) return;
-      
-      const userId = author.id;
-      const guildId = guild.id;
-      
-      // Check cooldown
-      const cooldownKey = `${userId}-${guildId}`;
+      // Check cooldown to prevent spam
+      const userId = message.author.id;
+      const guildId = message.guild.id;
       const now = Date.now();
-      const cooldownTime = config.levelSystem.xpCooldown * 1000 || 60000;
-      const lastMessageTime = this.messageCooldowns.get(cooldownKey) || 0;
+      const cooldownKey = `${userId}_${guildId}`;
       
-      if (now - lastMessageTime < cooldownTime) return;
+      if (this.messageCooldowns.has(cooldownKey)) {
+        const cooldownEnd = this.messageCooldowns.get(cooldownKey);
+        if (now < cooldownEnd) return;
+      }
       
-      // Set cooldown
-      this.messageCooldowns.set(cooldownKey, now);
+      // Set cooldown (default: 60 seconds)
+      const cooldownTime = this.moduleConfig.messageCooldown || 60;
+      this.messageCooldowns.set(cooldownKey, now + (cooldownTime * 1000));
       
       // Increment message counter
-      const counterKey = `msg-${userId}-${guildId}`;
-      const currentCount = this.messageCounter.get(counterKey) || 0;
-      const newCount = currentCount + 1;
-      this.messageCounter.set(counterKey, newCount);
+      if (!this.messageCounter.has(cooldownKey)) {
+        this.messageCounter.set(cooldownKey, 0);
+      }
       
-      // Update total messages count
-      await this.updateUserStat(userId, guildId, 'total_messages', 1, true);
+      const messageCount = this.messageCounter.get(cooldownKey) + 1;
+      this.messageCounter.set(cooldownKey, messageCount);
       
-      // Log message count progress
-      logger.debug(`User ${author.tag} message count: ${newCount}/${this.messageRewardFrequency}`);
+      // Update user stats
+      await this.updateUserStat(userId, guildId, 'totalMessages', 1, true);
       
-      // Only give XP every Nth message
-      if (newCount % this.messageRewardFrequency === 0) {
-        // Get base XP amount
-        const baseXp = config.levelSystem.xpPerMessage || 3;
+      // Only give XP every X messages
+      if (messageCount % this.messageRewardFrequency === 0) {
+        // Calculate XP to award (base + random bonus)
+        const baseXP = this.moduleConfig.xpPerMessage || 5;
+        const bonusXP = Math.floor(Math.random() * (this.moduleConfig.maxBonusXP || 5));
+        const xpToAdd = baseXP + bonusXP;
         
-        // Apply multipliers
-        let xpMultiplier = 1;
-        
-        // Check for premium roles
-        if (config.levelSystem.xpMultipliers) {
-          for (const [role, multiplier] of Object.entries(config.levelSystem.xpMultipliers)) {
-            if (message.member.roles.cache.some(r => r.name === role || r.id === role)) {
-              xpMultiplier = Math.max(xpMultiplier, multiplier);
-            }
-          }
-        }
-        
-        const xpToAdd = Math.floor(baseXp * xpMultiplier);
-        
-        // Add XP
-        await this.addXP(author, xpToAdd, guild, channel);
-        
-        logger.info(`Awarded ${xpToAdd} XP to ${author.tag} for message activity (message #${newCount})`);
+        // Add XP to user
+        await this.addXP(message.author, xpToAdd, message.guild, message.channel);
       }
     } catch (error) {
-      logger.error(`Error handling message for XP: ${error.message}`);
+      this.handleError('handleMessage', error);
     }
   }
 
@@ -226,7 +302,7 @@ class LevelingSystem {
    */
   handleVoiceStateUpdate(oldState, newState) {
     try {
-      if (!config.levelSystem || !config.levelSystem.enabled) return;
+      if (!this.moduleConfig?.levelSystem?.enabled) return;
       
       const userId = newState.id;
       const guildId = newState.guild.id;
@@ -283,81 +359,84 @@ class LevelingSystem {
    */
   async processVoiceXP() {
     try {
-      if (!config.levelSystem || !config.levelSystem.enabled || !this.client) return;
-      
+      if (!this.moduleConfig?.levelSystem?.enabled || !this.client) {
+        return;
+      }
+
       const now = Date.now();
-      const xpPerMinute = config.levelSystem.voiceXpPerMinute || 1;
-      
+      const xpPerMinute = this.moduleConfig.levelSystem.xp?.voicePerMinute || 1;
+      const voiceRewardFrequency = this.moduleConfig.levelSystem.xp?.voiceRewardFrequency || 10;
+
       for (const [key, state] of this.voiceTimeTracking.entries()) {
         const [userId, guildId] = key.split('-');
-        
+
         // Skip if user has been in voice for less than a minute
         if (now - state.joinTime < 60000) continue;
-        
+
         // Get guild and member
         const guild = this.client.guilds.cache.get(guildId);
         if (!guild) continue;
-        
+
         const member = await guild.members.fetch(userId).catch(() => null);
         if (!member) continue;
-        
+
         // Check if user is still in the voice channel
         if (!member.voice.channelId) {
           this.voiceTimeTracking.delete(key);
           continue;
         }
-        
-        // Check if user is alone in channel
+
+        // Check if user is in the voice channel
         const channel = guild.channels.cache.get(member.voice.channelId);
         if (!channel) continue;
-        
+
         // Skip if user is alone or only with bots
         const membersInChannel = channel.members.filter(m => !m.user.bot);
         if (membersInChannel.size <= 1) continue;
-        
+
         // Skip if user is muted or deafened
         if (member.voice.mute || member.voice.deaf) continue;
-        
+
         // Increment voice time counter (in minutes)
         const counterKey = `voice-${userId}-${guildId}`;
         const currentMinutes = this.voiceTimeCounter.get(counterKey) || 0;
         const newMinutes = currentMinutes + 1;
         this.voiceTimeCounter.set(counterKey, newMinutes);
-        
+
         // Update total voice minutes
         await this.updateUserStat(userId, guildId, 'total_voice_minutes', 1, true);
-        
+
         // Update last voice timestamp
         await this.updateUserStat(userId, guildId, 'last_voice_timestamp', new Date());
-        
+
         // Log voice time progress
-        logger.debug(`User ${member.user.tag} voice time: ${newMinutes}/${this.voiceRewardFrequency} minutes`);
-        
+        this.logger.debug(`User ${member.user.tag} voice time: ${newMinutes}/${voiceRewardFrequency} minutes`);
+
         // Only give XP every Nth minute
-        if (newMinutes % this.voiceRewardFrequency === 0) {
+        if (newMinutes % voiceRewardFrequency === 0) {
           // Apply multipliers
           let xpMultiplier = 1;
-          
+
           // Check for premium roles
-          if (config.levelSystem.xpMultipliers) {
-            for (const [role, multiplier] of Object.entries(config.levelSystem.xpMultipliers)) {
+          if (this.moduleConfig.levelSystem.roles?.multipliers) {
+            for (const [role, multiplier] of Object.entries(this.moduleConfig.levelSystem.roles.multipliers)) {
               if (member.roles.cache.some(r => r.name === role || r.id === role)) {
                 xpMultiplier = Math.max(xpMultiplier, multiplier);
               }
             }
           }
-          
+
           // Calculate XP for the full time period
-          const xpToAdd = Math.floor(xpPerMinute * this.voiceRewardFrequency * xpMultiplier);
-          
+          const xpToAdd = Math.floor(xpPerMinute * voiceRewardFrequency * xpMultiplier);
+
           // Add XP
           await this.addXP(member.user, xpToAdd, guild);
-          
-          logger.info(`Awarded ${xpToAdd} XP to ${member.user.tag} for voice activity (${this.voiceRewardFrequency} minutes)`);
+
+          this.logger.info(`Awarded ${xpToAdd} XP to ${member.user.tag} for voice activity (${voiceRewardFrequency} minutes)`);
         }
       }
     } catch (error) {
-      logger.error(`Error processing voice XP: ${error.message}`);
+      this.logger.error(`Error processing voice XP: ${error.message}`);
     }
   }
 
@@ -488,7 +567,7 @@ class LevelingSystem {
       }
       
       // Send level up message
-      const levelUpMessage = config.levelSystem.levelUpMessage || 'Congratulations {user}! You\'ve reached level {level}!';
+      const levelUpMessage = this.moduleConfig.levelSystem.levelUpMessage || 'Congratulations {user}! You\'ve reached level {level}!';
       const formattedMessage = levelUpMessage
         .replace('{user}', `<@${user.id}>`)
         .replace('{level}', newLevel);
@@ -504,9 +583,9 @@ class LevelingSystem {
       // Only send the message if it hasn't been sent in the last minute
       if (now - lastLevelUpTime > 60000) {
         // Determine where to send the message
-        if (config.levelSystem.levelUpChannel) {
+        if (this.moduleConfig.levelSystem.levelUpChannel) {
           const levelUpChannel = guild.channels.cache.find(
-            c => c.name === config.levelSystem.levelUpChannel || c.id === config.levelSystem.levelUpChannel
+            c => c.name === this.moduleConfig.levelSystem.levelUpChannel || c.id === this.moduleConfig.levelSystem.levelUpChannel
           );
           
           if (levelUpChannel) {
@@ -556,10 +635,10 @@ class LevelingSystem {
    */
   async assignLevelRoles(member, level) {
     try {
-      if (!config.levelSystem.levelRoles) return;
+      if (!this.moduleConfig.levelSystem.levelRoles) return;
       
       // Get level roles from config
-      const levelRoles = config.levelSystem.levelRoles;
+      const levelRoles = this.moduleConfig.levelSystem.levelRoles;
       
       // Get level roles from database if available
       let dbLevelRoles = [];
@@ -652,7 +731,7 @@ class LevelingSystem {
    */
   calculateRequiredXP(level) {
     // Parse the level formula from config
-    const formula = config.levelSystem.levelFormula || '100 * (level ^ 1.5)';
+    const formula = this.moduleConfig.levelSystem.levelFormula || '100 * (level ^ 1.5)';
     return Math.floor(eval(formula.replace('level', level)));
   }
 
@@ -1007,6 +1086,23 @@ class LevelingSystem {
       }
     }
   }
+
+  /**
+   * Get the module's status
+   * @returns {Object} - Module status
+   */
+  getStatus() {
+    const baseStatus = super.getStatus();
+    
+    return {
+      ...baseStatus,
+      metrics: {
+        activeUsers: this.userDataCache.size,
+        activeVoiceUsers: this.voiceTimeTracking.size,
+        messagesCooldowns: this.messageCooldowns.size
+      }
+    };
+  }
 }
 
-module.exports = new LevelingSystem(); 
+module.exports = LevelingModule; 

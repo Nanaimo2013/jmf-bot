@@ -1,0 +1,103 @@
+{
+    "enabled": true,
+    "logging": {
+        "enabled": true,
+        "channel": "mod-logs",
+        "pingModRole": true,
+        "modRoleId": "1348545287396003870"
+    },
+    "filters": {
+        "spam": {
+            "enabled": true,
+            "maxDuplicates": 3,
+            "timeWindow": 10,
+            "action": "timeout"
+        },
+        "mentions": {
+            "enabled": true,
+            "maxMentions": 5,
+            "action": "timeout"
+        },
+        "caps": {
+            "enabled": true,
+            "maxPercentage": 70,
+            "minLength": 10,
+            "action": "delete"
+        },
+        "links": {
+            "enabled": true,
+            "whitelist": [
+                "discord.gg/jmfhosting",
+                "jmfhosting.com"
+            ],
+            "action": "delete"
+        },
+        "invites": {
+            "enabled": true,
+            "action": "timeout"
+        },
+        "words": {
+            "enabled": true,
+            "bannedWords": [
+                "badword1",
+                "badword2",
+                "badword3"
+            ],
+            "action": "timeout"
+        },
+        "newlines": {
+            "enabled": true,
+            "maxLines": 15,
+            "action": "delete"
+        },
+        "attachments": {
+            "enabled": true,
+            "maxFiles": 5,
+            "allowedTypes": [
+                "image/jpeg",
+                "image/png",
+                "image/gif"
+            ],
+            "action": "delete"
+        },
+        "slowmode": {
+            "enabled": false,
+            "interval": 5,
+            "channels": []
+        }
+    },
+    "punishments": {
+        "timeout": {
+            "duration": 300000,
+            "escalation": {
+                "enabled": true,
+                "threshold": 3,
+                "multiplier": 2,
+                "maxDuration": 3600000
+            }
+        },
+        "warn": {
+            "decay": {
+                "enabled": true,
+                "time": 604800000
+            },
+            "thresholds": {
+                "3": "timeout",
+                "5": "kick",
+                "7": "ban"
+            }
+        }
+    },
+    "exemptions": {
+        "roles": [
+            "Owner",
+            "Administrator",
+            "Moderator"
+        ],
+        "channels": [
+            "mod-chat",
+            "admin-chat"
+        ],
+        "users": []
+    }
+}

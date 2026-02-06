@@ -10,7 +10,7 @@
  * Developed by Nanaimo2013 (https://github.com/Nanaimo2013)
  */
 
-const BaseManager = require('../base.manager');
+const BaseManager = require('../base/base.manager');
 const path = require('path');
 const os = require('os');
 
@@ -69,8 +69,57 @@ class MonitorManager extends BaseManager {
      * @returns {Promise<void>}
      */
     async initialize(config = {}) {
-        await super.initialize(config);
-        this.logger.info('monitor', 'Monitor manager initialized');
+        try {
+            // Initialize base manager first
+            await super.initialize(config);
+            
+            // Ensure metrics structure exists
+            this.metrics = {
+                system: {},
+                memory: {},
+                cpu: {},
+                disk: {},
+                network: {},
+                database: {},
+                api: {},
+                bot: {}
+            };
+
+            // Ensure config exists with defaults
+            this.config = {
+                interval: 60000, // 1 minute
+                enabled: true,
+                metrics: {
+                    system: true,
+                    memory: true,
+                    cpu: true,
+                    disk: true,
+                    network: true,
+                    database: true,
+                    api: true,
+                    bot: true
+                },
+                alerts: {
+                    enabled: true,
+                    thresholds: {
+                        cpu: 80, // percent
+                        memory: 80, // percent
+                        disk: 80, // percent
+                        responseTime: 1000 // ms
+                    }
+                },
+                ...config // Override defaults with provided config
+            };
+
+            // Initialize monitoring state
+            this.monitorInterval = null;
+            this.isRunning = false;
+
+            this.logger.info('monitor', 'Monitor manager initialized successfully');
+        } catch (error) {
+            this.logger.error('monitor', `Failed to initialize monitor manager: ${error.message}`);
+            throw error;
+        }
     }
 
     /**
@@ -78,30 +127,41 @@ class MonitorManager extends BaseManager {
      * @returns {Promise<void>}
      */
     async start() {
-        if (this.isRunning) {
-            this.logger.warn('monitor', 'Monitoring is already running');
-            return;
+        try {
+            // Check initialization
+            if (!this._initialized) {
+                throw new Error('Monitor manager must be initialized before starting');
+            }
+
+            if (this.isRunning) {
+                this.logger.warn('monitor', 'Monitoring is already running');
+                return;
+            }
+
+            if (this.config.enabled === false) {
+                this.logger.info('monitor', 'Monitoring is disabled in configuration');
+                return;
+            }
+
+            this.logger.info('monitor', 'Starting monitoring...');
+            this.isRunning = true;
+
+            // Run initial check
+            await this.check();
+
+            // Set up interval
+            this.monitorInterval = setInterval(() => {
+                this.check().catch(error => {
+                    this.logger.error('monitor', `Monitoring check failed: ${error.message}`);
+                });
+            }, this.config.interval || 60000);
+
+            this.logger.success('monitor', `Monitoring started with interval of ${this.config.interval || 60000}ms`);
+        } catch (error) {
+            this.isRunning = false;
+            this.logger.error('monitor', `Failed to start monitoring: ${error.message}`);
+            throw error;
         }
-
-        if (!this.config.enabled) {
-            this.logger.info('monitor', 'Monitoring is disabled in configuration');
-            return;
-        }
-
-        this.logger.info('monitor', 'Starting monitoring...');
-        this.isRunning = true;
-
-        // Run initial check
-        await this.check();
-
-        // Set up interval
-        this.monitorInterval = setInterval(() => {
-            this.check().catch(error => {
-                this.logger.error('monitor', `Monitoring check failed: ${error.message}`);
-            });
-        }, this.config.interval);
-
-        this.logger.success('monitor', `Monitoring started with interval of ${this.config.interval}ms`);
     }
 
     /**
@@ -134,28 +194,65 @@ class MonitorManager extends BaseManager {
         this.logger.debug('monitor', 'Running monitoring check...');
 
         try {
-            // Collect system metrics
+            // Ensure config and metrics are initialized
+            if (!this.config) {
+                this.config = this.defaultConfig || {
+                    interval: 60000,
+                    enabled: true,
+                    metrics: {
+                        system: true,
+                        memory: true,
+                        cpu: true,
+                        disk: true,
+                        network: true,
+                        database: true,
+                        api: true,
+                        bot: true
+                    },
+                    alerts: {
+                        enabled: true,
+                        thresholds: {
+                            cpu: 80, // percent
+                            memory: 80, // percent
+                            disk: 80, // percent
+                            responseTime: 1000 // ms
+                        }
+                    }
+                };
+            }
+
+            if (!this.metrics) {
+                this.metrics = {
+                    system: {},
+                    memory: {},
+                    cpu: {},
+                    disk: {},
+                    network: {},
+                    database: {},
+                    api: {},
+                    bot: {}
+                };
+            }
+
+            // Collect metrics
             if (this.config.metrics.system) {
-                await this.collectSystemMetrics();
+                this.metrics.system = await this.collectSystemMetrics();
             }
 
-            // Collect database metrics
-            if (this.config.metrics.database && global.managers?.database) {
-                await this.collectDatabaseMetrics();
+            if (this.config.metrics.database) {
+                this.metrics.database = await this.collectDatabaseMetrics();
             }
 
-            // Collect API metrics
-            if (this.config.metrics.api && global.managers?.api) {
-                await this.collectApiMetrics();
+            if (this.config.metrics.api) {
+                this.metrics.api = await this.collectApiMetrics();
             }
 
-            // Collect bot metrics
-            if (this.config.metrics.bot && global.managers?.bot) {
-                await this.collectBotMetrics();
+            if (this.config.metrics.bot) {
+                this.metrics.bot = await this.collectBotMetrics();
             }
 
             // Check for alerts
-            if (this.config.alerts.enabled) {
+            if (this.config.alerts && this.config.alerts.enabled) {
                 await this.checkAlerts();
             }
 
@@ -169,116 +266,330 @@ class MonitorManager extends BaseManager {
 
     /**
      * Collect system metrics
-     * @returns {Promise<void>}
+     * @returns {Promise<Object>} System metrics
      */
     async collectSystemMetrics() {
-        // System uptime
-        this.metrics.system.uptime = os.uptime();
-        this.metrics.system.processUptime = process.uptime();
-        this.metrics.system.timestamp = Date.now();
-
-        // Memory metrics
-        if (this.config.metrics.memory) {
-            const totalMem = os.totalmem();
-            const freeMem = os.freemem();
-            const usedMem = totalMem - freeMem;
-
-            this.metrics.memory = {
-                total: totalMem,
-                free: freeMem,
-                used: usedMem,
-                percentUsed: (usedMem / totalMem) * 100,
-                processMemory: process.memoryUsage()
+        try {
+            // CPU metrics
+            const cpuUsage = process.cpuUsage();
+            const cpuInfo = os.cpus();
+            const cpuCount = cpuInfo.length;
+            const cpuModel = cpuInfo[0].model;
+            const cpuSpeed = cpuInfo[0].speed;
+            
+            // Memory metrics
+            const totalMemory = os.totalmem();
+            const freeMemory = os.freemem();
+            const usedMemory = totalMemory - freeMemory;
+            const memoryUsagePercent = (usedMemory / totalMemory) * 100;
+            
+            // System metrics
+            const uptime = os.uptime();
+            const platform = os.platform();
+            const release = os.release();
+            const hostname = os.hostname();
+            
+            // Process metrics
+            const processUptime = process.uptime();
+            const processMemoryUsage = process.memoryUsage();
+            
+            // Combine metrics
+            const metrics = {
+                cpu: {
+                    count: cpuCount,
+                    model: cpuModel,
+                    speed: cpuSpeed,
+                    usage: {
+                        user: cpuUsage.user,
+                        system: cpuUsage.system
+                    }
+                },
+                memory: {
+                    total: totalMemory,
+                    free: freeMemory,
+                    used: usedMemory,
+                    usagePercent: memoryUsagePercent
+                },
+                system: {
+                    uptime,
+                    platform,
+                    release,
+                    hostname
+                },
+                process: {
+                    uptime: processUptime,
+                    memory: processMemoryUsage
+                },
+                timestamp: new Date().toISOString()
             };
-        }
-
-        // CPU metrics
-        if (this.config.metrics.cpu) {
-            const cpus = os.cpus();
-            let totalIdle = 0;
-            let totalTick = 0;
-
-            for (const cpu of cpus) {
-                for (const type in cpu.times) {
-                    totalTick += cpu.times[type];
-                }
-                totalIdle += cpu.times.idle;
-            }
-
-            const percentUsed = 100 - (totalIdle / totalTick) * 100;
-
-            this.metrics.cpu = {
-                cores: cpus.length,
-                model: cpus[0].model,
-                speed: cpus[0].speed,
-                percentUsed: percentUsed,
-                loadAvg: os.loadavg()
+            
+            return metrics;
+        } catch (error) {
+            this.logger.error('monitor', `Failed to collect system metrics: ${error.message}`);
+            return {
+                status: 'error',
+                message: error.message
             };
         }
     }
 
     /**
      * Collect database metrics
-     * @returns {Promise<void>}
+     * @returns {Promise<Object>} Database metrics
      */
     async collectDatabaseMetrics() {
-        try {
-            const database = global.managers.database;
-            const status = await database.getStatus();
+        if (!this.config.metrics.database) {
+            return {};
+        }
 
-            this.metrics.database = {
-                type: status.type,
-                connected: status.connected,
-                ...status
+        try {
+            const database = await this.getManager('database');
+            
+            if (!database) {
+                this.logger.debug('Database manager not available, skipping metrics collection');
+                return {
+                    status: 'unavailable',
+                    message: 'Database manager not available'
+                };
+            }
+            
+            // Check if database is initialized
+            if (!database.isInitialized()) {
+                this.logger.debug('Database manager not initialized, skipping metrics collection');
+                return {
+                    status: 'not_initialized',
+                    message: 'Database manager not initialized'
+                };
+            }
+            
+            // Get database status safely
+            let status = { status: 'unknown' };
+            try {
+                if (typeof database.getStatus === 'function') {
+                    status = await database.getStatus();
+                } else {
+                    status = {
+                        status: database.isConnected ? 'connected' : 'disconnected',
+                        type: database.config ? database.config.type : 'unknown',
+                        timestamp: new Date().toISOString()
+                    };
+                }
+            } catch (error) {
+                this.logger.warn(`Failed to get database status: ${error.message}`);
+                status = { 
+                    status: 'error',
+                    error: error.message
+                };
+            }
+            
+            // Get database stats safely
+            let stats = {};
+            try {
+                const dbPath = database.config && database.config.sqlite && database.config.sqlite.database;
+                if (dbPath) {
+                    // Add database stats
+                    stats = await this._getDatabaseStats(dbPath);
+                }
+            } catch (error) {
+                this.logger.warn(`Failed to get database stats: ${error.message}`);
+            }
+            
+            // Get module status safely
+            const moduleStatus = {};
+            if (database.modules && database.modules instanceof Map) {
+                for (const [name, module] of database.modules.entries()) {
+                    if (!module) continue;
+                    
+                    try {
+                        if (typeof module.getStatus === 'function') {
+                            moduleStatus[name] = await module.getStatus();
+                        } else {
+                            moduleStatus[name] = {
+                                name: module.name || name,
+                                enabled: typeof module.isEnabled === 'function' ? module.isEnabled() : false,
+                                initialized: typeof module.isInitialized === 'function' ? module.isInitialized() : false
+                            };
+                        }
+                    } catch (error) {
+                        this.logger.warn(`Failed to get status for module ${name}: ${error.message}`);
+                        moduleStatus[name] = {
+                            error: error.message
+                        };
+                    }
+                }
+            }
+            
+            return {
+                ...status,
+                stats,
+                modules: moduleStatus,
+                timestamp: new Date().toISOString()
             };
         } catch (error) {
-            this.logger.error('monitor', `Failed to collect database metrics: ${error.message}`);
-            this.metrics.database = {
-                error: error.message
+            this.logger.error(`Error collecting database metrics: ${error.message}`);
+            return {
+                status: 'error',
+                error: error.message,
+                timestamp: new Date().toISOString()
             };
         }
     }
 
     /**
+     * Get database file statistics
+     * @param {string} dbPath - Path to the database file
+     * @returns {Promise<Object>} Database statistics
+     * @private
+     */
+    async _getDatabaseStats(dbPath) {
+        if (!dbPath) {
+            throw new Error('The "path" argument must be of type string or an instance of Buffer or URL. Received null');
+        }
+        
+        try {
+            const fs = require('fs').promises;
+            const path = require('path');
+            
+            // Ensure path is absolute
+            const absolutePath = path.isAbsolute(dbPath) ? dbPath : path.resolve(process.cwd(), dbPath);
+            
+            // Check if file exists
+            const stats = await fs.stat(absolutePath);
+            
+            return {
+                size: stats.size,
+                created: stats.birthtime,
+                modified: stats.mtime,
+                accessed: stats.atime,
+                exists: true,
+                path: absolutePath
+            };
+        } catch (error) {
+            if (error.code === 'ENOENT') {
+                return {
+                    exists: false,
+                    path: dbPath,
+                    error: 'File does not exist'
+                };
+            }
+            
+            throw error;
+        }
+    }
+
+    /**
      * Collect API metrics
-     * @returns {Promise<void>}
+     * @returns {Promise<Object>} API metrics
      */
     async collectApiMetrics() {
-        try {
-            const api = global.managers.api;
-            const status = await api.getStatus();
+        if (!this.config.metrics.api) {
+            return {};
+        }
 
-            this.metrics.api = {
-                running: status.running,
-                port: status.port,
-                ...status
+        try {
+            const api = await this.getManager('api');
+            
+            if (!api) {
+                this.logger.debug('API manager not available, skipping metrics collection');
+                return {
+                    status: 'unavailable',
+                    message: 'API manager not available'
+                };
+            }
+            
+            // Check if server and config exist
+            if (!api.server || !api.config) {
+                return {
+                    status: 'not_running',
+                    message: 'API server not running or not configured'
+                };
+            }
+            
+            // Safely access port
+            const port = api.config && api.config.port ? api.config.port : 'unknown';
+            
+            return {
+                status: api.server ? 'running' : 'stopped',
+                port: port,
+                uptime: api.server ? Math.floor(process.uptime()) : 0,
+                timestamp: new Date().toISOString()
             };
         } catch (error) {
             this.logger.error('monitor', `Failed to collect API metrics: ${error.message}`);
-            this.metrics.api = {
-                error: error.message
+            return {
+                status: 'error',
+                message: error.message
             };
         }
     }
 
     /**
      * Collect bot metrics
-     * @returns {Promise<void>}
+     * @returns {Promise<Object>} Bot metrics
      */
     async collectBotMetrics() {
         try {
-            const bot = global.managers.bot;
-            const status = await bot.getStatus();
+            const manager = this.getManager('bot');
+            if (!manager) {
+                this.logger.error('monitor', 'Failed to load bot manager');
+                return {
+                    status: 'error',
+                    error: 'Bot manager not found',
+                    metrics: {}
+                };
+            }
 
-            this.metrics.bot = {
-                online: status.online,
-                ping: status.ping,
-                ...status
+            // Check if bot manager is initialized
+            if (!manager.isInitialized()) {
+                return {
+                    status: 'not_initialized',
+                    error: 'Bot manager not initialized',
+                    metrics: {}
+                };
+            }
+
+            // Get bot client
+            const client = manager.client;
+            if (!client) {
+                return {
+                    status: 'error',
+                    error: 'Bot client not found',
+                    metrics: {}
+                };
+            }
+
+            // Collect metrics
+            const metrics = {
+                uptime: process.uptime(),
+                memory: process.memoryUsage(),
+                guilds: client.guilds.cache.size,
+                users: client.users.cache.size,
+                channels: client.channels.cache.size,
+                emojis: client.emojis.cache.size,
+                ping: client.ws.ping,
+                shardCount: client.shard?.count || 1,
+                shardId: client.shard?.ids?.[0] || 0,
+                readyTimestamp: client.readyTimestamp,
+                process: {
+                    pid: process.pid,
+                    platform: process.platform,
+                    version: process.version,
+                    arch: process.arch,
+                    cpuUsage: process.cpuUsage(),
+                    resourceUsage: process.resourceUsage()
+                }
+            };
+
+            return {
+                status: 'ok',
+                metrics
             };
         } catch (error) {
             this.logger.error('monitor', `Failed to collect bot metrics: ${error.message}`);
-            this.metrics.bot = {
-                error: error.message
+            return {
+                status: 'error',
+                error: error.message,
+                metrics: {}
             };
         }
     }
@@ -289,10 +600,36 @@ class MonitorManager extends BaseManager {
      */
     async checkAlerts() {
         const alerts = [];
+        
+        // Ensure alerts config exists
+        if (!this.config.alerts) {
+            this.config.alerts = {
+                enabled: true,
+                thresholds: {
+                    cpu: 80,
+                    memory: 80,
+                    disk: 80,
+                    responseTime: 1000
+                }
+            };
+        }
+        
+        // Ensure thresholds exist
+        if (!this.config.alerts.thresholds) {
+            this.config.alerts.thresholds = {
+                cpu: 80,
+                memory: 80,
+                disk: 80,
+                responseTime: 1000
+            };
+        }
+        
         const thresholds = this.config.alerts.thresholds;
 
         // Check CPU usage
-        if (this.metrics.cpu && this.metrics.cpu.percentUsed > thresholds.cpu) {
+        if (this.metrics?.cpu?.percentUsed !== undefined && 
+            thresholds?.cpu !== undefined && 
+            this.metrics.cpu.percentUsed > thresholds.cpu) {
             alerts.push({
                 type: 'cpu',
                 message: `CPU usage is high: ${this.metrics.cpu.percentUsed.toFixed(2)}%`,
@@ -302,7 +639,9 @@ class MonitorManager extends BaseManager {
         }
 
         // Check memory usage
-        if (this.metrics.memory && this.metrics.memory.percentUsed > thresholds.memory) {
+        if (this.metrics?.memory?.percentUsed !== undefined && 
+            thresholds?.memory !== undefined && 
+            this.metrics.memory.percentUsed > thresholds.memory) {
             alerts.push({
                 type: 'memory',
                 message: `Memory usage is high: ${this.metrics.memory.percentUsed.toFixed(2)}%`,
@@ -335,9 +674,9 @@ class MonitorManager extends BaseManager {
     getStatus() {
         return {
             running: this.isRunning,
-            interval: this.config.interval,
-            enabled: this.config.enabled,
-            lastCheck: this.metrics.system.timestamp,
+            interval: this.config?.interval || 60000,
+            enabled: this.config?.enabled !== false,
+            lastCheck: this.metrics?.system?.timestamp || null,
             metrics: this.getMetrics()
         };
     }

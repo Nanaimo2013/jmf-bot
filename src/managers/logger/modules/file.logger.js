@@ -62,6 +62,7 @@ class FileLogger extends BaseModule {
      */
     async initialize() {
         await super.initialize();
+        this.enable();
         await this._setupDirectories();
         this.manager.info('logger', 'File logger module initialized');
     }
@@ -123,27 +124,16 @@ class FileLogger extends BaseModule {
     }
 
     /**
-     * Get a transport for a specific category
+     * Create a transport for a specific category
      * @param {string} category - Logger category
      * @returns {Object} Winston transport
      */
-    getTransport(category) {
+    createTransport(category) {
+        // If transport already exists for this category, return it
         if (this.transports.has(category)) {
             return this.transports.get(category);
         }
 
-        const transport = this._createTransport(category);
-        this.transports.set(category, transport);
-        return transport;
-    }
-
-    /**
-     * Create a transport for a specific category
-     * @param {string} category - Logger category
-     * @returns {Object} Winston transport
-     * @private
-     */
-    _createTransport(category) {
         const directory = this.getConfig('directory');
         const filename = path.join(directory, category, `%DATE%.log`);
         
@@ -167,6 +157,9 @@ class FileLogger extends BaseModule {
                 category
             });
         });
+
+        // Store the transport
+        this.transports.set(category, transport);
 
         return transport;
     }

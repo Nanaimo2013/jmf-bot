@@ -1,163 +1,275 @@
 /**
  * JMF Hosting Discord Bot - Bot Manager
  * Version: 1.0.0
- * Last Updated: 03/12/2025
+ * Last Updated: 03/14/2025
  * 
- * This manager handles the Discord bot functionality, including commands,
- * events, and other Discord-specific features.
+ * This class manages the Discord bot instance and its lifecycle.
  * 
  * © 2025 JMFHosting. All Rights Reserved.
  * Developed by Nanaimo2013 (https://github.com/Nanaimo2013)
  */
 
-const BaseManager = require('../base/base.manager');
-const { Client, Collection, GatewayIntentBits, Partials } = require('discord.js');
+const { Client, GatewayIntentBits, Partials } = require('discord.js');
 const path = require('path');
 const fs = require('fs').promises;
+const ModuleRegistry = require('../../modules');
 
-class BotManager extends BaseManager {
-    /**
-     * Create a new bot manager
-     */
+class BotManager {
     constructor() {
-        super('bot');
-        
-        // Set dependencies
-        this.setOptionalDependencies(['database', 'logger']);
-        
-        // Discord.js client
         this.client = null;
-        
-        // Collections
-        this.commands = new Collection();
-        this.events = new Collection();
-        
-        // Bot state
-        this.isReady = false;
+        this.moduleRegistry = null;
+        this.isRunning = false;
         this.startTime = null;
-    }
+        
+        // Get logger from global managers
+        this.logger = global.managers?.logger || console;
+        
+        // Get config manager from global managers
+        this.configManager = global.managers?.config;
+        
+        // Get database manager from global managers
+        this.database = global.managers?.database;
 
+        // Initialize managers map
+        this.managers = new Map();
+    }
+    
+    /**
+     * Register a manager with the bot
+     * @param {string} name - The name of the manager
+     * @param {object} manager - The manager instance to register
+     */
+    registerManager(name, manager) {
+        if (!name || !manager) {
+            throw new Error('Name and manager instance are required');
+        }
+        this.managers.set(name, manager);
+        this.logger.debug('BotManager', `Registered manager: ${name}`);
+    }
+    
     /**
      * Initialize the bot manager
-     * @param {Object} config - Configuration options
-     * @returns {Promise<void>}
+     * @returns {Promise<boolean>}
      */
-    async initialize(config = {}) {
-        // Call parent initialize
-        await super.initialize(config);
-        
+    async initialize() {
         try {
-            // Create Discord client with default intents if not provided
-            const intents = this.config && this.config.intents ? this.config.intents : [
-                GatewayIntentBits.Guilds,
-                GatewayIntentBits.GuildMessages,
-                GatewayIntentBits.GuildMembers,
-                GatewayIntentBits.MessageContent
-            ];
+            this.logger.info('BotManager', 'Initializing bot manager...');
             
-            const partials = this.config && this.config.partials ? this.config.partials : [
-                Partials.Message,
-                Partials.Channel,
-                Partials.Reaction
-            ];
-            
-            this.client = new Client({ intents, partials });
-            
-            // Register basic events
-            this._registerBasicEvents();
-            
-            this.logger.success(this.name, `Bot manager initialized successfully`);
-        } catch (error) {
-            this.logger.error(this.name, `Failed to initialize bot manager:`, error);
-            throw error;
-        }
-    }
-    
-    /**
-     * Start the Discord bot
-     * @returns {Promise<void>}
-     */
-    async start() {
-        if (!this.client) {
-            throw new Error('Client not initialized');
-        }
-        
-        const token = this.config && this.config.token ? this.config.token : process.env.DISCORD_TOKEN;
-        
-        if (!token) {
-            throw new Error('Discord token not provided');
-        }
-        
-        try {
-            this.logger.info(this.name, 'Starting Discord bot...');
-            
-            // Check if client.login is a function
-            if (typeof this.client.login !== 'function') {
-                this.logger.error(this.name, 'Discord client login method is not available');
-                throw new Error('Discord client login method is not available');
+            // Get config manager from registered managers
+            const configManager = this.managers.get('config') || this.configManager;
+            if (!configManager) {
+                throw new Error('Config manager not available');
             }
             
-            await this.client.login(token);
-            this.startTime = Date.now();
-            this.logger.success(this.name, 'Discord bot started successfully');
+            // Load configuration
+            const config = configManager.getConfig();
+            if (!config) {
+                throw new Error('Failed to load configuration');
+            }
+            
+            // Create Discord client with required intents
+            this.client = new Client({
+                intents: [
+                    GatewayIntentBits.Guilds,
+                    GatewayIntentBits.GuildMembers,
+                    GatewayIntentBits.GuildMessages,
+                    GatewayIntentBits.GuildVoiceStates,
+                    GatewayIntentBits.MessageContent,
+                    GatewayIntentBits.DirectMessages
+                ],
+                partials: [
+                    Partials.Channel,
+                    Partials.Message,
+                    Partials.User,
+                    Partials.GuildMember
+                ]
+            });
+            
+            // Initialize module registry
+            this.moduleRegistry = new ModuleRegistry({
+                logger: this.logger,
+                bot: this
+            });
+            
+            // Set up event handlers
+            this.setupEventHandlers();
+            
+            this.logger.info('BotManager', 'Bot manager initialized successfully');
+            return true;
         } catch (error) {
-            this.logger.error(this.name, `Failed to start Discord bot:`, error);
-            throw error;
+            this.logger.error('BotManager', `Failed to initialize bot manager: ${error.message}`, error.stack);
+            return false;
         }
     }
     
     /**
-     * Stop the Discord bot
-     * @returns {Promise<void>}
+     * Start the bot
+     * @returns {Promise<boolean>}
+     */
+    async start() {
+        try {
+            if (this.isRunning) {
+                this.logger.warn('BotManager', 'Bot is already running');
+                return true;
+            }
+            
+            this.logger.info('BotManager', 'Starting bot...');
+            
+            // Get config manager from registered managers
+            const configManager = this.managers.get('config') || this.configManager;
+            if (!configManager) {
+                throw new Error('Config manager not available');
+            }
+            
+            // Get bot token from environment variable first, then config
+            let token = process.env.BOT_TOKEN;
+            if (!token) {
+                token = configManager.getConfig('bot.token');
+            }
+            if (!token || token === '${BOT_TOKEN}') {
+                throw new Error('Bot token not found. Please set BOT_TOKEN environment variable or configure bot.token in config');
+            }
+            
+            // Login to Discord
+            await this.client.login(token);
+            
+            // Initialize and start modules
+            await this.moduleRegistry.initialize(this.client);
+            await this.moduleRegistry.start();
+            
+            this.isRunning = true;
+            this.startTime = Date.now();
+            
+            // Save PID to file
+            await this.savePid();
+            
+            this.logger.info('BotManager', 'Bot started successfully');
+            return true;
+        } catch (error) {
+            this.logger.error('BotManager', `Failed to start bot: ${error.message}`, error.stack);
+            return false;
+        }
+    }
+    
+    /**
+     * Stop the bot
+     * @returns {Promise<boolean>}
      */
     async stop() {
-        if (this.client) {
-            this.logger.info(this.name, 'Stopping Discord bot...');
+        try {
+            if (!this.isRunning) {
+                this.logger.warn('BotManager', 'Bot is not running');
+                return true;
+            }
             
-            // Destroy the client
-            this.client.destroy();
-            this.isReady = false;
+            this.logger.info('BotManager', 'Stopping bot...');
             
-            this.logger.success(this.name, 'Discord bot stopped successfully');
+            // Stop modules
+            await this.moduleRegistry.stop();
+            
+            // Destroy client
+            await this.client.destroy();
+            
+            this.isRunning = false;
+            this.startTime = null;
+            
+            // Remove PID file
+            await this.removePid();
+            
+            this.logger.info('BotManager', 'Bot stopped successfully');
+            return true;
+        } catch (error) {
+            this.logger.error('BotManager', `Failed to stop bot: ${error.message}`, error.stack);
+            return false;
         }
     }
     
     /**
-     * Register basic Discord.js events
+     * Set up event handlers for the Discord client
      * @private
      */
-    _registerBasicEvents() {
+    setupEventHandlers() {
         // Ready event
-        this.client.on('ready', () => {
-            this.isReady = true;
-            this.logger.info(this.name, `Logged in as ${this.client.user.tag}`);
+        this.client.once('ready', () => {
+            this.logger.info('BotManager', `Logged in as ${this.client.user.tag}`);
         });
         
         // Error event
-        this.client.on('error', (error) => {
-            this.logger.error(this.name, `Discord client error:`, error);
+        this.client.on('error', error => {
+            this.logger.error('BotManager', `Discord client error: ${error.message}`, error.stack);
         });
         
-        // Warning event
-        this.client.on('warn', (warning) => {
-            this.logger.warn(this.name, `Discord client warning:`, warning);
+        // Debug event (only log if debug is enabled)
+        this.client.on('debug', info => {
+            if (this.configManager.getConfig('bot.debug')) {
+                this.logger.debug('BotManager', info);
+            }
         });
         
-        // Debug event (only in development)
-        if (process.env.NODE_ENV === 'development') {
-            this.client.on('debug', (info) => {
-                this.logger.debug(this.name, `Discord client debug:`, info);
-            });
+        // Warn event
+        this.client.on('warn', info => {
+            this.logger.warn('BotManager', info);
+        });
+        
+        // Shard error event
+        this.client.on('shardError', (error, shardId) => {
+            this.logger.error('BotManager', `Shard ${shardId} error: ${error.message}`, error.stack);
+        });
+    }
+    
+    /**
+     * Save the process ID to a file
+     * @private
+     */
+    async savePid() {
+        try {
+            const pidPath = path.join(process.cwd(), '.pid');
+            await fs.writeFile(pidPath, process.pid.toString());
+        } catch (error) {
+            this.logger.error('BotManager', `Failed to save PID: ${error.message}`);
         }
     }
     
     /**
-     * Shutdown the manager
-     * @returns {Promise<void>}
+     * Remove the process ID file
+     * @private
      */
-    async shutdown() {
-        await this.stop();
-        await super.shutdown();
+    async removePid() {
+        try {
+            const pidPath = path.join(process.cwd(), '.pid');
+            await fs.unlink(pidPath);
+        } catch (error) {
+            this.logger.error('BotManager', `Failed to remove PID file: ${error.message}`);
+        }
+    }
+    
+    /**
+     * Get the bot's uptime in milliseconds
+     * @returns {number}
+     */
+    getUptime() {
+        if (!this.isRunning || !this.startTime) {
+            return 0;
+        }
+        return Date.now() - this.startTime;
+    }
+    
+    /**
+     * Get the status of the bot and its modules
+     * @returns {Object}
+     */
+    getStatus() {
+        return {
+            isRunning: this.isRunning,
+            uptime: this.getUptime(),
+            modules: this.moduleRegistry?.getStatus() || {},
+            client: {
+                ping: this.client?.ws?.ping || -1,
+                status: this.client?.status || 'unknown',
+                guilds: this.client?.guilds?.cache?.size || 0,
+                users: this.client?.users?.cache?.size || 0
+            }
+        };
     }
 }
 

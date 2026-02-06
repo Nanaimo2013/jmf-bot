@@ -1,0 +1,140 @@
+{
+    "enabled": true,
+    "currency": {
+        "name": "Coins",
+        "symbol": "🪙",
+        "startingBalance": 100
+    },
+    "rewards": {
+        "daily": {
+            "enabled": true,
+            "min": 50,
+            "max": 200,
+            "cooldown": 86400,
+            "streak": {
+                "enabled": true,
+                "multiplier": 0.1,
+                "maxDays": 7
+            }
+        },
+        "work": {
+            "enabled": true,
+            "min": 10,
+            "max": 50,
+            "cooldown": 3600,
+            "jobs": [
+                {
+                    "name": "Miner",
+                    "description": "Mine resources for coins",
+                    "min": 20,
+                    "max": 100
+                },
+                {
+                    "name": "Farmer",
+                    "description": "Grow and sell crops",
+                    "min": 15,
+                    "max": 80
+                },
+                {
+                    "name": "Fisher",
+                    "description": "Catch and sell fish",
+                    "min": 25,
+                    "max": 120
+                }
+            ]
+        }
+    },
+    "gambling": {
+        "enabled": true,
+        "minAmount": 10,
+        "games": {
+            "coinflip": {
+                "enabled": true,
+                "multiplier": 2
+            },
+            "dice": {
+                "enabled": true,
+                "multiplier": {
+                    "exact": 6,
+                    "within1": 3,
+                    "within2": 1.5
+                }
+            },
+            "slots": {
+                "enabled": true,
+                "symbols": [
+                    "🍒",
+                    "🍊",
+                    "🍇",
+                    "💎",
+                    "7️⃣"
+                ],
+                "payouts": {
+                    "777": 10,
+                    "💎💎💎": 7,
+                    "🍇🍇🍇": 5,
+                    "🍊🍊🍊": 3,
+                    "🍒🍒🍒": 2
+                }
+            }
+        }
+    },
+    "shop": {
+        "enabled": true,
+        "items": [
+            {
+                "name": "VIP Role (1 week)",
+                "cost": 500000,
+                "description": "Get the VIP role for 1 week",
+                "duration": 604800
+            },
+            {
+                "name": "Custom Role",
+                "cost": 2500000,
+                "description": "Create your own custom role with a custom color"
+            },
+            {
+                "name": "Server Boost",
+                "cost": 150000,
+                "description": "Boost your XP gain by 25% for 1 week",
+                "duration": 604800
+            },
+            {
+                "name": "Voice Channel",
+                "cost": 1000000,
+                "description": "Create your own private voice channel for 1 week",
+                "duration": 604800
+            }
+        ]
+    },
+    "banking": {
+        "enabled": true,
+        "interest": {
+            "rate": 0.01,
+            "interval": 86400
+        },
+        "transfer": {
+            "enabled": true,
+            "fee": 0.05,
+            "minAmount": 100
+        }
+    },
+    "trading": {
+        "enabled": true,
+        "fee": 0.02,
+        "escrow": {
+            "enabled": true,
+            "timeout": 300
+        }
+    },
+    "inventory": {
+        "enabled": true,
+        "maxItems": 50,
+        "categories": [
+            "Roles",
+            "Boosts",
+            "Collectibles",
+            "Resources"
+        ]
+    }
+}

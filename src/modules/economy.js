@@ -1,92 +1,200 @@
 /**
- * JMF Hosting Discord Bot
+ * JMF Hosting Discord Bot - Economy Module
+ * Version: 1.0.0
+ * Last Updated: 03/14/2025
+ * 
+ * This module handles the economy system for the bot, including user balances,
+ * transactions, and market functionality.
  * 
  * © 2025 JMFHosting. All Rights Reserved.
  * Developed by Nanaimo2013 (https://github.com/Nanaimo2013)
- * 
- * This source code is licensed under the MIT license found in the
- * LICENSE file in the root directory of this source tree.
  */
 
+const Module = require('./base.module');
 const { EmbedBuilder } = require('discord.js');
-const config = require('../../config.json');
+const fs = require('fs/promises');
+const path = require('path');
 const logger = require('../utils/logger');
 
-class Economy {
+class EconomyModule extends Module {
+  /**
+   * Create a new economy module
+   */
   constructor() {
+    super({
+      name: 'economy',
+      description: 'Handles the economy system for the bot',
+      enabled: true,
+      dependencies: ['database']
+    });
+    
+    this.userDataPath = path.join(process.cwd(), 'data', 'economy');
+    this.transactionLocks = new Map();
+    this.lockTimeout = 10000; // 10 seconds timeout for locks
+    
+    // Cache for user data to reduce database calls
+    this.userDataCache = new Map();
+    this.cacheTTL = 60000; // 1 minute cache TTL
+    
+    // Track recent transactions to prevent duplicates
+    this.recentTransactions = new Map();
+    
+    // Track daily rewards
+    this.dailyRewards = new Map();
+    
+    // Track work cooldowns
+    this.workCooldowns = new Map();
+    
     this.userBalances = new Map();
     this.transactions = [];
     this.marketListings = new Map();
-    this.db = null; // Will be initialized with database connection
-    this.isInitialized = false; // Flag to track initialization status
   }
 
   /**
-   * Initialize the economy module with database connection
-   * @param {Object} database - Database connection object
+   * Initialize the economy module
+   * @param {Client} client - The Discord.js client
+   * @returns {Promise<boolean>}
    */
-  async init(database) {
-    this.db = database;
-    
-    // Load data from database if available
-    if (this.db && this.db.isConnected) {
-      try {
+  async initialize(client) {
+    try {
+      await super.initialize(client);
+      
+      // Load data from database if available
+      if (this.database && this.database.isConnected) {
         await this.loadDataFromDatabase();
-        logger.info('Economy data loaded from database');
-      } catch (error) {
-        logger.error('Failed to load economy data from database:', error);
+        this.logger.info(this.name, 'Economy data loaded from database');
+      } else {
+        this.logger.warn(this.name, 'Database not available, economy data will not be persistent');
       }
+      
+      // Get economy config
+      const economyConfig = this.configManager.getConfig('economy') || {};
+      
+      // Set up auto-save interval
+      this.autoSaveInterval = setInterval(() => this.saveToDatabase(), 
+        economyConfig.autoSaveInterval || 300000); // Default: 5 minutes
+      
+      return true;
+    } catch (error) {
+      this.handleError('initialize', error);
+      return false;
     }
-    
-    this.isInitialized = true;
-    logger.info('Economy module initialized');
+  }
+  
+  /**
+   * Start the economy module
+   * @returns {Promise<boolean>}
+   */
+  async start() {
+    try {
+      await super.start();
+      
+      // Additional startup logic can be added here
+      
+      return true;
+    } catch (error) {
+      this.handleError('start', error);
+      return false;
+    }
+  }
+  
+  /**
+   * Stop the economy module
+   * @returns {Promise<boolean>}
+   */
+  async stop() {
+    try {
+      // Clear intervals
+      if (this.autoSaveInterval) {
+        clearInterval(this.autoSaveInterval);
+        this.autoSaveInterval = null;
+      }
+      
+      // Save data before stopping
+      await this.saveToDatabase();
+      
+      await super.stop();
+      return true;
+    } catch (error) {
+      this.handleError('stop', error);
+      return false;
+    }
   }
 
   /**
    * Load economy data from database
+   * @returns {Promise<void>}
    */
   async loadDataFromDatabase() {
-    if (!this.db) return;
-    
-    // Load user balances
-    const balances = await this.db.query('SELECT user_id, balance FROM user_balances');
-    balances.forEach(row => {
-      this.userBalances.set(row.user_id, row.balance);
-    });
-    
-    // Load market listings
-    const listings = await this.db.query('SELECT * FROM market_listings WHERE active = 1');
-    listings.forEach(listing => {
-      if (!this.marketListings.has(listing.item_type)) {
-        this.marketListings.set(listing.item_type, []);
+    try {
+      if (!this.database || !this.database.isConnected) {
+        throw new Error('Database not available');
       }
-      this.marketListings.get(listing.item_type).push({
-        id: listing.id,
-        sellerId: listing.seller_id,
-        itemType: listing.item_type,
-        itemName: listing.item_name,
-        quantity: listing.quantity,
-        price: listing.price,
-        listedAt: new Date(listing.listed_at)
+      
+      // Load user balances
+      const balances = await this.database.query('SELECT user_id, balance FROM user_balances');
+      balances.forEach(row => {
+        this.userBalances.set(row.user_id, row.balance);
       });
-    });
+      
+      // Load market listings
+      const listings = await this.database.query('SELECT * FROM market_listings WHERE active = 1');
+      listings.forEach(listing => {
+        if (!this.marketListings.has(listing.item_type)) {
+          this.marketListings.set(listing.item_type, []);
+        }
+        this.marketListings.get(listing.item_type).push({
+          id: listing.id,
+          sellerId: listing.seller_id,
+          itemType: listing.item_type,
+          itemName: listing.item_name,
+          quantity: listing.quantity,
+          price: listing.price,
+          listedAt: new Date(listing.listed_at)
+        });
+      });
+      
+      // Load recent transactions
+      const recentTransactions = await this.database.query(
+        'SELECT * FROM economy_transactions ORDER BY created_at DESC LIMIT 100'
+      );
+      this.transactions = recentTransactions.map(t => ({
+        id: t.id,
+        userId: t.user_id,
+        amount: t.amount,
+        balance: t.amount, // economy_transactions doesn't have balance_after
+        reason: t.description,
+        timestamp: new Date(t.created_at)
+      }));
+    } catch (error) {
+      this.handleError('loadDataFromDatabase', error);
+      throw error;
+    }
   }
 
   /**
    * Save economy data to database
+   * @returns {Promise<void>}
    */
   async saveToDatabase() {
-    if (!this.db) return;
-    
-    // Save user balances
-    for (const [userId, balance] of this.userBalances.entries()) {
-      await this.db.query(
-        'INSERT INTO user_balances (user_id, balance) VALUES (?, ?) ON DUPLICATE KEY UPDATE balance = ?',
-        [userId, balance, balance]
-      );
+    try {
+      if (!this.database || !this.database.isConnected) {
+        this.logger.warn(this.name, 'Database not available, skipping save');
+        return;
+      }
+      
+      // Save user balances
+      for (const [userId, balance] of this.userBalances.entries()) {
+        await this.database.query(
+          'INSERT INTO user_balances (user_id, balance) VALUES (?, ?) ON DUPLICATE KEY UPDATE balance = ?',
+          [userId, balance, balance]
+        );
+      }
+      
+      this.logger.debug(this.name, 'Economy data saved to database');
+    } catch (error) {
+      this.handleError('saveToDatabase', error);
     }
-    
-    // Market listings are saved in real-time when created/purchased
   }
 
   /**
@@ -95,22 +203,26 @@ class Economy {
    */
   initializeUser(userId) {
     if (!this.userBalances.has(userId)) {
-      this.userBalances.set(userId, config.economy.startingBalance);
+      const economyConfig = this.configManager.getConfig('economy') || {};
+      const startingBalance = economyConfig.startingBalance || 100;
+      this.userBalances.set(userId, startingBalance);
       
       // Save to database if available
-      if (this.db) {
-        this.db.query(
-          'INSERT IGNORE INTO user_balances (user_id, balance) VALUES (?, ?)',
-          [userId, config.economy.startingBalance]
-        ).catch(err => logger.error('Failed to initialize user balance in database:', err));
+      if (this.database && this.database.isConnected) {
+        this.database.query(
+          'INSERT INTO user_balances (user_id, balance) VALUES (?, ?) ON DUPLICATE KEY UPDATE balance = ?',
+          [userId, startingBalance, startingBalance]
+        ).catch(error => this.handleError('initializeUser', error));
       }
+      
+      this.logger.debug(this.name, `Initialized user ${userId} with ${startingBalance} coins`);
     }
   }
 
   /**
    * Get a user's balance
    * @param {string} userId - The Discord user ID
-   * @returns {number} - User's balance
+   * @returns {number} - The user's balance
    */
   getBalance(userId) {
     this.initializeUser(userId);
@@ -120,49 +232,67 @@ class Economy {
   /**
    * Add coins to a user's balance
    * @param {string} userId - The Discord user ID
-   * @param {number} amount - Amount to add
-   * @param {string} reason - Reason for transaction
-   * @returns {number} - New balance
+   * @param {number} amount - The amount to add
+   * @param {string} reason - The reason for adding coins
+   * @returns {Promise<Object>} - Result object with success status and new balance
    */
   async addCoins(userId, amount, reason = 'Unknown') {
-    this.initializeUser(userId);
-    
-    const oldBalance = this.userBalances.get(userId);
-    const newBalance = oldBalance + amount;
-    
-    this.userBalances.set(userId, newBalance);
-    
-    // Record transaction
-    const transaction = {
-      userId,
-      type: 'add',
-      amount,
-      oldBalance,
-      newBalance,
-      reason,
-      timestamp: new Date()
-    };
-    
-    this.transactions.push(transaction);
-    
-    // Save to database if available
-    if (this.db) {
-      try {
-        await this.db.query(
+    try {
+      if (amount <= 0) {
+        return { success: false, message: 'Amount must be positive' };
+      }
+      
+      this.initializeUser(userId);
+      
+      const oldBalance = this.userBalances.get(userId);
+      const newBalance = oldBalance + amount;
+      
+      this.userBalances.set(userId, newBalance);
+      
+      // Record transaction
+      const transaction = {
+        id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
+        userId,
+        amount,
+        balance: newBalance,
+        reason,
+        timestamp: new Date()
+      };
+      
+      this.transactions.unshift(transaction);
+      
+      // Trim transactions array to prevent memory issues
+      if (this.transactions.length > 1000) {
+        this.transactions = this.transactions.slice(0, 1000);
+      }
+      
+      // Save transaction to database if available
+      if (this.database && this.database.isConnected) {
+        await this.database.query(
+          'INSERT INTO economy_transactions (user_id, transaction_type, amount, description, created_at) VALUES (?, ?, ?, ?, ?)',
+          [userId, 'add', amount, reason, transaction.timestamp]
+        );
+        
+        // Update user balance in database
+        await this.database.query(
           'UPDATE user_balances SET balance = ? WHERE user_id = ?',
           [newBalance, userId]
         );
-        
-        await this.db.query(
-          'INSERT INTO transactions (user_id, type, amount, old_balance, new_balance, reason) VALUES (?, ?, ?, ?, ?, ?)',
-          [userId, 'add', amount, oldBalance, newBalance, reason]
-        );
-      } catch (error) {
-        logger.error('Failed to save transaction to database:', error);
       }
+      
+      this.logger.debug(this.name, `Added ${amount} coins to user ${userId} for reason: ${reason}`);
+      
+      return {
+        success: true,
+        oldBalance,
+        newBalance,
+        amount,
+        transaction
+      };
+    } catch (error) {
+      this.handleError('addCoins', error);
+      return { success: false, message: error.message };
     }
-    
-    return newBalance;
   }
 
   /**
@@ -202,19 +332,19 @@ class Economy {
     this.transactions.push(transaction);
     
     // Save to database if available
-    if (this.db) {
+    if (this.database && this.database.isConnected) {
       try {
-        await this.db.query(
+        await this.database.query(
           'UPDATE user_balances SET balance = ? WHERE user_id = ?',
           [newBalance, userId]
         );
         
-        await this.db.query(
-          'INSERT INTO transactions (user_id, type, amount, old_balance, new_balance, reason) VALUES (?, ?, ?, ?, ?, ?)',
-          [userId, 'remove', amount, oldBalance, newBalance, reason]
+        await this.database.query(
+          'INSERT INTO economy_transactions (user_id, transaction_type, amount, description, created_at) VALUES (?, ?, ?, ?, ?)',
+          [userId, 'remove', amount, reason, new Date()]
         );
       } catch (error) {
-        logger.error('Failed to save transaction to database:', error);
+        this.handleError('removeCoins', error);
       }
     }
     
@@ -274,14 +404,14 @@ class Economy {
     await this.addCoins(toUserId, amount, `Transfer from user ${fromUserId}`);
     
     // Save transfer record to database if available
-    if (this.db) {
+    if (this.database && this.database.isConnected) {
       try {
-        await this.db.query(
+        await this.database.query(
           'INSERT INTO transfers (from_user_id, to_user_id, amount, fee) VALUES (?, ?, ?, ?)',
           [fromUserId, toUserId, amount, fee]
         );
       } catch (error) {
-        logger.error('Failed to save transfer to database:', error);
+        this.handleError('transferCoins', error);
       }
     }
     
@@ -327,14 +457,14 @@ class Economy {
     this.marketListings.get(itemType).push(listing);
     
     // Save to database if available
-    if (this.db) {
+    if (this.database && this.database.isConnected) {
       try {
-        await this.db.query(
+        await this.database.query(
           'INSERT INTO market_listings (id, seller_id, item_type, item_name, quantity, price, listed_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
           [listing.id, sellerId, itemType, itemName, quantity, price, listing.listedAt]
         );
       } catch (error) {
-        logger.error('Failed to save market listing to database:', error);
+        this.handleError('createListing', error);
       }
     }
     
@@ -423,39 +553,39 @@ class Economy {
       );
       
       // Update database if available
-      if (this.db) {
+      if (this.database && this.database.isConnected) {
         try {
-          await this.db.query(
+          await this.database.query(
             'UPDATE market_listings SET active = 0 WHERE id = ?',
             [listingId]
           );
         } catch (error) {
-          logger.error('Failed to update market listing in database:', error);
+          this.handleError('purchaseListing', error);
         }
       }
     } else {
       // Update listing in database if available
-      if (this.db) {
+      if (this.database && this.database.isConnected) {
         try {
-          await this.db.query(
+          await this.database.query(
             'UPDATE market_listings SET quantity = ? WHERE id = ?',
             [listing.quantity, listingId]
           );
         } catch (error) {
-          logger.error('Failed to update market listing in database:', error);
+          this.handleError('purchaseListing', error);
         }
       }
     }
     
     // Record transaction in database
-    if (this.db) {
+    if (this.database && this.database.isConnected) {
       try {
-        await this.db.query(
+        await this.database.query(
           'INSERT INTO market_transactions (listing_id, buyer_id, seller_id, item_type, item_name, quantity, price_per_unit, total_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
           [listingId, buyerId, listing.sellerId, listingType, listing.itemName, quantity, listing.price, totalPrice]
         );
       } catch (error) {
-        logger.error('Failed to save market transaction to database:', error);
+        this.handleError('purchaseListing', error);
       }
     }
     
@@ -546,14 +676,14 @@ class Economy {
     );
     
     // Update database if available
-    if (this.db) {
+    if (this.database && this.database.isConnected) {
       try {
-        await this.db.query(
+        await this.database.query(
           'UPDATE market_listings SET active = 0 WHERE id = ?',
           [listingId]
         );
       } catch (error) {
-        logger.error('Failed to update market listing in database:', error);
+        this.handleError('cancelListing', error);
       }
     }
     
@@ -647,12 +777,12 @@ class Economy {
    */
   async getRecentTransactions(userId, limit = 5) {
     try {
-      if (!this.db || !this.db.isConnected) {
+      if (!this.database || !this.database.isConnected) {
         return [];
       }
       
-      const transactions = await this.db.query(
-        'SELECT * FROM transactions WHERE user_id = ? ORDER BY timestamp DESC LIMIT ?',
+      const transactions = await this.database.query(
+        'SELECT * FROM economy_transactions WHERE user_id = ? ORDER BY created_at DESC LIMIT ?',
         [userId, limit]
       );
       
@@ -660,11 +790,11 @@ class Economy {
         id: t.id,
         userId: t.user_id,
         amount: t.amount,
-        reason: t.reason,
-        timestamp: t.timestamp
+        reason: t.description,
+        timestamp: new Date(t.created_at)
       }));
     } catch (error) {
-      logger.error(`Error getting recent transactions: ${error.message}`);
+      this.handleError('getRecentTransactions', error);
       return [];
     }
   }
@@ -676,11 +806,11 @@ class Economy {
    */
   async getUserRank(userId) {
     try {
-      if (!this.db || !this.db.isConnected) {
+      if (!this.database || !this.database.isConnected) {
         return 'Unknown';
       }
       
-      const leaderboard = await this.db.query(
+      const leaderboard = await this.database.query(
         'SELECT user_id, balance FROM user_balances ORDER BY balance DESC'
       );
       
@@ -692,7 +822,7 @@ class Economy {
       
       return `#${userIndex + 1}`;
     } catch (error) {
-      logger.error(`Error getting user rank: ${error.message}`);
+      this.handleError('getUserRank', error);
       return 'Unknown';
     }
   }
@@ -704,7 +834,7 @@ class Economy {
    */
   async createLeaderboardEmbed(guild) {
     try {
-      if (!this.db || !this.db.isConnected) {
+      if (!this.database || !this.database.isConnected) {
         const embed = new EmbedBuilder()
           .setTitle('Economy Leaderboard')
           .setDescription('No leaderboard data available')
@@ -713,7 +843,7 @@ class Economy {
         return embed;
       }
       
-      const leaderboard = await this.db.query(
+      const leaderboard = await this.database.query(
         'SELECT user_id, balance FROM user_balances ORDER BY balance DESC LIMIT 10'
       );
       
@@ -727,7 +857,7 @@ class Economy {
       }
       
       // Get total economy value
-      const totalEconomy = await this.db.query(
+      const totalEconomy = await this.database.query(
         'SELECT SUM(balance) as total FROM user_balances'
       );
       
@@ -762,7 +892,7 @@ class Economy {
       
       return embed;
     } catch (error) {
-      logger.error(`Error creating leaderboard embed: ${error.message}`);
+      this.handleError('createLeaderboardEmbed', error);
       const embed = new EmbedBuilder()
         .setTitle('Economy Leaderboard')
         .setDescription('An error occurred while creating the leaderboard')
@@ -771,6 +901,23 @@ class Economy {
       return embed;
     }
   }
+
+  /**
+   * Get the module's status
+   * @returns {Object} - Module status
+   */
+  getStatus() {
+    const baseStatus = super.getStatus();
+    
+    return {
+      ...baseStatus,
+      metrics: {
+        userCount: this.userBalances.size,
+        transactionCount: this.transactions.length,
+        marketListingsCount: Array.from(this.marketListings.values()).reduce((acc, curr) => acc + curr.length, 0)
+      }
+    };
+  }
 }
 
-module.exports = new Economy(); 
+module.exports = EconomyModule; 

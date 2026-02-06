@@ -1,0 +1,99 @@
+{
+  "managers": {
+    "enabled": true,
+    "roles": [
+      "Owner",
+      "Administrator"
+    ],
+    "permissions": {
+      "manageBot": true,
+      "manageUsers": true,
+      "manageServers": true,
+      "viewAnalytics": true,
+      "manageEconomy": true,
+      "manageGames": true
+    },
+    "notifications": {
+      "enabled": true,
+      "configPath": "./config/bot/config.json"
+    },
+    "database": {
+      "enabled": true,
+      "configPath": "./config/database/config.json"
+    },
+    "logger": {
+      "enabled": true,
+      "configPath": "./config/logger/config.json"
+    },
+    "monitor": {
+      "enabled": true,
+      "configPath": "./config/monitor/config.json"
+    },
+    "update": {
+      "enabled": true,
+      "configPath": "./config/update/config.json"
+    },
+    "api": {
+      "enabled": false,
+      "configPath": "./config/api/config.json"
+    },
+    "docker": {
+      "enabled": false,
+      "configPath": "./config/docker/config.json"
+    },
+    "install": {
+      "enabled": true,
+      "configPath": "./config/install/config.json"
+    },
+    "test": {
+      "enabled": true,
+      "configPath": "./config/test/config.json"
+    }
+  },
+  "paths": {
+    "data": "./data",
+    "logs": "./logs",
+    "backups": "./backups",
+    "config": "./config",
+    "src": "./src"
+  },
+  "debug": false,
+  "maintenance": false,
+  "logger": {
+    "level": "info",
+    "enableConsole": true,
+    "enableFile": true,
+    "directory": "./logs",
+    "maxSize": "10m",
+    "maxFiles": 10,
+    "format": "json",
+    "categories": {
+      "system": {
+        "level": "info"
+      },
+      "database": {
+        "level": "info"
+      },
+      "bot": {
+        "level": "info"
+      },
+      "api": {
+        "level": "info"
+      },
+      "commands": {
+        "level": "info"
+      },
+      "events": {
+        "level": "info"
+      },
+      "monitor": {
+        "level": "info"
+      }
+    },
+    "rotation": {
+      "enabled": true,
+      "interval": "1d",
+      "maxAge": "30d"
+    }
+  }
+}

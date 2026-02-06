@@ -1,5 +1,5 @@
-const { BaseManager } = require('../base.manager');
-const { LoggerManager } = require('../logger/manager');
+const { BaseManager } = require('../base/base.manager');
+const { LoggerManager } = require('../logger/logger.manager');
 const path = require('path');
 const fs = require('fs-extra');
 

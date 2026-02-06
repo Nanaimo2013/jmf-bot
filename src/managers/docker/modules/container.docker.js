@@ -10,14 +10,26 @@ class ContainerDocker {
     }
 
     async initialize(config) {
+        const logger = this.manager.logger;
+        
         try {
-            // Ensure config exists and has default values
-            config = config || {};
-            
-            // Initialize Docker with empty object if config.docker is undefined
-            this.docker = new Docker(config.docker || {});
-            await this.docker.ping();
-            logger.info('Docker container module initialized successfully');
+            // Check if Docker is available
+            try {
+                this.docker = new Docker();
+                
+                // Test connection
+                await this.docker.ping();
+                logger.info('Docker container module initialized successfully');
+            } catch (dockerError) {
+                logger.warn('Docker not available or not running:', dockerError.message);
+                logger.warn('Docker functionality will be disabled');
+                
+                // Set docker to null to indicate it's not available
+                this.docker = null;
+                
+                // Don't throw error, just continue with disabled functionality
+                return;
+            }
         } catch (error) {
             logger.error('Failed to initialize Docker container module:', error);
             throw error;
@@ -25,6 +37,11 @@ class ContainerDocker {
     }
 
     async runContainer(options = {}) {
+        // Check if Docker is available
+        if (!this.docker) {
+            throw new Error('Docker is not available or not running');
+        }
+        
         try {
             const containerOptions = {
                 Image: options.image,

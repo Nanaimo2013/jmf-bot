@@ -1,20 +1,19 @@
 /**
  * JMF Hosting Discord Bot - Console Formatter Module
- * Version: 1.1.0
- * Last Updated: 03/12/2025
+ * Version: 1.2.0
+ * Last Updated: 03/13/2025
  * 
- * This module handles formatting log messages for console output,
- * providing colorized and structured log messages with icons and
- * timestamps.
+ * This module provides console formatting for the logger manager.
+ * It formats log messages for console output with colors, icons, and sections.
  * 
  * © 2025 JMFHosting. All Rights Reserved.
  * Developed by Nanaimo2013 (https://github.com/Nanaimo2013)
  */
 
 const BaseModule = require('../../base/base.module');
-const chalk = require('chalk');
 const winston = require('winston');
-const figures = require('figures');
+const chalk = require('chalk');
+const util = require('util');
 
 class ConsoleFormatter extends BaseModule {
     /**
@@ -23,60 +22,72 @@ class ConsoleFormatter extends BaseModule {
      * @param {Object} [options] - Module options
      */
     constructor(manager, options = {}) {
-        super(manager, 'console', {
-            version: '1.1.0',
+        super(manager, {
+            name: 'console',
+            version: '1.2.0',
             defaultConfig: {
-                colorize: true,
                 showTimestamp: true,
-                showIcons: true,
-                showMeta: true,
                 timestampFormat: 'YYYY-MM-DD HH:mm:ss.SSS',
-                colors: {
-                    error: 'red',
-                    warn: 'yellow',
-                    info: 'green',
-                    debug: 'blue',
-                    trace: 'magenta',
-                    timestamp: 'gray',
-                    category: 'cyan',
-                    meta: 'gray'
-                }
+                showLevel: true,
+                showCategory: true,
+                showMeta: false,
+                showIcons: true,
+                colors: true,
+                indentMultiline: true,
+                groupByCategory: true,
+                sectionHeaders: true,
+                deduplicate: true,
+                deduplicationWindow: 1000
             },
             ...options
         });
 
-        this.name = 'console';
-        this.type = 'formatter';
-
-        // Extended color scheme
+        // Set up colors
         this.colors = {
             error: chalk.red,
             warn: chalk.yellow,
-            info: chalk.green,
-            debug: chalk.blue,
+            info: chalk.cyan,
+            debug: chalk.green,
             trace: chalk.magenta,
             success: chalk.green,
+            fatal: chalk.red.bold,
+            category: chalk.blue.bold,
             timestamp: chalk.gray,
-            category: chalk.cyan,
             meta: chalk.gray,
-            separator: chalk.gray,
-            label: chalk.white
+            section: {
+                startup: chalk.cyan.bold,
+                managers: chalk.green.bold,
+                modules: chalk.yellow.bold,
+                database: chalk.blue.bold,
+                bot: chalk.magenta.bold,
+                shutdown: chalk.red.bold
+            }
         };
 
-        // Extended symbols
+        // Set up symbols
         this.symbols = {
-            error: figures.cross,
-            warn: figures.warning,
-            info: figures.info,
-            debug: figures.bullet,
-            trace: figures.magnifyingGlass,
-            success: figures.tick,
-            arrow: figures.arrowRight,
-            pointer: figures.pointer,
-            line: figures.line,
-            ellipsis: figures.ellipsis,
-            fatal: '☠️'
+            error: '❌',
+            warn: '⚠️',
+            info: 'ℹ️',
+            debug: '🔍',
+            trace: '🔎',
+            success: '✅',
+            fatal: '💀',
+            performance: '⚡',
+            security: '🔒',
+            network: '🌐',
+            database: '💾',
+            cache: '📦',
+            config: '⚙️',
+            system: '🖥️',
+            test: '🧪',
+            dev: '👨‍💻'
         };
+
+        // Track recent messages for deduplication
+        this.recentMessages = new Map();
+        this.currentSection = null;
+        this.categoryGroups = new Map();
     }
 
     /**
@@ -85,7 +96,8 @@ class ConsoleFormatter extends BaseModule {
      */
     async initialize() {
         await super.initialize();
-        this.manager.info('logger', 'Console formatter module initialized');
+        this.manager.info('console', 'Initializing module...');
+        this.manager.info('console', 'Γ£ô Module initialized successfully');
     }
 
     /**
@@ -116,8 +128,37 @@ class ConsoleFormatter extends BaseModule {
             timestamp,
             level,
             message,
+            section,
             ...meta
         } = info;
+
+        // Check for section change
+        if (section && this.getConfig('sectionHeaders') && section !== this.currentSection) {
+            this.currentSection = section;
+            const sectionConfig = this.manager.getConfig(`sections.${section}`) || {};
+            const sectionTitle = sectionConfig.title || `=== ${section.toUpperCase()} ===`;
+            const sectionColor = sectionConfig.color || 'cyan';
+            
+            // Return section header
+            return `\n${this.colors.section[sectionColor] ? 
+                this.colors.section[sectionColor](sectionTitle) : 
+                chalk[sectionColor](sectionTitle)}`;
+        }
+
+        // Check for duplicate message if deduplication is enabled
+        if (this.getConfig('deduplicate')) {
+            const msgKey = `${category}:${level}:${message}`;
+            const now = Date.now();
+            const lastSeen = this.recentMessages.get(msgKey);
+            
+            if (lastSeen && (now - lastSeen) < this.getConfig('deduplicationWindow')) {
+                // Skip duplicate message
+                this.recentMessages.set(msgKey, now);
+                return null;
+            }
+            
+            this.recentMessages.set(msgKey, now);
+        }
 
         // Build the log parts
         const parts = [];
@@ -161,6 +202,7 @@ class ConsoleFormatter extends BaseModule {
             const filteredMeta = { ...meta };
             delete filteredMeta.icon;
             delete filteredMeta.category;
+            delete filteredMeta.section;
             
             if (Object.keys(filteredMeta).length > 0) {
                 parts.push(this.formatMeta(filteredMeta));
@@ -172,12 +214,11 @@ class ConsoleFormatter extends BaseModule {
 
     /**
      * Format a timestamp
-     * @param {string} timestamp - Timestamp
+     * @param {string} timestamp - Timestamp string
      * @returns {string} Formatted timestamp
      */
     formatTimestamp(timestamp) {
-        const date = new Date(timestamp);
-        return date.toISOString().replace('T', ' ').split('.')[0];
+        return this.colors.timestamp(`[${timestamp}]`);
     }
 
     /**
@@ -202,59 +243,55 @@ class ConsoleFormatter extends BaseModule {
     }
 
     /**
-     * Format a message content
+     * Format message content
      * @param {string} message - Message content
      * @param {string} level - Log level
      * @returns {string} Formatted message
      */
     formatMessageContent(message, level) {
-        const color = this.colors[level] || this.colors.info;
-        
-        // Handle multi-line messages
-        if (message.includes('\n')) {
-            const lines = message.split('\n');
-            const firstLine = color(lines[0]);
-            const restLines = lines
-                .slice(1)
-                .map(line => `${' '.repeat(20)}${this.symbols.line} ${color(line)}`)
-                .join('\n');
-            return `${firstLine}\n${restLines}`;
+        // Handle different message types
+        if (message === null || message === undefined) {
+            return String(message);
         }
         
-        return color(message);
+        if (typeof message === 'object') {
+            try {
+                // Try to use JSON.stringify first for cleaner output
+                return JSON.stringify(message, null, 2);
+            } catch (err) {
+                // Fall back to util.inspect if JSON.stringify fails
+                return util.inspect(message, { colors: true, depth: 3 });
+            }
+        }
+        
+        if (typeof message !== 'string') {
+            return String(message);
+        }
+        
+        // Format based on level
+        switch (level) {
+            case 'error':
+                return this.formatError(message);
+            case 'warn':
+                return this.formatWarning(message);
+            case 'info':
+                return this.formatInfo(message);
+            case 'debug':
+                return this.formatDebug(message);
+            case 'trace':
+                return this.formatTrace(message);
+            default:
+                return message;
+        }
     }
 
     /**
      * Format metadata
-     * @param {Object} meta - Metadata
+     * @param {Object} meta - Metadata object
      * @returns {string} Formatted metadata
      */
     formatMeta(meta) {
-        const formatValue = (value) => {
-            if (typeof value === 'object' && value !== null) {
-                if (value instanceof Error) {
-                    return value.stack || value.message;
-                }
-                return JSON.stringify(value, null, 2);
-            }
-            return value;
-        };
-
-        const metaStrings = Object.entries(meta).map(([key, value]) => {
-            const formattedValue = formatValue(value);
-            return `${this.colors.label(key)}=${this.colors.meta(formattedValue)}`;
-        });
-
-        return this.colors.meta(`(${metaStrings.join(', ')})`);
-    }
-
-    /**
-     * Format a success message
-     * @param {string} message - Message content
-     * @returns {string} Formatted success message
-     */
-    formatSuccess(message) {
-        return `${this.symbols.success} ${this.colors.success(message)}`;
+        return this.colors.meta(util.inspect(meta, { colors: true, depth: 2 }));
     }
 
     /**
@@ -273,6 +310,15 @@ class ConsoleFormatter extends BaseModule {
      */
     formatWarning(message) {
         return `${this.symbols.warn} ${this.colors.warn(message)}`;
+    }
+
+    /**
+     * Format an info message
+     * @param {string} message - Message content
+     * @returns {string} Formatted info message
+     */
+    formatInfo(message) {
+        return `${this.symbols.info} ${this.colors.info(message)}`;
     }
 
     /**
@@ -303,83 +349,31 @@ class ConsoleFormatter extends BaseModule {
     }
 
     /**
-     * Format a list of items
-     * @param {Array} items - List items
-     * @param {Object} options - Formatting options
-     * @returns {string} Formatted list
+     * Format a success message
+     * @param {string} message - Message content
+     * @returns {string} Formatted success message
      */
-    formatList(items, options = {}) {
-        const { 
-            bullet = '•', 
-            indent = 2, 
-            color = null 
-        } = options;
-        
-        const colorFn = color ? this.colors[color] || (s => s) : (s => s);
-        const indentStr = ' '.repeat(indent);
-        
-        return items
-            .map(item => `${indentStr}${bullet} ${colorFn(item)}`)
-            .join('\n');
+    formatSuccess(message) {
+        return `${this.symbols.success} ${this.colors.success(message)}`;
     }
 
     /**
-     * Format a section with title and content
-     * @param {string} title - Section title
-     * @param {string} content - Section content
-     * @param {Object} options - Formatting options
-     * @returns {string} Formatted section
+     * Format a performance message
+     * @param {string} message - Message content
+     * @param {number} duration - Operation duration
+     * @returns {string} Formatted performance message
      */
-    formatSection(title, content, options = {}) {
-        const { 
-            titleColor = 'info', 
-            contentIndent = 2 
-        } = options;
-        
-        const colorFn = this.colors[titleColor] || this.colors.info;
-        const indentStr = ' '.repeat(contentIndent);
-        const contentLines = content.split('\n').map(line => `${indentStr}${line}`).join('\n');
-        
-        return `${colorFn(`=== ${title} ===`)}\n${contentLines}`;
+    formatPerformance(message, duration) {
+        return `${this.symbols.performance} ${this.colors.info(message)} (${duration}ms)`;
     }
 
     /**
-     * Format a progress bar
-     * @param {number} current - Current value
-     * @param {number} total - Total value
-     * @param {Object} options - Formatting options
-     * @returns {string} Formatted progress bar
+     * Format a security message
+     * @param {string} message - Message content
+     * @returns {string} Formatted security message
      */
-    formatProgressBar(current, total, options = {}) {
-        const { 
-            width = 20, 
-            completeChar = '█', 
-            incompleteChar = '░',
-            color = 'info'
-        } = options;
-        
-        const percentage = Math.min(100, Math.floor((current / total) * 100));
-        const filledWidth = Math.floor((width * current) / total);
-        const emptyWidth = width - filledWidth;
-        
-        const bar = completeChar.repeat(filledWidth) + incompleteChar.repeat(emptyWidth);
-        const colorFn = this.colors[color] || this.colors.info;
-        
-        return `${colorFn(bar)} ${percentage}% (${current}/${total})`;
-    }
-
-    /**
-     * Get the status of the console formatter module
-     * @returns {Promise<Object>} Status information
-     */
-    async getStatus() {
-        const status = await super.getStatus();
-        return {
-            ...status,
-            colorize: this.getConfig('colorize'),
-            showTimestamp: this.getConfig('showTimestamp'),
-            showIcons: this.getConfig('showIcons')
-        };
+    formatSecurity(message) {
+        return `${this.symbols.security} ${this.colors.info(message)}`;
     }
 }
 

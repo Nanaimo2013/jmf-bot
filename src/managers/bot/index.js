@@ -1,10 +1,9 @@
 /**
- * JMF Hosting Discord Bot - Bot Manager
+ * JMF Hosting Discord Bot - Bot Manager Index
  * Version: 1.0.0
- * Last Updated: 03/12/2025
+ * Last Updated: 03/14/2025
  * 
- * This manager handles the Discord bot functionality, including commands,
- * events, and other Discord-specific features.
+ * This file exports the bot manager.
  * 
  * © 2025 JMFHosting. All Rights Reserved.
  * Developed by Nanaimo2013 (https://github.com/Nanaimo2013)
@@ -13,13 +12,13 @@
 const BotManager = require('./bot.manager');
 
 /**
- * Create and initialize a new Bot Manager instance
- * @param {Object} config - Configuration options
- * @returns {Promise<BotManager>} Initialized Bot Manager instance
+ * Create a new bot manager
+ * @param {Object} bot - The bot instance
+ * @returns {Promise<BotManager>} - The initialized bot manager
  */
-async function createBotManager(config = {}) {
-    const manager = new BotManager();
-    await manager.initialize(config);
+async function createBotManager(bot) {
+    const manager = new BotManager(bot);
+    await manager.initialize();
     return manager;
 }
 

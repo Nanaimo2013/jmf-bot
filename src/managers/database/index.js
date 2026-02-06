@@ -1,30 +1,28 @@
 /**
- * JMF Hosting Discord Bot - Database Manager Index
- * Version: 1.2.0
+ * JMF Hosting Discord Bot - Database Manager
+ * Version: 1.0.0
  * Last Updated: 03/12/2025
  * 
- * This file exports the database manager and provides a factory function
- * for creating database manager instances.
+ * This manager handles all database operations for the bot.
+ * It provides a modular database system with support for SQLite and MySQL.
  * 
  * © 2025 JMFHosting. All Rights Reserved.
  * Developed by Nanaimo2013 (https://github.com/Nanaimo2013)
  */
 
 const DatabaseManager = require('./database.manager');
-const path = require('path');
 
 /**
- * Create a new database manager
- * @param {Object} [config={}] - Configuration options
- * @returns {Promise<DatabaseManager>} Initialized database manager
+ * Create and initialize a new Database Manager instance
+ * @param {Object} bot - The main bot instance
+ * @returns {Promise<DatabaseManager>} Initialized Database Manager instance
  */
-async function createDatabaseManager(config = {}) {
-    const manager = new DatabaseManager();
-    await manager.initialize(config);
+async function createDatabaseManager(bot) {
+    const manager = new DatabaseManager(bot);
+    await manager.initialize();
     return manager;
 }
 
-// Export the database manager and factory function
 module.exports = {
     DatabaseManager,
     createDatabaseManager
@@ -33,6 +31,7 @@ module.exports = {
 // Run the CLI if this file is executed directly
 if (require.main === module) {
     const LoggerManager = require('../logger/logger.manager');
+    const path = require('path');
     const logger = new LoggerManager();
     
     // Initialize logger

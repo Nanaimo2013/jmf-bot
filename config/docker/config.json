@@ -1,0 +1,57 @@
+{
+  "enabled": false,
+  "socketPath": "/var/run/docker.sock",
+  "containers": {
+    "bot": {
+      "image": "jmf-bot:latest",
+      "name": "jmf-bot",
+      "restart": "unless-stopped",
+      "volumes": [
+        "./config:/app/config",
+        "./data:/app/data",
+        "./logs:/app/logs"
+      ],
+      "environment": {
+        "NODE_ENV": "production"
+      },
+      "ports": [],
+      "network": "jmf-network"
+    },
+    "database": {
+      "enabled": false,
+      "image": "mysql:8",
+      "name": "jmf-db",
+      "restart": "unless-stopped",
+      "volumes": [
+        "./data/mysql:/var/lib/mysql"
+      ],
+      "environment": {
+        "MYSQL_ROOT_PASSWORD": "CHANGE_THIS_PASSWORD",
+        "MYSQL_DATABASE": "jmf_bot",
+        "MYSQL_USER": "jmf_bot",
+        "MYSQL_PASSWORD": "CHANGE_THIS_PASSWORD"
+      },
+      "ports": [
+        "3306:3306"
+      ],
+      "network": "jmf-network"
+    }
+  },
+  "networks": {
+    "jmf-network": {
+      "driver": "bridge"
+    }
+  },
+  "monitoring": {
+    "enabled": false,
+    "interval": 60000
+  },
+  "autoRestart": {
+    "enabled": false,
+    "conditions": {
+      "memoryUsage": 90,
+      "cpuUsage": 90,
+      "errorCount": 10
+    }
+  }
+} 

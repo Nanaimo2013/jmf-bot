@@ -87,7 +87,14 @@ class StatisticsManager extends BaseModule {
         await super.initialize();
         
         // Create data directory if it doesn't exist
-        const dataPath = this.getConfig('dataPath');
+        let dataPath = this.getConfig('dataPath');
+        
+        // Use default path if not configured
+        if (!dataPath) {
+            dataPath = path.join(process.cwd(), 'data', 'statistics');
+            this.logger.warn(this.name, `Statistics data path not configured, using default: ${dataPath}`);
+        }
+        
         try {
             await fs.access(dataPath);
         } catch (error) {

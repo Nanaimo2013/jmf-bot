@@ -1,0 +1,39 @@
+{
+    "enabled": true,
+    "channel": {
+        "id": "1348577178891190333",
+        "name": "join-leave"
+    },
+    "message": {
+        "content": "**{user}** has left the server. We hope to see them again soon!",
+        "embed": {
+            "enabled": true,
+            "color": "#FF0000",
+            "title": "Member Left",
+            "description": "{username} has left the server",
+            "thumbnail": "{userAvatar}",
+            "fields": [
+                {
+                    "name": "Join Date",
+                    "value": "Joined {joinDate}",
+                    "inline": true
+                },
+                {
+                    "name": "Time in Server",
+                    "value": "{joinDuration}",
+                    "inline": true
+                }
+            ]
+        }
+    },
+    "features": {
+        "showRoles": true,
+        "showJoinDuration": true,
+        "logToModChannel": true
+    },
+    "cleanup": {
+        "removeCustomRoles": true,
+        "backupUserData": true,
+        "retentionPeriod": "30d"
+    }
+}

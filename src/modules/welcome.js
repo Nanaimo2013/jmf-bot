@@ -1,281 +1,343 @@
 /**
- * JMF Hosting Discord Bot
+ * JMF Hosting Discord Bot - Welcome Module
+ * Version: 1.0.0
+ * Last Updated: 03/14/2025
+ * 
+ * This module handles welcome messages for new members.
  * 
  * © 2025 JMFHosting. All Rights Reserved.
  * Developed by Nanaimo2013 (https://github.com/Nanaimo2013)
- * 
- * This source code is licensed under the MIT license found in the
- * LICENSE file in the root directory of this source tree.
  */
 
-const { EmbedBuilder, ChannelType, PermissionFlagsBits } = require('discord.js');
-const config = require('../../config.json');
-const logger = require('../utils/logger');
+const Module = require('./base.module');
+const { 
+    EmbedBuilder, 
+    ActionRowBuilder, 
+    ButtonBuilder, 
+    ButtonStyle,
+    AttachmentBuilder
+} = require('discord.js');
+const path = require('path');
 
-/**
- * Welcome module for handling new member joins and leaves
- */
-module.exports = {
-  name: 'welcome',
-  
-  /**
-   * Initialize the welcome module
-   * @param {Client} client - The Discord.js client
-   */
-  init(client) {
-    logger.info('Welcome module initialized');
-    
-    // NOTE: This module is currently disabled to prevent duplicate welcome/leave messages.
-    // The welcome and leave messages are now handled by the guildMemberAdd and guildMemberRemove events.
-    
-    // Uncomment the code below to re-enable this module if needed
-    /*
-    // Handle new member joins
-    client.on('guildMemberAdd', async (member) => {
-      try {
-        await this.handleNewMember(member);
-      } catch (error) {
-        logger.error(`Error handling new member: ${error.message}`);
-      }
-    });
+// Try to import canvas, but handle gracefully if it fails
+let Canvas = null;
+let canvasAvailable = false;
 
-    // Handle member leaves
-    client.on('guildMemberRemove', async (member) => {
-      try {
-        await this.handleMemberLeave(member);
-      } catch (error) {
-        logger.error(`Error handling member leave: ${error.message}`);
-      }
-    });
-    */
+try {
+    Canvas = require('canvas');
+    canvasAvailable = true;
+} catch (error) {
+    console.warn('Canvas module not available, welcome images will be disabled:', error.message);
+    canvasAvailable = false;
+}
 
-    // Keep ban handling active as it's not duplicated elsewhere
-    client.on('guildBanAdd', async (ban) => {
-      try {
-        await this.handleMemberBan(ban);
-      } catch (error) {
-        logger.error(`Error handling member ban: ${error.message}`);
-      }
-    });
-  },
-
-  /**
-   * Handle a new member joining
-   * @param {GuildMember} member - The member that joined
-   */
-  async handleNewMember(member) {
-    // Check if member is a bot
-    if (member.user.bot) {
-      const botRole = member.guild.roles.cache.find(role => role.name === config.roles.bot);
-      if (botRole) {
-        await member.roles.add(botRole);
-        logger.debug(`Assigned Bot role to new bot: ${member.user.tag}`);
-      }
-      return;
-    }
-
-    // Assign the unverified role
-    const unverifiedRole = member.guild.roles.cache.find(role => role.name === config.roles.unverified);
-    if (unverifiedRole) {
-      await member.roles.add(unverifiedRole);
-      logger.debug(`Assigned Unverified role to new member: ${member.user.tag}`);
-    } else {
-      logger.warn(`Unverified role not found for guild: ${member.guild.name}`);
-    }
-    
-    // Send welcome messages
-    await this.sendWelcomeMessages(member);
-    
-    // Log the join in the join/leave channel
-    const joinLeaveChannel = member.guild.channels.cache.find(
-      channel => channel.name === config.channels.joinLeave && channel.type === ChannelType.GuildText
-    );
-
-    if (joinLeaveChannel) {
-      const joinEmbed = new EmbedBuilder()
-        .setColor(config.embedColor)
-        .setAuthor({ name: 'Member Joined', iconURL: member.user.displayAvatarURL({ dynamic: true }) })
-        .setDescription(`${member.toString()} joined the server`)
-        .addFields(
-          { name: 'Account Created', value: `<t:${Math.floor(member.user.createdTimestamp / 1000)}:R>`, inline: true },
-          { name: 'Member Count', value: member.guild.memberCount.toString(), inline: true },
-          { name: 'Account Age', value: this.getAccountAge(member.user.createdTimestamp), inline: true }
-        )
-        .setTimestamp();
-
-      await joinLeaveChannel.send({ embeds: [joinEmbed] });
-    }
-
-    // Check for raid protection
-    await this.checkRaidProtection(member);
-  },
-
-  /**
-   * Send welcome messages to the welcome channel and DM
-   * @param {GuildMember} member - The new member
-   */
-  async sendWelcomeMessages(member) {
-    // Send welcome message to the welcome channel
-    const welcomeChannel = member.guild.channels.cache.find(
-      channel => channel.name === config.channels.welcome && channel.type === ChannelType.GuildText
-    );
-    
-    if (welcomeChannel) {
-      const welcomeEmbed = new EmbedBuilder()
-        .setColor(config.embedColor)
-        .setTitle(`Welcome to JMF Hosting!`)
-        .setDescription(config.welcomeMessage?.replace('{user}', member.toString()) || `Welcome ${member.toString()} to JMF Hosting!`)
-        .setThumbnail(member.user.displayAvatarURL({ dynamic: true, size: 256 }))
-        .addFields(
-          { name: '📜 Rules', value: 'Please read our server rules to ensure a positive experience for everyone.' },
-          { name: '✅ Verification', value: 'React to the message in the verification channel to gain access to the server.' },
-          { name: '🎮 Game Servers', value: 'We offer hosting for Minecraft, Rust, ARK, and more!' },
-          { name: '🎫 Support', value: 'Need help? Create a ticket in our support channel!' },
-          { name: '🎯 Getting Started', value: 'Check out our tutorials and guides to get started with our services.' }
-        )
-        .setImage('https://i.imgur.com/XaFYhoO.png')
-        .setTimestamp()
-        .setFooter({ text: config.footerText });
-      
-      await welcomeChannel.send({ embeds: [welcomeEmbed] });
-      logger.debug(`Sent welcome message for new member: ${member.user.tag}`);
-    }
-
-    // Send DM to new member
-    try {
-      const verificationChannel = member.guild.channels.cache.find(
-        channel => channel.name === config.channels.verification
-      );
-      const rulesChannel = member.guild.channels.cache.find(
-        channel => channel.name === 'rules'
-      );
-      const ticketChannel = member.guild.channels.cache.find(
-        channel => channel.name === config.channels.createTicket
-      );
-
-      const dmEmbed = new EmbedBuilder()
-        .setColor(config.embedColor)
-        .setTitle('Welcome to JMF Hosting!')
-        .setDescription([
-          `Hi ${member.user.username}! Welcome to the JMF Hosting Discord server.`,
-          '',
-          '**To get started:**',
-          `1️⃣ Read our rules in ${rulesChannel ? rulesChannel.toString() : '#rules'}`,
-          `2️⃣ Verify yourself in ${verificationChannel ? verificationChannel.toString() : '#verification'}`,
-          '3️⃣ Check out our services and special offers',
-          '4️⃣ Join our community events and giveaways',
-          '',
-          'Need help? Our support team is available 24/7!',
-          `Simply create a ticket in ${ticketChannel ? ticketChannel.toString() : '#create-ticket'}`
-        ].join('\n'))
-        .addFields(
-          { name: '🌟 Premium Features', value: 'Check out our premium tiers for exclusive benefits!' },
-          { name: '🎮 Game Servers', value: 'We support a wide range of popular games with high-performance servers.' },
-          { name: '💎 New Member Offer', value: 'Use code `WELCOME` for 10% off your first month!' }
-        )
-        .setTimestamp()
-        .setFooter({ text: config.footerText });
-      
-      await member.send({ embeds: [dmEmbed] });
-      logger.debug(`Sent welcome DM to new member: ${member.user.tag}`);
-    } catch (error) {
-      logger.warn(`Could not send DM to new member: ${member.user.tag}. Error: ${error.message}`);
-    }
-  },
-
-  /**
-   * Handle a member leaving
-   * @param {GuildMember} member - The member that left
-   */
-  async handleMemberLeave(member) {
-    const joinLeaveChannel = member.guild.channels.cache.find(
-      channel => channel.name === config.channels.joinLeave && channel.type === ChannelType.GuildText
-    );
-
-    if (joinLeaveChannel) {
-      const roles = member.roles.cache
-        .filter(role => role.name !== '@everyone')
-        .map(role => role.name)
-        .join(', ');
-
-      const leaveEmbed = new EmbedBuilder()
-        .setColor('#ff6b6b')
-        .setAuthor({ name: 'Member Left', iconURL: member.user.displayAvatarURL({ dynamic: true }) })
-        .setDescription(`${member.user.tag} left the server`)
-        .addFields(
-          { name: 'Joined Server', value: `<t:${Math.floor(member.joinedTimestamp / 1000)}:R>`, inline: true },
-          { name: 'Member Count', value: member.guild.memberCount.toString(), inline: true },
-          { name: 'Roles', value: roles || 'None', inline: false }
-        )
-        .setTimestamp();
-
-      await joinLeaveChannel.send({ embeds: [leaveEmbed] });
-    }
-  },
-
-  /**
-   * Handle a member being banned
-   * @param {GuildBan} ban - The ban information
-   */
-  async handleMemberBan(ban) {
-    const modLogsChannel = ban.guild.channels.cache.find(
-      channel => channel.name === config.channels.moderationLogs
-    );
-
-    if (modLogsChannel) {
-      const banEmbed = new EmbedBuilder()
-        .setColor('#ff0000')
-        .setAuthor({ name: 'Member Banned', iconURL: ban.user.displayAvatarURL({ dynamic: true }) })
-        .setDescription(`${ban.user.tag} was banned from the server`)
-        .addFields(
-          { name: 'Reason', value: ban.reason || 'No reason provided' }
-        )
-        .setTimestamp();
-
-      await modLogsChannel.send({ embeds: [banEmbed] });
-    }
-  },
-
-  /**
-   * Get formatted account age string
-   * @param {number} timestamp - Account creation timestamp
-   * @returns {string} Formatted age string
-   */
-  getAccountAge(timestamp) {
-    const age = Date.now() - timestamp;
-    const days = Math.floor(age / (1000 * 60 * 60 * 24));
-    return `${days} days old`;
-  },
-
-  /**
-   * Check for potential raid based on join patterns
-   * @param {GuildMember} member - The new member
-   */
-  async checkRaidProtection(member) {
-    const RAID_THRESHOLD = 10; // Number of joins within time window to trigger alert
-    const TIME_WINDOW = 60000; // Time window in milliseconds (1 minute)
-    
-    const recentJoins = member.guild.members.cache
-      .filter(m => (Date.now() - m.joinedTimestamp) < TIME_WINDOW)
-      .size;
-
-    if (recentJoins >= RAID_THRESHOLD) {
-      const modLogsChannel = member.guild.channels.cache.find(
-        channel => channel.name === config.channels.moderationLogs
-      );
-
-      if (modLogsChannel) {
-        const alertEmbed = new EmbedBuilder()
-          .setColor('#ff0000')
-          .setTitle('⚠️ Potential Raid Detected')
-          .setDescription(`${recentJoins} members joined in the last minute`)
-          .setTimestamp();
-
-        await modLogsChannel.send({ 
-          content: `<@&${member.guild.roles.cache.find(r => r.name === config.roles.moderator)?.id}>`,
-          embeds: [alertEmbed]
+class WelcomeModule extends Module {
+    /**
+     * Create a new welcome module
+     */
+    constructor() {
+        super({
+            name: 'welcome',
+            description: 'Handles welcome messages for new members',
+            enabled: true,
+            dependencies: ['database', 'logger']
         });
-      }
+
+        this.welcomeChannel = null;
+        this.leaveChannel = null;
+        this.welcomeMessage = 'Welcome to {server}, {user}!';
+        this.leaveMessage = '{user} has left {server}.';
+        this.welcomeImage = true;
+        this.leaveImage = false;
+        this.verifiedUsers = new Set();
     }
-  }
-};
+
+    /**
+     * Initialize the welcome module
+     */
+    async initialize() {
+        try {
+            await super.initialize();
+            
+            // Load configuration
+            await this.loadConfig();
+            
+            // Load verified users from database
+            await this.loadVerifiedUsers();
+            
+            this.logger.info('Welcome module initialized successfully');
+            return true;
+        } catch (error) {
+            this.logger.error(`Failed to initialize welcome module: ${error.message}`);
+            return false;
+        }
+    }
+
+    /**
+     * Load configuration from database
+     */
+    async loadConfig() {
+        try {
+            if (!this.database) {
+                this.logger.warn('Database not available, using default configuration');
+                return;
+            }
+
+            const config = await this.database.query('SELECT * FROM welcome_config WHERE guild_id = ?', ['global']);
+            if (config.length > 0) {
+                const settings = config[0];
+                this.welcomeChannel = settings.welcome_channel;
+                this.leaveChannel = settings.leave_channel;
+                this.welcomeMessage = settings.welcome_message || this.welcomeMessage;
+                this.leaveMessage = settings.leave_message || this.leaveMessage;
+                this.welcomeImage = settings.welcome_image === 1;
+                this.leaveImage = settings.leave_image === 1;
+            }
+        } catch (error) {
+            this.logger.error(`Failed to load welcome configuration: ${error.message}`);
+        }
+    }
+
+    /**
+     * Load verified users from database
+     */
+    async loadVerifiedUsers() {
+        try {
+            if (!this.database) {
+                this.logger.warn('Database not available, skipping verified users load');
+                return;
+            }
+
+            const users = await this.database.query('SELECT user_id FROM verifications WHERE status = ?', ['verified']);
+            this.verifiedUsers = new Set(users.map(u => u.user_id));
+        } catch (error) {
+            this.logger.error(`Failed to load verified users: ${error.message}`);
+        }
+    }
+
+    /**
+     * Handle new member join
+     */
+    async handleMemberJoin(member) {
+        try {
+            if (!this.welcomeChannel) {
+                this.logger.warn('Welcome channel not configured');
+                return;
+            }
+
+            const channel = member.guild.channels.cache.get(this.welcomeChannel);
+            if (!channel) {
+                this.logger.warn(`Welcome channel ${this.welcomeChannel} not found`);
+                return;
+            }
+
+            // Create welcome message
+            const message = this.welcomeMessage
+                .replace(/{user}/g, member.user.toString())
+                .replace(/{server}/g, member.guild.name)
+                .replace(/{memberCount}/g, member.guild.memberCount.toString());
+
+            const embed = new EmbedBuilder()
+                .setTitle('Welcome!')
+                .setDescription(message)
+                .setColor('#00ff00')
+                .setThumbnail(member.user.displayAvatarURL({ dynamic: true }))
+                .setTimestamp();
+
+            // Add welcome image if enabled and canvas is available
+            if (this.welcomeImage && canvasAvailable) {
+                try {
+                    const imageBuffer = await this.createWelcomeImage(member);
+                    const attachment = new AttachmentBuilder(imageBuffer, { name: 'welcome.png' });
+                    embed.setImage('attachment://welcome.png');
+                    
+                    await channel.send({ embeds: [embed], files: [attachment] });
+                } catch (error) {
+                    this.logger.error(`Failed to create welcome image: ${error.message}`);
+                    await channel.send({ embeds: [embed] });
+                }
+            } else {
+                await channel.send({ embeds: [embed] });
+            }
+
+            // Add verification button if user is not verified
+            if (!this.verifiedUsers.has(member.id)) {
+                const row = new ActionRowBuilder()
+                    .addComponents(
+                        new ButtonBuilder()
+                            .setCustomId(`verify_${member.id}`)
+                            .setLabel('Verify')
+                            .setStyle(ButtonStyle.Primary)
+                            .setEmoji('✅')
+                    );
+
+                await channel.send({ 
+                    content: `${member.user}, please verify yourself to access all server features!`,
+                    components: [row] 
+                });
+            }
+
+        } catch (error) {
+            this.logger.error(`Failed to handle member join: ${error.message}`);
+        }
+    }
+
+    /**
+     * Handle member leave
+     */
+    async handleMemberLeave(member) {
+        try {
+            if (!this.leaveChannel) {
+                return;
+            }
+
+            const channel = member.guild.channels.cache.get(this.leaveChannel);
+            if (!channel) {
+                this.logger.warn(`Leave channel ${this.leaveChannel} not found`);
+                return;
+            }
+
+            const message = this.leaveMessage
+                .replace(/{user}/g, member.user.toString())
+                .replace(/{server}/g, member.guild.name)
+                .replace(/{memberCount}/g, member.guild.memberCount.toString());
+
+            const embed = new EmbedBuilder()
+                .setTitle('Member Left')
+                .setDescription(message)
+                .setColor('#ff0000')
+                .setThumbnail(member.user.displayAvatarURL({ dynamic: true }))
+                .setTimestamp();
+
+            await channel.send({ embeds: [embed] });
+
+        } catch (error) {
+            this.logger.error(`Failed to handle member leave: ${error.message}`);
+        }
+    }
+
+    /**
+     * Create welcome image (only if canvas is available)
+     */
+    async createWelcomeImage(member) {
+        if (!canvasAvailable || !Canvas) {
+            throw new Error('Canvas not available');
+        }
+
+        const canvas = Canvas.createCanvas(800, 300);
+        const ctx = canvas.getContext('2d');
+
+        // Background gradient
+        const gradient = ctx.createLinearGradient(0, 0, 800, 300);
+        gradient.addColorStop(0, '#667eea');
+        gradient.addColorStop(1, '#764ba2');
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, 800, 300);
+
+        // Welcome text
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 48px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('Welcome!', 400, 100);
+
+        // Username
+        ctx.font = '32px Arial';
+        ctx.fillText(member.user.username, 400, 150);
+
+        // Server name
+        ctx.font = '24px Arial';
+        ctx.fillText(`to ${member.guild.name}`, 400, 180);
+
+        // Member count
+        ctx.font = '20px Arial';
+        ctx.fillText(`Member #${member.guild.memberCount}`, 400, 220);
+
+        return canvas.toBuffer('image/png');
+    }
+
+    /**
+     * Handle verification button click
+     */
+    async handleVerification(interaction) {
+        try {
+            const userId = interaction.customId.split('_')[1];
+            
+            if (interaction.user.id !== userId) {
+                await interaction.reply({ 
+                    content: 'This verification button is not for you!', 
+                    ephemeral: true 
+                });
+                return;
+            }
+
+            // Add user to verified users
+            this.verifiedUsers.add(userId);
+            
+            // Update database
+            if (this.database) {
+                await this.database.query(
+                    'INSERT OR REPLACE INTO verifications (user_id, guild_id, status, verified_at) VALUES (?, ?, ?, ?)',
+                    [userId, interaction.guild.id, 'verified', new Date().toISOString()]
+                );
+            }
+
+            await interaction.reply({ 
+                content: '✅ You have been verified! Welcome to the server!', 
+                ephemeral: true 
+            });
+
+        } catch (error) {
+            this.logger.error(`Failed to handle verification: ${error.message}`);
+            await interaction.reply({ 
+                content: '❌ Verification failed. Please try again later.', 
+                ephemeral: true 
+            });
+        }
+    }
+
+    /**
+     * Start the welcome module
+     */
+    async start() {
+        try {
+            await super.start();
+            
+            // Set up event listeners
+            this.bot.on('guildMemberAdd', (member) => {
+                this.handleMemberJoin(member);
+            });
+
+            this.bot.on('guildMemberRemove', (member) => {
+                this.handleMemberLeave(member);
+            });
+
+            this.bot.on('interactionCreate', (interaction) => {
+                if (interaction.isButton() && interaction.customId.startsWith('verify_')) {
+                    this.handleVerification(interaction);
+                }
+            });
+
+            this.logger.info('Welcome module started successfully');
+            return true;
+        } catch (error) {
+            this.logger.error(`Failed to start welcome module: ${error.message}`);
+            return false;
+        }
+    }
+
+    /**
+     * Stop the welcome module
+     */
+    async stop() {
+        try {
+            await super.stop();
+            this.logger.info('Welcome module stopped');
+            return true;
+        } catch (error) {
+            this.logger.error(`Failed to stop welcome module: ${error.message}`);
+            return false;
+        }
+    }
+}
+
+module.exports = WelcomeModule;

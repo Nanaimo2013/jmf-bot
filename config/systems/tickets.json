@@ -1,0 +1,94 @@
+{
+    "enabled": true,
+    "category": {
+        "name": "🎫 TICKETS",
+        "position": 1
+    },
+    "roles": {
+        "support": [
+            "Owner",
+            "Administrator",
+            "Moderator",
+            "Support Staff"
+        ]
+    },
+    "limits": {
+        "maxTicketsPerUser": 3,
+        "cooldown": 300
+    },
+    "naming": {
+        "format": "ticket-{userId}",
+        "counter": true
+    },
+    "creation": {
+        "message": {
+            "content": "Welcome to your ticket, {user}! Please describe your issue and wait for a staff member to assist you.",
+            "embed": {
+                "enabled": true,
+                "color": "#00FF00",
+                "title": "Ticket Created",
+                "description": "A staff member will be with you shortly. In the meantime, please provide details about your issue.",
+                "fields": [
+                    {
+                        "name": "Category",
+                        "value": "{category}",
+                        "inline": true
+                    },
+                    {
+                        "name": "Ticket ID",
+                        "value": "#{ticketId}",
+                        "inline": true
+                    }
+                ]
+            }
+        },
+        "categories": [
+            {
+                "name": "General Support",
+                "description": "General questions and assistance",
+                "emoji": "❓"
+            },
+            {
+                "name": "Technical Support",
+                "description": "Technical issues and troubleshooting",
+                "emoji": "🔧"
+            },
+            {
+                "name": "Billing Support",
+                "description": "Billing and payment issues",
+                "emoji": "💰"
+            }
+        ]
+    },
+    "closing": {
+        "confirmation": true,
+        "timeout": 300,
+        "transcript": {
+            "enabled": true,
+            "format": "html",
+            "sendToUser": true
+        }
+    },
+    "logging": {
+        "enabled": true,
+        "channel": "ticket-logs",
+        "events": {
+            "created": true,
+            "closed": true,
+            "deleted": true,
+            "reopened": true
+        }
+    },
+    "buttons": {
+        "close": {
+            "label": "Close Ticket",
+            "style": "DANGER",
+            "emoji": "🔒"
+        },
+        "claim": {
+            "label": "Claim Ticket",
+            "style": "PRIMARY",
+            "emoji": "✋"
+        }
+    }
+}

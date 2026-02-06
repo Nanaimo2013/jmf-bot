@@ -14,6 +14,7 @@
 const path = require('path');
 const fs = require('fs').promises;
 const utils = require('./utilities');
+const configUtils = require('../../utils/config.utils');
 
 /**
  * Execute an operation with hooks, error handling, and performance tracking
@@ -276,35 +277,47 @@ async function loadModules(manager, options = { reload: false }) {
                 
                 // Load module
                 const moduleExport = require(modulePath);
-                const ModuleClass = moduleExport.default || moduleExport;
+                let ModuleClass = moduleExport.default || moduleExport;
                 
-                // Create module instance
-                const moduleInstance = new ModuleClass(manager);
-                
-                // Initialize module if it has an initialize method
-                if (typeof moduleInstance.initialize === 'function') {
-                    await moduleInstance.initialize();
+                // Check if ModuleClass is a constructor function
+                if (typeof ModuleClass !== 'function') {
+                    manager.logger.warn(`Module ${moduleName} does not export a constructor function`);
+                    // Skip this module but don't log it as an error
+                    continue;
                 }
                 
-                // Run after module load hook
-                await runHook(manager, 'afterModuleLoad', { module: moduleInstance });
-                
-                // Add module to manager
-                if (manager.modules instanceof Map) {
-                    manager.modules.set(moduleInstance.name, moduleInstance);
-                } else {
-                    manager.modules[moduleInstance.name] = moduleInstance;
+                try {
+                    // Create module instance
+                    const moduleInstance = new ModuleClass(manager);
+                    
+                    // Initialize module if it has an initialize method
+                    if (typeof moduleInstance.initialize === 'function') {
+                        await moduleInstance.initialize();
+                    }
+                    
+                    // Run after module load hook
+                    await runHook(manager, 'afterModuleLoad', { module: moduleInstance });
+                    
+                    // Add module to manager
+                    if (manager.modules instanceof Map) {
+                        manager.modules.set(moduleInstance.name, moduleInstance);
+                    } else {
+                        manager.modules[moduleInstance.name] = moduleInstance;
+                    }
+                    
+                    manager.logger.info(`Loaded module: ${moduleInstance.name}`);
+                    
+                    // Register module event listeners
+                    if (typeof moduleInstance.registerEventListeners === 'function') {
+                        moduleInstance.registerEventListeners();
+                    }
+                    
+                    // Emit module loaded event
+                    manager.emit('moduleLoaded', { module: moduleInstance.name });
+                } catch (error) {
+                    manager.logger.error(`Failed to initialize module ${moduleName}:`, error);
+                    throw error;
                 }
-                
-                manager.logger.info(manager.name, `Loaded module: ${moduleInstance.name}`);
-                
-                // Register module event listeners
-                if (typeof moduleInstance.registerEventListeners === 'function') {
-                    moduleInstance.registerEventListeners();
-                }
-                
-                // Emit module loaded event
-                manager.emit('moduleLoaded', { module: moduleInstance.name });
             } catch (error) {
                 manager.logger.error(manager.name, `Failed to load module: ${moduleName}`, error);
                 manager.emit('moduleError', { module: moduleName, error });
@@ -334,7 +347,25 @@ async function saveConfig(manager) {
         // Run before config save hook
         await runHook(manager, 'beforeConfigSave', { config: manager._config });
         
-        await utils.writeJsonFile(manager._configPath, manager._config);
+        // Get the main config file
+        let mainConfig = {};
+        try {
+            mainConfig = await utils.readJsonFile(manager._configPath);
+        } catch (error) {
+            if (error.code !== 'ENOENT') {
+                manager.logger.error(manager.name, `Failed to read configuration file:`, error);
+            }
+            // If file doesn't exist, we'll create it
+        }
+        
+        // Determine the section name
+        const sectionName = manager.name.replace('Manager', '').toLowerCase();
+        
+        // Update only the manager's section in the main config
+        mainConfig[sectionName] = manager._config;
+        
+        // Save the updated config
+        await configUtils.saveConfig(manager._configPath, mainConfig, false);
         
         // Run after config save hook
         await runHook(manager, 'afterConfigSave', { config: manager._config });
@@ -357,20 +388,34 @@ async function loadConfig(manager) {
         await runHook(manager, 'beforeConfigLoad');
         
         try {
-            const config = await utils.readJsonFile(manager._configPath);
-            manager._config = utils.deepMerge(manager._config, config);
+            // Read the main config file
+            const mainConfig = await utils.readJsonFile(manager._configPath);
+            
+            // Check if there's a specific section for this manager
+            if (mainConfig[manager.name]) {
+                // Use the manager-specific section
+                manager._config = configUtils.deepMerge(manager._config, mainConfig[manager.name]);
+                manager.logger.info(manager.name, `Configuration loaded from section '${manager.name}' in: ${manager._configPath}`);
+            } else {
+                // For backward compatibility, try to use the manager name as a key
+                // For example, 'api' section for ApiManager
+                const sectionName = manager.name.replace('Manager', '').toLowerCase();
+                if (mainConfig[sectionName]) {
+                    manager._config = configUtils.deepMerge(manager._config, mainConfig[sectionName]);
+                    manager.logger.info(manager.name, `Configuration loaded from section '${sectionName}' in: ${manager._configPath}`);
+                } else {
+                    // If no specific section exists, just use the default config
+                    manager.logger.warn(manager.name, `No configuration section found for ${manager.name}, using defaults`);
+                }
+            }
             
             // Run after config load hook
             await runHook(manager, 'afterConfigLoad', { config: manager._config });
-            
-            manager.logger.info(manager.name, `Configuration loaded from: ${manager._configPath}`);
         } catch (error) {
             if (error.code !== 'ENOENT') {
                 manager.logger.error(manager.name, `Failed to load configuration:`, error);
             } else {
-                manager.logger.warn(manager.name, `Configuration file not found, using defaults`);
-                // Create default config file
-                await saveConfig(manager);
+                manager.logger.warn(manager.name, `Configuration file not found at ${manager._configPath}, using defaults`);
             }
         }
         

@@ -1,0 +1,141 @@
+{
+  "welcome": {
+    "title": "👋 Welcome to JMF Hosting!",
+    "description": "Welcome to the official JMF Hosting Discord server! We provide high-performance, reliable game server hosting with 24/7 support.",
+    "color": "#00FF00",
+    "thumbnail": "{user.avatarURL}",
+    "fields": [
+      {
+        "name": "📌 About Us",
+        "value": "JMF Hosting is dedicated to providing premium game server hosting solutions with exceptional performance, reliability, and customer support.",
+        "inline": false
+      },
+      {
+        "name": "🎮 Our Services",
+        "value": "• Game Server Hosting\n• Web Hosting\n• VPS Solutions\n• DDoS Protection\n• Custom Server Configurations\n• 24/7 Technical Support",
+        "inline": false
+      },
+      {
+        "name": "🔰 Getting Started",
+        "value": "1. Read the <#rules>\n2. Verify yourself in <#verification>\n3. Check out our available services\n4. Create a ticket in <#create-ticket> if you need assistance",
+        "inline": false
+      }
+    ],
+    "footer": {
+      "text": "JMF Hosting | Game Server Solutions",
+      "icon_url": "{guild.iconURL}"
+    }
+  },
+  "leave": {
+    "title": "👋 Goodbye!",
+    "description": "**{user.tag}** has left the server. We hope to see them again soon!",
+    "color": "#FF0000",
+    "footer": {
+      "text": "JMF Hosting | Game Server Solutions"
+    }
+  },
+  "verification": {
+    "title": "✅ Verification Required",
+    "description": "Welcome to the server! Please click the button below to verify yourself and gain access to the server.",
+    "color": "#00AAFF",
+    "fields": [
+      {
+        "name": "Why verify?",
+        "value": "Verification helps us maintain a safe and secure environment for all members.",
+        "inline": false
+      }
+    ],
+    "footer": {
+      "text": "JMF Hosting | Game Server Solutions"
+    }
+  },
+  "ticket": {
+    "create": {
+      "title": "🎫 Support Ticket",
+      "description": "Welcome to your support ticket! Please describe your issue and a staff member will assist you shortly.",
+      "color": "#00AAFF",
+      "fields": [
+        {
+          "name": "Guidelines",
+          "value": "• Be clear and specific about your issue\n• Provide any relevant information\n• Be patient while waiting for a response",
+          "inline": false
+        }
+      ],
+      "footer": {
+        "text": "JMF Hosting Support"
+      }
+    },
+    "close": {
+      "title": "🎫 Ticket Closed",
+      "description": "This ticket has been closed. A transcript will be saved for reference.",
+      "color": "#FF0000"
+    }
+  },
+  "levelUp": {
+    "title": "🎉 Level Up!",
+    "description": "Congratulations {user.mention}! You've reached level {level}!",
+    "color": "#FFD700",
+    "thumbnail": "{user.avatarURL}",
+    "footer": {
+      "text": "Keep chatting to earn more XP!"
+    }
+  },
+  "mining": {
+    "success": {
+      "title": "⛏️ Mining Results",
+      "description": "{user.mention} found {amount}x {resource}!",
+      "color": "#00FF00",
+      "fields": [
+        {
+          "name": "Value",
+          "value": "{value} {currencySymbol}",
+          "inline": true
+        },
+        {
+          "name": "XP Gained",
+          "value": "+{xp} XP",
+          "inline": true
+        }
+      ]
+    },
+    "inventory": {
+      "title": "🎒 Mining Inventory",
+      "color": "#00AAFF",
+      "fields": [
+        {
+          "name": "Equipment",
+          "value": "Pickaxe: {pickaxe}\nArmor: {armor}\nPet: {pet}",
+          "inline": false
+        },
+        {
+          "name": "Stats",
+          "value": "Level: {level}\nXP: {xp}/{nextLevel}\nPower: {power}\nLuck: {luck}%",
+          "inline": false
+        }
+      ]
+    }
+  },
+  "economy": {
+    "balance": {
+      "title": "💰 Balance",
+      "description": "{user.mention}'s Balance: {balance} {currencySymbol}",
+      "color": "#FFD700"
+    },
+    "shop": {
+      "title": "🛍️ Server Shop",
+      "description": "Welcome to the shop! Use `!buy <item>` to purchase an item.",
+      "color": "#00AAFF"
+    }
+  },
+  "error": {
+    "title": "❌ Error",
+    "color": "#FF0000",
+    "footer": {
+      "text": "If this issue persists, please contact support"
+    }
+  },
+  "success": {
+    "title": "✅ Success",
+    "color": "#00FF00"
+  }
+} 

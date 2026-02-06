@@ -70,13 +70,27 @@ class E2EModule extends BaseModule {
     async initialize(config = {}) {
         await super.initialize(config);
         
+        // Set default config values if not provided
+        if (!this.config) {
+            this.config = {};
+        }
+        
+        // Set default paths
+        if (!this.getConfig('testDir')) {
+            this.config.testDir = './tests/e2e';
+        }
+        
+        if (!this.getConfig('screenshotDir')) {
+            this.config.screenshotDir = './tests/e2e/screenshots';
+        }
+        
         // Create test directory if it doesn't exist
-        const testDir = path.join(process.cwd(), this.getConfig('testDir'));
+        const testDir = path.join(process.cwd(), this.getConfig('testDir') || './tests/e2e');
         await fs.mkdir(testDir, { recursive: true });
         
         // Create screenshot directory if it doesn't exist and screenshots are enabled
         if (this.getConfig('screenshotOnFailure')) {
-            const screenshotDir = path.join(process.cwd(), this.getConfig('screenshotDir'));
+            const screenshotDir = path.join(process.cwd(), this.getConfig('screenshotDir') || './tests/e2e/screenshots');
             await fs.mkdir(screenshotDir, { recursive: true });
         }
         

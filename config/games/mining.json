@@ -1,0 +1,276 @@
+{
+    "enabled": true,
+    "cooldown": 60,
+    "worlds": [
+        {
+            "name": "Coal Mine",
+            "level": 1,
+            "resources": [
+                {
+                    "name": "Coal",
+                    "value": 5,
+                    "chance": 70,
+                    "xp": 2
+                },
+                {
+                    "name": "Iron Ore",
+                    "value": 10,
+                    "chance": 25,
+                    "xp": 5
+                },
+                {
+                    "name": "Silver Ore",
+                    "value": 25,
+                    "chance": 5,
+                    "xp": 10
+                }
+            ],
+            "unlockCost": 0
+        },
+        {
+            "name": "Gold Mine",
+            "level": 10,
+            "resources": [
+                {
+                    "name": "Iron Ore",
+                    "value": 10,
+                    "chance": 50,
+                    "xp": 5
+                },
+                {
+                    "name": "Gold Ore",
+                    "value": 50,
+                    "chance": 35,
+                    "xp": 15
+                },
+                {
+                    "name": "Ruby",
+                    "value": 100,
+                    "chance": 15,
+                    "xp": 25
+                }
+            ],
+            "unlockCost": 1000
+        },
+        {
+            "name": "Diamond Cave",
+            "level": 25,
+            "resources": [
+                {
+                    "name": "Gold Ore",
+                    "value": 50,
+                    "chance": 50,
+                    "xp": 15
+                },
+                {
+                    "name": "Diamond",
+                    "value": 200,
+                    "chance": 30,
+                    "xp": 40
+                },
+                {
+                    "name": "Emerald",
+                    "value": 300,
+                    "chance": 20,
+                    "xp": 60
+                }
+            ],
+            "unlockCost": 5000
+        },
+        {
+            "name": "Ancient Ruins",
+            "level": 50,
+            "resources": [
+                {
+                    "name": "Diamond",
+                    "value": 200,
+                    "chance": 40,
+                    "xp": 40
+                },
+                {
+                    "name": "Ancient Artifact",
+                    "value": 500,
+                    "chance": 35,
+                    "xp": 100
+                },
+                {
+                    "name": "Mythical Gem",
+                    "value": 1000,
+                    "chance": 25,
+                    "xp": 200
+                }
+            ],
+            "unlockCost": 25000
+        },
+        {
+            "name": "Void Realm",
+            "level": 100,
+            "resources": [
+                {
+                    "name": "Void Crystal",
+                    "value": 2000,
+                    "chance": 50,
+                    "xp": 300
+                },
+                {
+                    "name": "Cosmic Essence",
+                    "value": 5000,
+                    "chance": 35,
+                    "xp": 500
+                },
+                {
+                    "name": "Universe Core",
+                    "value": 10000,
+                    "chance": 15,
+                    "xp": 1000
+                }
+            ],
+            "unlockCost": 100000
+        }
+    ],
+    "pickaxes": [
+        {
+            "name": "Wooden Pickaxe",
+            "power": 1,
+            "cost": 0,
+            "cooldownReduction": 0
+        },
+        {
+            "name": "Stone Pickaxe",
+            "power": 2,
+            "cost": 500,
+            "cooldownReduction": 5
+        },
+        {
+            "name": "Iron Pickaxe",
+            "power": 3,
+            "cost": 2000,
+            "cooldownReduction": 10
+        },
+        {
+            "name": "Gold Pickaxe",
+            "power": 5,
+            "cost": 7500,
+            "cooldownReduction": 15
+        },
+        {
+            "name": "Diamond Pickaxe",
+            "power": 8,
+            "cost": 25000,
+            "cooldownReduction": 20
+        },
+        {
+            "name": "Void Pickaxe",
+            "power": 12,
+            "cost": 75000,
+            "cooldownReduction": 30
+        },
+        {
+            "name": "Cosmic Pickaxe",
+            "power": 20,
+            "cost": 250000,
+            "cooldownReduction": 40
+        }
+    ],
+    "pets": [
+        {
+            "name": "Mining Rat",
+            "cost": 1000,
+            "bonusChance": 5,
+            "description": "5% chance to find extra resources"
+        },
+        {
+            "name": "Cave Bat",
+            "cost": 5000,
+            "cooldownReduction": 10,
+            "description": "Reduces mining cooldown by 10 seconds"
+        },
+        {
+            "name": "Rock Golem",
+            "cost": 15000,
+            "valueBuff": 10,
+            "description": "Increases the value of mined resources by 10%"
+        },
+        {
+            "name": "Crystal Dragon",
+            "cost": 50000,
+            "rareChance": 10,
+            "description": "10% increased chance to find rare resources"
+        },
+        {
+            "name": "Void Walker",
+            "cost": 150000,
+            "allBuff": 15,
+            "description": "15% buff to all mining stats"
+        }
+    ],
+    "armor": [
+        {
+            "name": "Leather Armor",
+            "cost": 2000,
+            "xpBoost": 5,
+            "description": "5% more mining XP"
+        },
+        {
+            "name": "Iron Armor",
+            "cost": 10000,
+            "cooldownReduction": 5,
+            "description": "Reduces mining cooldown by 5 seconds"
+        },
+        {
+            "name": "Gold Armor",
+            "cost": 30000,
+            "valueBuff": 15,
+            "description": "15% more value from mined resources"
+        },
+        {
+            "name": "Diamond Armor",
+            "cost": 100000,
+            "allBuff": 10,
+            "description": "10% buff to all mining stats"
+        },
+        {
+            "name": "Void Armor",
+            "cost": 300000,
+            "allBuff": 25,
+            "description": "25% buff to all mining stats"
+        }
+    ],
+    "boosters": [
+        {
+            "name": "XP Booster",
+            "cost": 5000,
+            "duration": 3600,
+            "xpBoost": 50,
+            "description": "50% more mining XP for 1 hour"
+        },
+        {
+            "name": "Value Booster",
+            "cost": 7500,
+            "duration": 3600,
+            "valueBuff": 50,
+            "description": "50% more value from mined resources for 1 hour"
+        },
+        {
+            "name": "Luck Booster",
+            "cost": 10000,
+            "duration": 3600,
+            "rareChance": 50,
+            "description": "50% increased chance to find rare resources for 1 hour"
+        },
+        {
+            "name": "Speed Booster",
+            "cost": 7500,
+            "duration": 3600,
+            "cooldownReduction": 30,
+            "description": "30 second reduction to mining cooldown for 1 hour"
+        },
+        {
+            "name": "Ultimate Booster",
+            "cost": 25000,
+            "duration": 3600,
+            "allBuff": 30,
+            "description": "30% buff to all mining stats for 1 hour"
+        }
+    ]
+}

@@ -1,0 +1,441 @@
+/**
+ * JMF Hosting Discord Bot - Welcome Module
+ * Version: 1.0.0
+ * Last Updated: 03/14/2025
+ * 
+ * This module handles welcome messages for new members.
+ * 
+ * © 2025 JMFHosting. All Rights Reserved.
+ * Developed by Nanaimo2013 (https://github.com/Nanaimo2013)
+ */
+
+const Module = require('./base.module');
+const { 
+    EmbedBuilder, 
+    ActionRowBuilder, 
+    ButtonBuilder, 
+    ButtonStyle,
+    AttachmentBuilder
+} = require('discord.js');
+const Canvas = require('canvas');
+const path = require('path');
+
+class WelcomeModule extends Module {
+    /**
+     * Create a new welcome module
+     */
+    constructor() {
+        super({
+            name: 'welcome',
+            description: 'Handles welcome messages for new members',
+            enabled: true,
+            dependencies: ['database']
+        });
+        
+        // Module-specific properties
+        this.welcomeChannels = new Map();
+        this.welcomeMessages = new Map();
+        this.welcomeImages = new Map();
+        this.listeners = new Map();
+    }
+    
+    /**
+     * Initialize the module
+     * @param {Client} client - The Discord.js client
+     * @returns {Promise<boolean>}
+     */
+    async initialize(client) {
+        try {
+            // Call parent initialize
+            await super.initialize(client);
+            
+            // Load welcome settings from database
+            if (this.database && this.database.isConnected) {
+                await this._loadWelcomeSettings();
+                this.logger.info(this.name, 'Welcome settings loaded from database');
+            } else {
+                this.logger.warn(this.name, 'Database not available, welcome settings will not be persistent');
+            }
+            
+            return true;
+        } catch (error) {
+            this.handleError('initialize', error);
+            return false;
+        }
+    }
+    
+    /**
+     * Start the welcome module
+     * @returns {Promise<boolean>}
+     */
+    async start() {
+        try {
+            await super.start();
+            
+            // Register event listeners
+            this._registerEventListeners();
+            
+            return true;
+        } catch (error) {
+            this.handleError('start', error);
+            return false;
+        }
+    }
+    
+    /**
+     * Stop the welcome module
+     * @returns {Promise<boolean>}
+     */
+    async stop() {
+        try {
+            // Remove event listeners
+            for (const [event, listener] of this.listeners.entries()) {
+                this.client.removeListener(event, listener);
+            }
+            this.listeners.clear();
+            
+            await super.stop();
+            return true;
+        } catch (error) {
+            this.handleError('stop', error);
+            return false;
+        }
+    }
+    
+    /**
+     * Register event listeners
+     * @private
+     */
+    _registerEventListeners() {
+        // Register guildMemberAdd event
+        const onGuildMemberAdd = this._onGuildMemberAdd.bind(this);
+        this.client.on('guildMemberAdd', onGuildMemberAdd);
+        this.listeners.set('guildMemberAdd', onGuildMemberAdd);
+        
+        // Register guildMemberRemove event
+        const onGuildMemberRemove = this._onGuildMemberRemove.bind(this);
+        this.client.on('guildMemberRemove', onGuildMemberRemove);
+        this.listeners.set('guildMemberRemove', onGuildMemberRemove);
+    }
+    
+    /**
+     * Load welcome settings from database
+     * @private
+     */
+    async _loadWelcomeSettings() {
+        try {
+            // Check if welcome_settings table exists
+            const tableExists = await this.database.tableExists('welcome_settings');
+            
+            if (!tableExists) {
+                this.logger.info(this.name, 'Creating welcome_settings table...');
+                
+                // Create welcome_settings table
+                await this.database.query(`
+                    CREATE TABLE welcome_settings (
+                        guild_id TEXT PRIMARY KEY,
+                        welcome_channel_id TEXT,
+                        welcome_message TEXT,
+                        welcome_image INTEGER DEFAULT 1,
+                        goodbye_channel_id TEXT,
+                        goodbye_message TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                `);
+            }
+            
+            // Load settings from database
+            const settings = await this.database.query('SELECT * FROM welcome_settings');
+            
+            for (const setting of settings) {
+                // Store welcome channel
+                if (setting.welcome_channel_id) {
+                    this.welcomeChannels.set(setting.guild_id, setting.welcome_channel_id);
+                }
+                
+                // Store welcome message
+                if (setting.welcome_message) {
+                    this.welcomeMessages.set(setting.guild_id, setting.welcome_message);
+                }
+                
+                // Store welcome image setting
+                this.welcomeImages.set(setting.guild_id, Boolean(setting.welcome_image));
+            }
+            
+            this.logger.debug(this.name, `Loaded welcome settings for ${settings.length} guilds`);
+        } catch (error) {
+            this.handleError('_loadWelcomeSettings', error);
+        }
+    }
+    
+    /**
+     * Handle guild member add event
+     * @param {GuildMember} member - The guild member that joined
+     * @private
+     */
+    async _onGuildMemberAdd(member) {
+        try {
+            const { guild, user } = member;
+            
+            // Check if welcome channel is set
+            const welcomeChannelId = this.welcomeChannels.get(guild.id);
+            if (!welcomeChannelId) return;
+            
+            // Get welcome channel
+            const welcomeChannel = await guild.channels.fetch(welcomeChannelId).catch(() => null);
+            if (!welcomeChannel) return;
+            
+            // Get welcome message
+            let welcomeMessage = this.welcomeMessages.get(guild.id) || 
+                'Welcome to the server, {user}!';
+            
+            // Replace placeholders
+            welcomeMessage = welcomeMessage
+                .replace(/{user}/g, `<@${user.id}>`)
+                .replace(/{username}/g, user.username)
+                .replace(/{server}/g, guild.name)
+                .replace(/{membercount}/g, guild.memberCount);
+            
+            // Create welcome embed
+            const embed = new EmbedBuilder()
+                .setTitle(`Welcome to ${guild.name}!`)
+                .setDescription(welcomeMessage)
+                .setColor('#00ff00')
+                .setTimestamp();
+            
+            // Add user avatar
+            embed.setThumbnail(user.displayAvatarURL({ dynamic: true, size: 256 }));
+            
+            // Check if welcome image is enabled
+            if (this.welcomeImages.get(guild.id)) {
+                try {
+                    const welcomeImage = await this._createWelcomeImage(member);
+                    const attachment = new AttachmentBuilder(welcomeImage, { name: 'welcome.png' });
+                    
+                    embed.setImage('attachment://welcome.png');
+                    
+                    await welcomeChannel.send({ embeds: [embed], files: [attachment] });
+                } catch (imageError) {
+                    this.handleError('_createWelcomeImage', imageError);
+                    
+                    // Send without image if there's an error
+                    await welcomeChannel.send({ embeds: [embed] });
+                }
+            } else {
+                // Send without image
+                await welcomeChannel.send({ embeds: [embed] });
+            }
+            
+            this.logger.debug(this.name, `Sent welcome message for ${user.tag} in ${guild.name}`);
+        } catch (error) {
+            this.handleError('_onGuildMemberAdd', error);
+        }
+    }
+    
+    /**
+     * Handle guild member remove event
+     * @param {GuildMember} member - The guild member that left
+     * @private
+     */
+    async _onGuildMemberRemove(member) {
+        try {
+            const { guild, user } = member;
+            
+            // Check if goodbye channel is set
+            const goodbyeChannelId = this.welcomeChannels.get(`${guild.id}_goodbye`);
+            if (!goodbyeChannelId) return;
+            
+            // Get goodbye channel
+            const goodbyeChannel = await guild.channels.fetch(goodbyeChannelId).catch(() => null);
+            if (!goodbyeChannel) return;
+            
+            // Get goodbye message
+            let goodbyeMessage = this.welcomeMessages.get(`${guild.id}_goodbye`) || 
+                'Goodbye, {username}! We hope to see you again soon.';
+            
+            // Replace placeholders
+            goodbyeMessage = goodbyeMessage
+                .replace(/{username}/g, user.username)
+                .replace(/{server}/g, guild.name)
+                .replace(/{membercount}/g, guild.memberCount);
+            
+            // Create goodbye embed
+            const embed = new EmbedBuilder()
+                .setTitle(`Goodbye!`)
+                .setDescription(goodbyeMessage)
+                .setColor('#ff0000')
+                .setTimestamp();
+            
+            // Add user avatar
+            embed.setThumbnail(user.displayAvatarURL({ dynamic: true, size: 256 }));
+            
+            // Send goodbye message
+            await goodbyeChannel.send({ embeds: [embed] });
+            
+            this.logger.debug(this.name, `Sent goodbye message for ${user.tag} in ${guild.name}`);
+        } catch (error) {
+            this.handleError('_onGuildMemberRemove', error);
+        }
+    }
+    
+    /**
+     * Create a welcome image
+     * @param {GuildMember} member - The guild member
+     * @returns {Promise<Buffer>} - The welcome image buffer
+     * @private
+     */
+    async _createWelcomeImage(member) {
+        try {
+            const { guild, user } = member;
+            
+            // Create canvas
+            const canvas = Canvas.createCanvas(1024, 500);
+            const ctx = canvas.getContext('2d');
+            
+            // Draw background
+            ctx.fillStyle = '#36393f';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw welcome text
+            ctx.font = '60px sans-serif';
+            ctx.fillStyle = '#ffffff';
+            ctx.textAlign = 'center';
+            ctx.fillText('Welcome!', canvas.width / 2, 100);
+            
+            // Draw username
+            ctx.font = '40px sans-serif';
+            ctx.fillText(user.username, canvas.width / 2, 180);
+            
+            // Draw server name
+            ctx.font = '30px sans-serif';
+            ctx.fillText(`to ${guild.name}`, canvas.width / 2, 240);
+            
+            // Draw member count
+            ctx.font = '25px sans-serif';
+            ctx.fillText(`You are member #${guild.memberCount}`, canvas.width / 2, 300);
+            
+            // Load and draw avatar
+            const avatar = await Canvas.loadImage(user.displayAvatarURL({ extension: 'png', size: 256 }));
+            
+            // Draw avatar circle
+            ctx.beginPath();
+            ctx.arc(canvas.width / 2, 400, 80, 0, Math.PI * 2);
+            ctx.closePath();
+            ctx.clip();
+            
+            // Draw avatar
+            ctx.drawImage(avatar, canvas.width / 2 - 80, 320, 160, 160);
+            
+            // Return buffer
+            return canvas.toBuffer();
+        } catch (error) {
+            this.handleError('_createWelcomeImage', error);
+            throw error;
+        }
+    }
+    
+    /**
+     * Set the welcome channel for a guild
+     * @param {string} guildId - The guild ID
+     * @param {string} channelId - The channel ID
+     * @returns {Promise<boolean>} - Whether the operation was successful
+     */
+    async setWelcomeChannel(guildId, channelId) {
+        try {
+            // Store in memory
+            this.welcomeChannels.set(guildId, channelId);
+            
+            // Store in database
+            if (this.database && this.database.isConnected) {
+                await this.database.query(`
+                    INSERT INTO welcome_settings (guild_id, welcome_channel_id, updated_at)
+                    VALUES (?, ?, CURRENT_TIMESTAMP)
+                    ON DUPLICATE KEY UPDATE welcome_channel_id = ?, updated_at = CURRENT_TIMESTAMP
+                `, [guildId, channelId, channelId]);
+            }
+            
+            this.logger.info(this.name, `Set welcome channel for guild ${guildId} to ${channelId}`);
+            return true;
+        } catch (error) {
+            this.handleError('setWelcomeChannel', error);
+            return false;
+        }
+    }
+    
+    /**
+     * Set the welcome message for a guild
+     * @param {string} guildId - The guild ID
+     * @param {string} message - The welcome message
+     * @returns {Promise<boolean>} - Whether the operation was successful
+     */
+    async setWelcomeMessage(guildId, message) {
+        try {
+            // Store in memory
+            this.welcomeMessages.set(guildId, message);
+            
+            // Store in database
+            if (this.database && this.database.isConnected) {
+                await this.database.query(`
+                    INSERT INTO welcome_settings (guild_id, welcome_message, updated_at)
+                    VALUES (?, ?, CURRENT_TIMESTAMP)
+                    ON DUPLICATE KEY UPDATE welcome_message = ?, updated_at = CURRENT_TIMESTAMP
+                `, [guildId, message, message]);
+            }
+            
+            this.logger.info(this.name, `Set welcome message for guild ${guildId}`);
+            return true;
+        } catch (error) {
+            this.handleError('setWelcomeMessage', error);
+            return false;
+        }
+    }
+    
+    /**
+     * Enable or disable welcome images for a guild
+     * @param {string} guildId - The guild ID
+     * @param {boolean} enabled - Whether welcome images are enabled
+     * @returns {Promise<boolean>} - Whether the operation was successful
+     */
+    async setWelcomeImage(guildId, enabled) {
+        try {
+            // Store in memory
+            this.welcomeImages.set(guildId, enabled);
+            
+            // Store in database
+            if (this.database && this.database.isConnected) {
+                await this.database.query(`
+                    INSERT INTO welcome_settings (guild_id, welcome_image, updated_at)
+                    VALUES (?, ?, CURRENT_TIMESTAMP)
+                    ON DUPLICATE KEY UPDATE welcome_image = ?, updated_at = CURRENT_TIMESTAMP
+                `, [guildId, enabled ? 1 : 0, enabled ? 1 : 0]);
+            }
+            
+            this.logger.info(this.name, `${enabled ? 'Enabled' : 'Disabled'} welcome images for guild ${guildId}`);
+            return true;
+        } catch (error) {
+            this.handleError('setWelcomeImage', error);
+            return false;
+        }
+    }
+    
+    /**
+     * Get the module's status
+     * @returns {Object} - Module status
+     */
+    getStatus() {
+        const baseStatus = super.getStatus();
+        
+        return {
+            ...baseStatus,
+            metrics: {
+                guildsWithWelcome: this.welcomeChannels.size,
+                guildsWithCustomMessages: this.welcomeMessages.size,
+                guildsWithWelcomeImages: Array.from(this.welcomeImages.entries())
+                    .filter(([_, enabled]) => enabled).length
+            }
+        };
+    }
+}
+
+module.exports = WelcomeModule;

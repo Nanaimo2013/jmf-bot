@@ -26,7 +26,7 @@ class BaseCommand extends BaseModule {
             description: options.description || 'Base command module',
             defaultConfig: {
                 enabled: true,
-                cooldown: 3, // seconds
+                cooldown: manager.getConfig('modules.commands.defaultCooldown', 3),
                 guildOnly: false,
                 ownerOnly: false,
                 permissions: [],
@@ -135,40 +135,6 @@ class BaseCommand extends BaseModule {
     }
 
     /**
-     * Check if the command is on cooldown for a user
-     * @param {string} userId - The user ID to check
-     * @returns {number} - Remaining cooldown time in seconds, 0 if not on cooldown
-     */
-    getCooldown(userId) {
-        const cooldownAmount = this.getConfig('cooldown') * 1000;
-        const now = Date.now();
-        const timestamps = this.cooldowns;
-        
-        if (timestamps.has(userId)) {
-            const expirationTime = timestamps.get(userId) + cooldownAmount;
-            
-            if (now < expirationTime) {
-                return Math.round((expirationTime - now) / 1000);
-            }
-        }
-        
-        return 0;
-    }
-
-    /**
-     * Set cooldown for a user
-     * @param {string} userId - The user ID to set cooldown for
-     */
-    setCooldown(userId) {
-        this.cooldowns.set(userId, Date.now());
-        
-        // Clean up cooldowns after expiration
-        setTimeout(() => {
-            this.cooldowns.delete(userId);
-        }, this.getConfig('cooldown') * 1000);
-    }
-
-    /**
      * Check if a user has permission to use this command
      * @param {Object} interaction - The interaction object
      * @returns {boolean} - Whether the user has permission
@@ -186,8 +152,8 @@ class BaseCommand extends BaseModule {
         
         // Check if owner only
         if (this.getConfig('ownerOnly')) {
-            const ownerId = this.manager.getConfig('ownerId');
-            if (interaction.user.id !== ownerId) {
+            const owners = this.manager.getConfig('permissions.owners', []);
+            if (!owners.includes(interaction.user.id)) {
                 return false;
             }
         }
@@ -203,6 +169,43 @@ class BaseCommand extends BaseModule {
         }
         
         return true;
+    }
+
+    /**
+     * Check if the command is on cooldown for a user
+     * @param {string} userId - The user ID to check
+     * @returns {number} - Remaining cooldown time in seconds, 0 if not on cooldown
+     */
+    getCooldown(userId) {
+        // Check if user is exempt from cooldowns
+        const ignoreCooldown = this.manager.getConfig('modules.commands.ignoreCooldown', []);
+        if (ignoreCooldown.includes('Owner')) {
+            const owners = this.manager.getConfig('permissions.owners', []);
+            if (owners.includes(userId)) {
+                return 0;
+            }
+        }
+        
+        if (ignoreCooldown.includes('Administrator')) {
+            const admins = this.manager.getConfig('permissions.admins', []);
+            if (admins.includes(userId)) {
+                return 0;
+            }
+        }
+        
+        const cooldownAmount = this.getConfig('cooldown') * 1000;
+        const now = Date.now();
+        const timestamps = this.cooldowns;
+        
+        if (timestamps.has(userId)) {
+            const expirationTime = timestamps.get(userId) + cooldownAmount;
+            
+            if (now < expirationTime) {
+                return Math.round((expirationTime - now) / 1000);
+            }
+        }
+        
+        return 0;
     }
 
     /**
@@ -231,8 +234,8 @@ class BaseCommand extends BaseModule {
         
         // Check if owner only
         if (this.getConfig('ownerOnly')) {
-            const ownerId = this.manager.getConfig('ownerId');
-            if (interaction.user.id !== ownerId) {
+            const owners = this.manager.getConfig('permissions.owners', []);
+            if (!owners.includes(interaction.user.id)) {
                 await interaction.reply({
                     content: 'This command can only be used by the bot owner.',
                     ephemeral: true
@@ -266,7 +269,7 @@ class BaseCommand extends BaseModule {
         }
         
         // Set cooldown
-        this.setCooldown(interaction.user.id);
+        this.cooldowns.set(interaction.user.id, Date.now());
         
         // Track execution
         this.executionCount++;

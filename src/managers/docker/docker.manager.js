@@ -10,7 +10,7 @@
  * Developed by Nanaimo2013 (https://github.com/Nanaimo2013)
  */
 
-const BaseManager = require('../base.manager');
+const BaseManager = require('../base/base.manager');
 const path = require('path');
 const { exec } = require('child_process');
 const util = require('util');
@@ -53,7 +53,50 @@ class DockerManager extends BaseManager {
      */
     async initialize(config = {}) {
         await super.initialize(config);
+        
+        // Check if Docker is available
+        try {
+            await execPromise('docker --version');
+            this.dockerAvailable = true;
+        } catch (error) {
+            this.dockerAvailable = false;
+            this.logger.warn('docker', 'Docker is not available or not properly configured. Docker functionality will be limited.');
+            
+            // Check if we're on Windows and provide more specific guidance
+            if (process.platform === 'win32') {
+                this.logger.warn('docker', 'On Windows, Docker requires elevated privileges or Docker Desktop to be running.');
+                this.logger.warn('docker', 'Please start Docker Desktop or run the bot with administrator privileges if you need Docker functionality.');
+            }
+        }
+        
         this.logger.info('docker', 'Docker manager initialized');
+    }
+
+    /**
+     * Execute a Docker command safely
+     * @param {string} command - The command to execute
+     * @param {string} operation - Description of the operation for logging
+     * @returns {Promise<string>} Command output
+     * @private
+     */
+    async _safeDockerCommand(command, operation) {
+        if (!this.dockerAvailable) {
+            this.logger.debug('docker', `Skipping Docker operation (${operation}) as Docker is not available`);
+            return '';
+        }
+        
+        try {
+            const { stdout } = await execPromise(command);
+            return stdout;
+        } catch (error) {
+            // Only log as error for non-connection issues
+            if (!error.message.includes('connect') && !error.message.includes('pipe')) {
+                this.logger.error('docker', `Failed to ${operation}: ${error.message}`);
+            } else {
+                this.logger.debug('docker', `Docker connection issue during ${operation}: ${error.message}`);
+            }
+            return '';
+        }
     }
 
     /**
@@ -69,20 +112,11 @@ class DockerManager extends BaseManager {
         
         this.logger.info('docker', `Building Docker image: ${imageName}:${imageTag}`);
         
-        try {
-            const { stdout, stderr } = await execPromise(
-                `docker build -t ${imageName}:${imageTag} ${buildArgsString} .`
-            );
-            
-            this.logger.debug('docker', `Build stdout: ${stdout}`);
-            if (stderr) {
-                this.logger.warn('docker', `Build stderr: ${stderr}`);
-            }
-            
-            this.logger.success('docker', `Docker image built: ${imageName}:${imageTag}`);
-        } catch (error) {
-            this.logger.error('docker', `Failed to build Docker image: ${error.message}`);
-            throw error;
+        const command = `docker build -t ${imageName}:${imageTag} ${buildArgsString} .`;
+        const output = await this._safeDockerCommand(command, 'build Docker image');
+        
+        if (output) {
+            this.logger.success('docker', `Docker image built successfully: ${imageName}:${imageTag}`);
         }
     }
 
@@ -94,43 +128,41 @@ class DockerManager extends BaseManager {
     async start(options = {}) {
         const { containerName, imageName, imageTag, ports, volumes, env } = { ...this.config, ...options };
         
-        // Format ports
-        const portsString = Object.entries(ports)
+        // Check if container already exists
+        const containerExists = await this._safeDockerCommand(
+            `docker ps -a --filter "name=${containerName}" --format "{{.Names}}"`,
+            'check if container exists'
+        );
+        
+        if (containerExists.trim() === containerName) {
+            this.logger.info('docker', `Container ${containerName} already exists, starting it...`);
+            await this._safeDockerCommand(`docker start ${containerName}`, 'start existing container');
+            this.logger.success('docker', `Container ${containerName} started`);
+            return;
+        }
+        
+        // Build port mappings
+        const portMappings = Object.entries(ports)
             .map(([host, container]) => `-p ${host}:${container}`)
             .join(' ');
         
-        // Format volumes
-        const volumesString = Object.entries(volumes)
+        // Build volume mappings
+        const volumeMappings = Object.entries(volumes)
             .map(([host, container]) => `-v ${host}:${container}`)
             .join(' ');
         
-        // Format environment variables
-        const envString = Object.entries(env)
+        // Build environment variables
+        const envVars = Object.entries(env)
             .map(([key, value]) => `-e ${key}=${value}`)
             .join(' ');
         
         this.logger.info('docker', `Starting Docker container: ${containerName}`);
         
-        try {
-            // Check if container exists
-            const { stdout: containerList } = await execPromise(
-                `docker ps -a --filter "name=${containerName}" --format "{{.Names}}"`
-            );
-            
-            if (containerList.includes(containerName)) {
-                // Container exists, start it
-                await execPromise(`docker start ${containerName}`);
-            } else {
-                // Container doesn't exist, create and start it
-                await execPromise(
-                    `docker run -d --name ${containerName} ${portsString} ${volumesString} ${envString} ${imageName}:${imageTag}`
-                );
-            }
-            
-            this.logger.success('docker', `Docker container started: ${containerName}`);
-        } catch (error) {
-            this.logger.error('docker', `Failed to start Docker container: ${error.message}`);
-            throw error;
+        const command = `docker run -d --name ${containerName} ${portMappings} ${volumeMappings} ${envVars} ${imageName}:${imageTag}`;
+        const output = await this._safeDockerCommand(command, 'start Docker container');
+        
+        if (output) {
+            this.logger.success('docker', `Container ${containerName} started`);
         }
     }
 
@@ -144,12 +176,10 @@ class DockerManager extends BaseManager {
         
         this.logger.info('docker', `Stopping Docker container: ${containerName}`);
         
-        try {
-            await execPromise(`docker stop ${containerName}`);
-            this.logger.success('docker', `Docker container stopped: ${containerName}`);
-        } catch (error) {
-            this.logger.error('docker', `Failed to stop Docker container: ${error.message}`);
-            throw error;
+        const output = await this._safeDockerCommand(`docker stop ${containerName}`, 'stop Docker container');
+        
+        if (output) {
+            this.logger.success('docker', `Container ${containerName} stopped`);
         }
     }
 
@@ -163,13 +193,10 @@ class DockerManager extends BaseManager {
         
         this.logger.info('docker', `Getting logs from Docker container: ${containerName}`);
         
-        try {
-            const { stdout } = await execPromise(`docker logs --tail ${tail} ${containerName}`);
-            return stdout;
-        } catch (error) {
-            this.logger.error('docker', `Failed to get Docker logs: ${error.message}`);
-            throw error;
-        }
+        return await this._safeDockerCommand(
+            `docker logs --tail ${tail} ${containerName}`,
+            'get Docker container logs'
+        );
     }
 
     /**
@@ -180,29 +207,56 @@ class DockerManager extends BaseManager {
     async getStatus(options = {}) {
         const { containerName } = { ...this.config, ...options };
         
-        try {
-            // Check if container exists
-            const { stdout: containerList } = await execPromise(
-                `docker ps -a --filter "name=${containerName}" --format "{{.Names}}"`
-            );
-            
-            if (!containerList.includes(containerName)) {
-                return { exists: false, running: false };
-            }
-            
-            // Check if container is running
-            const { stdout: runningList } = await execPromise(
-                `docker ps --filter "name=${containerName}" --format "{{.Names}}"`
-            );
-            
-            return {
-                exists: true,
-                running: runningList.includes(containerName)
+        if (!this.dockerAvailable) {
+            return { 
+                exists: false, 
+                running: false, 
+                dockerAvailable: false,
+                message: 'Docker is not available on this system'
             };
-        } catch (error) {
-            this.logger.error('docker', `Failed to get Docker status: ${error.message}`);
-            return { exists: false, running: false, error: error.message };
         }
+        
+        // Check if container exists
+        const containerExists = await this._safeDockerCommand(
+            `docker ps -a --filter "name=${containerName}" --format "{{.Names}}"`,
+            'check if container exists'
+        );
+        
+        if (!containerExists.includes(containerName)) {
+            return { 
+                exists: false, 
+                running: false,
+                dockerAvailable: true
+            };
+        }
+        
+        // Check if container is running
+        const containerRunning = await this._safeDockerCommand(
+            `docker ps --filter "name=${containerName}" --format "{{.Names}}"`,
+            'check if container is running'
+        );
+        
+        // Get container info
+        const containerInfo = await this._safeDockerCommand(
+            `docker inspect ${containerName} --format "{{json .}}"`,
+            'get container info'
+        );
+        
+        let info = {};
+        try {
+            if (containerInfo) {
+                info = JSON.parse(containerInfo);
+            }
+        } catch (error) {
+            this.logger.debug('docker', `Failed to parse container info: ${error.message}`);
+        }
+        
+        return {
+            exists: true,
+            running: containerRunning.includes(containerName),
+            dockerAvailable: true,
+            info: info
+        };
     }
 
     /**

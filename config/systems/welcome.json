@@ -1,0 +1,57 @@
+{
+    "enabled": true,
+    "channel": {
+        "id": "1348577178891190333",
+        "name": "join-leave"
+    },
+    "message": {
+        "content": "Welcome to the JMF Hosting Discord server, {user}! We're glad to have you here. Please read our rules in {rules} and enjoy your stay!",
+        "embed": {
+            "enabled": true,
+            "color": "#00FF00",
+            "title": "Welcome {username}!",
+            "description": "Welcome to JMF Hosting! We're excited to have you join our community.",
+            "thumbnail": "{userAvatar}",
+            "fields": [
+                {
+                    "name": "Member Count",
+                    "value": "You are our {memberCount}th member!",
+                    "inline": true
+                },
+                {
+                    "name": "Getting Started",
+                    "value": "Please check out {rules} and {verification}",
+                    "inline": true
+                }
+            ]
+        }
+    },
+    "directMessage": {
+        "enabled": true,
+        "content": "Thanks for joining our server! If you need any help, feel free to create a ticket in our support channel."
+    },
+    "features": {
+        "mentionUser": true,
+        "showJoinDate": true,
+        "showAccountAge": true,
+        "autoRole": {
+            "enabled": false,
+            "roles": [
+                "Member"
+            ]
+        }
+    },
+    "memberCount": {
+        "enabled": true,
+        "channels": {
+            "total": "1349467612790263819",
+            "humans": "1349467967976378429",
+            "bots": "1349468003233960007"
+        },
+        "format": {
+            "total": "Total Members: {count}",
+            "humans": "Members: {count}",
+            "bots": "Bots: {count}"
+        }
+    }
+}

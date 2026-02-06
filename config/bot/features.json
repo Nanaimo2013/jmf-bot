@@ -1,0 +1,86 @@
+{
+    "features": {
+        "tickets": {
+            "enabled": true,
+            "config": "../systems/tickets.json"
+        },
+        "moderation": {
+            "enabled": true,
+            "config": "../systems/moderation.json"
+        },
+        "welcome": {
+            "enabled": true,
+            "config": "../systems/welcome.json"
+        },
+        "leave": {
+            "enabled": true,
+            "config": "../systems/leave.json"
+        },
+        "verification": {
+            "enabled": true,
+            "config": "../systems/verification.json"
+        },
+        "automod": {
+            "enabled": true,
+            "config": "../systems/automod.json"
+        },
+        "leveling": {
+            "enabled": true,
+            "config": "../games/leveling.json"
+        },
+        "economy": {
+            "enabled": true,
+            "config": "../games/economy.json"
+        },
+        "mining": {
+            "enabled": true,
+            "config": "../games/mining.json"
+        }
+    },
+    "channels": {
+        "welcome": "1348545298477355019",
+        "joinLeave": "1348577178891190333",
+        "announcements": "1348545299605356554",
+        "rules": "1348573814493024276",
+        "general": "1348545308770046052",
+        "createTicket": "1348545321701212236",
+        "botCommands": "🤖︱bot-commands",
+        "modLogs": "📝︱mod-logs",
+        "ticketLogs": "1348545396577669160",
+        "staffChat": "💬︱staff-chat",
+        "verification": "1348545303082434600",
+        "logs": "📝︱logs",
+        "nodes": "🖥️︱node-status",
+        "status": "⚙️︱service-status",
+        "maintenanceAnnouncements": "🔧︱maintenance-announcements",
+        "uptime": "📈︱uptime"
+    },
+    "roles": {
+        "owner": "Owner",
+        "admin": "Administrator",
+        "moderator": "Moderator",
+        "support": "Support Staff",
+        "developer": "Developer",
+        "partner": "Partner",
+        "contentCreator": "Content Creator",
+        "premiumTier3": "Premium Tier 3",
+        "premiumTier2": "Premium Tier 2",
+        "premiumTier1": "Premium Tier 1",
+        "activeMember": "Active Member",
+        "member": "Member",
+        "bot": "Bot",
+        "unverified": "Unverified"
+    },
+    "categories": {
+        "information": "📢 INFORMATION",
+        "community": "🎮 COMMUNITY",
+        "support": "🎫 SUPPORT",
+        "games": "🎲 GAMES",
+        "tutorials": "🔧 TUTORIALS",
+        "voice": "💬 VOICE CHANNELS",
+        "staff": "👥 STAFF AREA",
+        "development": "💻 DEVELOPMENT",
+        "status": "📊 STATUS",
+        "economy": "💰 ECONOMY & GAMES"
+    }
+}

@@ -1,13 +1,15 @@
 /**
- * JMF Hosting Discord Bot
+ * JMF Hosting Discord Bot - Tickets Module
+ * Version: 1.0.0
+ * Last Updated: 03/14/2025
+ * 
+ * This module handles the ticket system for the bot.
  * 
  * © 2025 JMFHosting. All Rights Reserved.
  * Developed by Nanaimo2013 (https://github.com/Nanaimo2013)
- * 
- * This source code is licensed under the MIT license found in the
- * LICENSE file in the root directory of this source tree.
  */
 
+const Module = require('./base.module');
 const { 
   EmbedBuilder, 
   ActionRowBuilder, 
@@ -21,112 +23,237 @@ const {
   TextInputStyle,
   StringSelectMenuBuilder
 } = require('discord.js');
-const config = require('../../config.json');
 const logger = require('../utils/logger');
 const db = require('../utils/database');
 
-/**
- * Ticket system module for handling support tickets
- */
-module.exports = {
-  name: 'tickets',
-  
-  // Cache to store active tickets per user
-  activeTickets: new Collection(),
+class TicketsModule extends Module {
+  /**
+   * Create a new tickets module
+   */
+  constructor() {
+    super({
+      name: 'tickets',
+      description: 'Handles the ticket system for the bot',
+      enabled: true,
+      dependencies: ['database']
+    });
+    
+    // Cache to store active tickets per user
+    this.activeTickets = new Collection();
+    this.listeners = new Map();
+  }
+
+  /**
+   * Initialize the tickets module
+   * @param {Client} client - The Discord.js client
+   * @returns {Promise<boolean>}
+   */
+  async initialize(client) {
+    try {
+      await super.initialize(client);
+      
+      // Get tickets config
+      const ticketsConfig = this.configManager.getConfig('tickets') || {};
+      
+      // Load active tickets from database
+      if (this.database && this.database.isConnected) {
+        await this.loadActiveTickets();
+        this.logger.info(this.name, 'Ticket data loaded from database');
+      } else {
+        this.logger.warn(this.name, 'Database not available, ticket data will not be persistent');
+      }
+      
+      return true;
+    } catch (error) {
+      this.handleError('initialize', error);
+      return false;
+    }
+  }
   
   /**
-   * Initialize the ticket system module
-   * @param {Client} client - The Discord.js client
+   * Start the tickets module
+   * @returns {Promise<boolean>}
    */
-  init(client) {
-    logger.info('Ticket system module initialized');
-    this.client = client;
-    
+  async start() {
+    try {
+      await super.start();
+      
+      // Register event listeners
+      this._registerEventListeners();
+      
+      return true;
+    } catch (error) {
+      this.handleError('start', error);
+      return false;
+    }
+  }
+  
+  /**
+   * Stop the tickets module
+   * @returns {Promise<boolean>}
+   */
+  async stop() {
+    try {
+      // Remove event listeners
+      for (const [event, listener] of this.listeners.entries()) {
+        this.client.removeListener(event, listener);
+      }
+      this.listeners.clear();
+      
+      await super.stop();
+      return true;
+    } catch (error) {
+      this.handleError('stop', error);
+      return false;
+    }
+  }
+  
+  /**
+   * Register event listeners
+   * @private
+   */
+  _registerEventListeners() {
     // Handle button interactions for tickets
-    client.on('interactionCreate', async (interaction) => {
-      if (!interaction.isButton()) return;
-      
-      // Record button usage in database
-      try {
-        await db.query(
-          'INSERT INTO button_usage (user_id, guild_id, custom_id, button_id, channel_id, timestamp) VALUES (?, ?, ?, ?, ?, ?)',
-          [interaction.user.id, interaction.guild?.id, interaction.customId, interaction.customId, interaction.channelId, new Date()]
-        );
-      } catch (error) {
-        logger.error(`Failed to record button usage in database: ${error.message}`);
-      }
-      
-      const handlers = {
-        'create_ticket': this.handleTicketButton,
-        'close_ticket': this.closeTicket,
-        'delete_ticket': this.deleteTicket,
-        'reopen_ticket': this.reopenTicket,
-        'claim_ticket': this.claimTicket
-      };
+    const onInteractionCreate = this._onInteractionCreate.bind(this);
+    this.client.on('interactionCreate', onInteractionCreate);
+    this.listeners.set('interactionCreate', onInteractionCreate);
+  }
+  
+  /**
+   * Handle interaction create event
+   * @param {Interaction} interaction - The interaction
+   * @private
+   */
+  async _onInteractionCreate(interaction) {
+    try {
+      // Handle button interactions
+      if (interaction.isButton()) {
+        // Record button usage in database
+        if (this.database && this.database.isConnected) {
+          try {
+            await this.database.query(
+              'INSERT INTO button_usage (user_id, guild_id, custom_id, button_id, channel_id, timestamp) VALUES (?, ?, ?, ?, ?, ?)',
+              [interaction.user.id, interaction.guild?.id, interaction.customId, interaction.customId, interaction.channelId, new Date()]
+            );
+          } catch (error) {
+            this.handleError('recordButtonUsage', error);
+          }
+        }
+        
+        const handlers = {
+          'create_ticket': this.handleTicketButton,
+          'close_ticket': this.closeTicket,
+          'delete_ticket': this.deleteTicket,
+          'reopen_ticket': this.reopenTicket,
+          'claim_ticket': this.claimTicket
+        };
 
-      const handler = handlers[interaction.customId];
-      if (handler) {
-        try {
-          await handler.call(this, interaction);
-        } catch (error) {
-          logger.error(`Error handling ticket interaction: ${error.message}`);
-          await this.handleError(interaction, error);
+        const handler = handlers[interaction.customId];
+        if (handler) {
+          try {
+            await handler.call(this, interaction);
+          } catch (error) {
+            this.handleError('handleTicketInteraction', error);
+            await this._handleInteractionError(interaction, error);
+          }
         }
       }
-    });
-    
-    // Handle select menu interactions for ticket categories
-    client.on('interactionCreate', async (interaction) => {
-      if (!interaction.isStringSelectMenu()) return;
       
-      // Record select menu usage in database
-      try {
-        await db.query(
-          'INSERT INTO select_menu_usage (user_id, guild_id, custom_id, values, channel_id, timestamp) VALUES (?, ?, ?, ?, ?, ?)',
-          [interaction.user.id, interaction.guild?.id, interaction.customId, JSON.stringify(interaction.values), interaction.channelId, new Date()]
-        );
-      } catch (error) {
-        logger.error(`Failed to record select menu usage in database: ${error.message}`);
-      }
-      
-      if (interaction.customId === 'ticket_category') {
-        try {
-          await this.handleTicketCategorySelect(interaction);
-        } catch (error) {
-          logger.error(`Error handling ticket category selection: ${error.message}`);
-          await this.handleError(interaction, error);
+      // Handle select menu interactions for ticket categories
+      if (interaction.isStringSelectMenu()) {
+        // Record select menu usage in database
+        if (this.database && this.database.isConnected) {
+          try {
+            await this.database.query(
+              'INSERT INTO select_menu_usage (user_id, guild_id, custom_id, values, channel_id, timestamp) VALUES (?, ?, ?, ?, ?, ?)',
+              [interaction.user.id, interaction.guild?.id, interaction.customId, JSON.stringify(interaction.values), interaction.channelId, new Date()]
+            );
+          } catch (error) {
+            this.handleError('recordSelectMenuUsage', error);
+          }
+        }
+        
+        if (interaction.customId === 'ticket_category') {
+          try {
+            await this.handleTicketCategorySelect(interaction);
+          } catch (error) {
+            this.handleError('handleTicketCategorySelect', error);
+            await this._handleInteractionError(interaction, error);
+          }
         }
       }
-    });
-    
-    // Handle modal submissions for tickets
-    client.on('interactionCreate', async (interaction) => {
-      if (!interaction.isModalSubmit()) return;
       
-      // Record modal submission in database
-      try {
-        await db.query(
-          'INSERT INTO modal_submissions (user_id, guild_id, custom_id, channel_id, timestamp) VALUES (?, ?, ?, ?, ?)',
-          [interaction.user.id, interaction.guild?.id, interaction.customId, interaction.channelId, new Date()]
-        );
-      } catch (error) {
-        logger.error(`Failed to record modal submission in database: ${error.message}`);
-      }
-      
-      if (interaction.customId.startsWith('ticket_modal_')) {
-        try {
-          await this.handleTicketModal(interaction);
-        } catch (error) {
-          logger.error(`Error handling ticket modal: ${error.message}`);
-          await this.handleError(interaction, error);
+      // Handle modal submissions for tickets
+      if (interaction.isModalSubmit()) {
+        if (interaction.customId === 'ticket_modal') {
+          try {
+            await this.handleTicketModalSubmit(interaction);
+          } catch (error) {
+            this.handleError('handleTicketModalSubmit', error);
+            await this._handleInteractionError(interaction, error);
+          }
         }
       }
-    });
-
-    // Auto-close inactive tickets
-    setInterval(() => this.checkInactiveTickets(), 1000 * 60 * 60); // Check every hour
-  },
-
+    } catch (error) {
+      this.handleError('_onInteractionCreate', error);
+    }
+  }
+  
+  /**
+   * Handle interaction errors
+   * @param {Interaction} interaction - The interaction
+   * @param {Error} error - The error
+   * @private
+   */
+  async _handleInteractionError(interaction, error) {
+    try {
+      if (interaction.deferred || interaction.replied) {
+        await interaction.editReply({
+          content: `An error occurred: ${error.message}`,
+          ephemeral: true
+        });
+      } else {
+        await interaction.reply({
+          content: `An error occurred: ${error.message}`,
+          ephemeral: true
+        });
+      }
+    } catch (replyError) {
+      this.logger.error(this.name, `Failed to reply to interaction: ${replyError.message}`);
+    }
+  }
+  
+  /**
+   * Load active tickets from database
+   * @returns {Promise<void>}
+   */
+  async loadActiveTickets() {
+    try {
+      if (!this.database || !this.database.isConnected) {
+        throw new Error('Database not available');
+      }
+      
+      const tickets = await this.database.query('SELECT * FROM tickets WHERE status != "closed"');
+      
+      for (const ticket of tickets) {
+        this.activeTickets.set(ticket.channel_id, {
+          id: ticket.id,
+          userId: ticket.user_id,
+          guildId: ticket.guild_id,
+          channelId: ticket.channel_id,
+          category: ticket.category,
+          status: ticket.status,
+          createdAt: new Date(ticket.created_at),
+          claimedBy: ticket.claimed_by
+        });
+      }
+      
+      this.logger.debug(this.name, `Loaded ${this.activeTickets.size} active tickets from database`);
+    } catch (error) {
+      this.handleError('loadActiveTickets', error);
+    }
+  }
+  
   /**
    * Handle errors gracefully
    * @param {ButtonInteraction} interaction 
@@ -144,7 +271,7 @@ module.exports = {
     } catch (e) {
       logger.error(`Failed to send error message: ${e.message}`);
     }
-  },
+  }
 
   /**
    * Check for inactive tickets and auto-close them
@@ -195,7 +322,7 @@ module.exports = {
     } catch (error) {
       logger.error(`Error checking inactive tickets: ${error.message}`);
     }
-  },
+  }
   
   /**
    * Create ticket message in channel
@@ -277,7 +404,7 @@ module.exports = {
       logger.error(`Error creating ticket message: ${error.message}`);
       return null;
     }
-  },
+  }
 
   /**
    * Create a new support ticket
@@ -430,7 +557,7 @@ module.exports = {
       logger.error(`Error creating ticket: ${error.message}`);
       await this.handleError(interaction, error);
     }
-  },
+  }
 
   /**
    * Claim a ticket
@@ -478,7 +605,7 @@ module.exports = {
       logger.error(`Error claiming ticket: ${error.message}`);
       await this.handleError(interaction, error);
     }
-  },
+  }
 
   /**
    * Close a support ticket
@@ -560,7 +687,7 @@ module.exports = {
       logger.error(`Error closing ticket: ${error.message}`);
       if (!autoClose) await this.handleError(interaction, error);
     }
-  },
+  }
 
   /**
    * Log a ticket action to the ticket-logs channel
@@ -594,7 +721,7 @@ module.exports = {
     } catch (error) {
       logger.error(`Error logging ticket action: ${error.message}`);
     }
-  },
+  }
 
   /**
    * Create ticket panel message in channel
@@ -680,7 +807,7 @@ module.exports = {
     } catch (error) {
       logger.error(`Error creating ticket panel: ${error.message}`);
     }
-  },
+  }
 
   /**
    * Handle ticket category selection
@@ -765,7 +892,7 @@ module.exports = {
       logger.error(`Error handling ticket category selection: ${error.message}`);
       await this.handleError(interaction, error);
     }
-  },
+  }
 
   /**
    * Handle ticket modal submission
@@ -936,7 +1063,7 @@ module.exports = {
       logger.error(`Error handling ticket modal: ${error.message}`);
       await this.handleError(interaction, error);
     }
-  },
+  }
 
   /**
    * Save ticket transcript
@@ -997,7 +1124,7 @@ module.exports = {
     } catch (error) {
       logger.error(`Error saving ticket transcript: ${error.message}`);
     }
-  },
+  }
 
   /**
    * Generate a unique ticket ID
@@ -1005,7 +1132,7 @@ module.exports = {
    */
   generateTicketId() {
     return Math.floor(1000 + Math.random() * 9000).toString();
-  },
+  }
 
   /**
    * Handle ticket button interaction
@@ -1079,7 +1206,7 @@ module.exports = {
       logger.error(`Error handling ticket button: ${error.message}`);
       await this.handleError(interaction, error);
     }
-  },
+  }
 
   /**
    * Get ticket statistics
@@ -1096,28 +1223,28 @@ module.exports = {
       let averageResponseTime = 0;
       let ticketsToday = 0;
       
-      if (this.db && this.db.isConnected) {
+      if (this.database && this.database.isConnected) {
         try {
           // Get total tickets
-          const totalResult = await this.db.query('SELECT COUNT(*) as count FROM tickets');
+          const totalResult = await this.database.query('SELECT COUNT(*) as count FROM tickets');
           totalTickets = totalResult[0]?.count || activeTickets;
           
           // Get closed tickets
-          const closedResult = await this.db.query('SELECT COUNT(*) as count FROM tickets WHERE status = ?', ['closed']);
+          const closedResult = await this.database.query('SELECT COUNT(*) as count FROM tickets WHERE status = ?', ['closed']);
           closedTickets = closedResult[0]?.count || 0;
           
           // Get tickets created today
           const today = new Date();
           today.setHours(0, 0, 0, 0);
           
-          const todayResult = await this.db.query(
+          const todayResult = await this.database.query(
             'SELECT COUNT(*) as count FROM tickets WHERE created_at >= ?', 
             [today]
           );
           ticketsToday = todayResult[0]?.count || 0;
           
           // Calculate average response time (if claimed_at data is available)
-          const responseTimeResult = await this.db.query(
+          const responseTimeResult = await this.database.query(
             'SELECT AVG(TIMESTAMPDIFF(MINUTE, created_at, claimed_at)) as avg_time FROM tickets WHERE claimed_at IS NOT NULL'
           );
           averageResponseTime = Math.round(responseTimeResult[0]?.avg_time || 0);
@@ -1150,7 +1277,7 @@ module.exports = {
         categories: {}
       };
     }
-  },
+  }
   
   /**
    * Count tickets by category
@@ -1161,5 +1288,22 @@ module.exports = {
     return Array.from(this.activeTickets.values()).filter(ticket => 
       ticket.category === category
     ).length;
-  },
-}; 
+  }
+
+  /**
+   * Get the module's status
+   * @returns {Object} - Module status
+   */
+  getStatus() {
+    const baseStatus = super.getStatus();
+    
+    return {
+      ...baseStatus,
+      metrics: {
+        activeTickets: this.activeTickets.size
+      }
+    };
+  }
+}
+
+module.exports = TicketsModule; 

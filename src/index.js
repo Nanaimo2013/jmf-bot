@@ -1,7 +1,7 @@
 /**
  * JMF Hosting Discord Bot
- * Version: 1.3.0
- * Last Updated: 03/12/2025
+ * Version: 1.4.0
+ * Last Updated: 03/14/2025
  * 
  * © 2025 JMFHosting. All Rights Reserved.
  * Developed by Nanaimo2013 (https://github.com/Nanaimo2013)
@@ -13,11 +13,24 @@
 // Load environment variables
 require('dotenv').config();
 
-// Import managers module
-const managers = require('./managers');
+// Import Bot class
+const Bot = require('./bot');
+const fs = require('fs');
+const path = require('path');
 
 // Global managers object
 global.managers = {};
+
+// Flag to track if shutdown is in progress
+let isShuttingDown = false;
+
+// Create bot instance
+const bot = new Bot();
+
+// Save the process ID to a file for easier shutdown
+const pidFilePath = path.join(__dirname, '..', '.pid');
+fs.writeFileSync(pidFilePath, process.pid.toString(), 'utf8');
+console.log(`Process ID ${process.pid} saved to ${pidFilePath}`);
 
 // Handle uncaught exceptions
 process.on('uncaughtException', (error) => {
@@ -41,76 +54,51 @@ process.on('unhandledRejection', (reason, promise) => {
 // Handle termination signals
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+// Also handle Windows-specific signals
+if (process.platform === 'win32') {
+    const rl = require('readline').createInterface({
+        input: process.stdin,
+        output: process.stdout
+    });
+    
+    rl.on('SIGINT', () => {
+        process.emit('SIGINT');
+    });
+}
 
 /**
- * Initialize all managers
+ * Initialize and start the bot
  * @returns {Promise<void>}
  */
 async function initialize() {
     try {
         console.log('Starting JMF Hosting Discord Bot...');
         
-        // Initialize all managers
-        global.managers = await managers.initializeManagers({
-            logger: {
-                level: process.env.LOG_LEVEL || 'info',
-                directory: process.env.LOG_DIRECTORY || './logs'
-            },
-            database: {
-                type: process.env.DB_TYPE || 'sqlite',
-                host: process.env.DB_HOST,
-                port: process.env.DB_PORT,
-                username: process.env.DB_USER,
-                password: process.env.DB_PASSWORD,
-                database: process.env.DB_NAME || './data/bot.db',
-                migrations: process.env.DB_MIGRATIONS_DIR || './src/database/migrations'
-            },
-            bot: {
-                token: process.env.DISCORD_TOKEN,
-                clientId: process.env.CLIENT_ID,
-                guildId: process.env.GUILD_ID
-            },
-            api: {
-                port: process.env.API_PORT || 3000,
-                host: process.env.API_HOST || 'localhost',
-                auth: {
-                    enabled: process.env.API_AUTH_ENABLED === 'true',
-                    secret: process.env.API_SECRET
-                }
-            },
-            monitor: {
-                interval: parseInt(process.env.MONITOR_INTERVAL || '60000'),
-                enabled: process.env.MONITOR_ENABLED !== 'false'
-            },
-            docker: {
-                socketPath: process.env.DOCKER_SOCKET || '/var/run/docker.sock'
-            },
-            install: {
-                configDir: process.env.CONFIG_DIR || './config'
-            },
-            test: {
-                enabled: process.env.TEST_MODE === 'true'
-            },
-            update: {
-                checkInterval: parseInt(process.env.UPDATE_CHECK_INTERVAL || '86400000'),
-                autoUpdate: process.env.AUTO_UPDATE === 'true'
-            }
+        // Initialize the bot
+        await bot.initialize({
+            logLevel: process.env.LOG_LEVEL || 'info',
+            logDirectory: process.env.LOG_DIRECTORY || './logs',
+            configPath: process.env.CONFIG_PATH || './config'
         });
         
-        const { logger, bot, api, monitor } = global.managers;
+        const logger = global.managers.logger;
+        
+        // Show startup section
+        logger.section('startup');
+        
+        // Start the bot
+        await bot.start();
         
         // Log successful initialization
         logger.success('system', 'JMF Hosting Discord Bot is fully operational');
         
-        // Start bot, API, and monitoring
-        await bot.start();
-        logger.success('system', 'Bot is now online!');
+        // Show bot section
+        logger.section('bot');
         
-        await api.start();
-        logger.success('system', 'API server started');
-        
-        await monitor.start();
-        logger.success('system', 'Monitoring started');
+        // Log bot status
+        const status = bot.getStatus();
+        logger.info('system', `Bot uptime: ${formatUptime(status.uptime)}`);
+        logger.info('system', `Loaded modules: ${status.moduleCount}`);
         
     } catch (error) {
         if (global.managers.logger) {
@@ -123,36 +111,102 @@ async function initialize() {
 }
 
 /**
- * Gracefully shut down all managers
+ * Gracefully shut down the bot
  * @param {string} signal - Shutdown signal
  * @returns {Promise<void>}
  */
 async function gracefulShutdown(signal) {
-    if (global.managers.logger) {
-        global.managers.logger.warn('system', `Received ${signal} signal, shutting down...`);
+    // Prevent multiple shutdown attempts
+    if (isShuttingDown) return;
+    isShuttingDown = true;
+    
+    // Get logger if available
+    const logger = global.managers?.logger || console;
+    
+    // Log shutdown
+    if (logger === console) {
+        logger.log(`Shutting down due to ${signal}...`);
     } else {
-        console.warn(`Received ${signal} signal, shutting down...`);
+        logger.section('shutdown');
+        logger.info('system', `Shutting down due to ${signal}...`);
     }
     
     try {
-        // Shutdown all managers
-        await managers.shutdownManagers(global.managers);
-        
-        if (global.managers.logger) {
-            global.managers.logger.info('system', 'All managers shut down successfully');
-        } else {
-            console.log('All managers shut down successfully');
+        // Stop the bot
+        if (bot) {
+            await bot.stop();
         }
+        
+        // Shutdown managers
+        if (global.managers) {
+            // Shutdown in reverse order
+            const managerNames = Object.keys(global.managers).reverse();
+            
+            for (const name of managerNames) {
+                const manager = global.managers[name];
+                if (manager && typeof manager.shutdown === 'function') {
+                    if (logger !== console) {
+                        logger.info('system', `Shutting down ${name} manager...`);
+                    }
+                    await manager.shutdown();
+                }
+            }
+        }
+        
+        // Log successful shutdown
+        if (logger !== console) {
+            logger.success('system', 'Shutdown complete');
+        } else {
+            logger.log('Shutdown complete');
+        }
+        
+        // Remove PID file
+        if (fs.existsSync(pidFilePath)) {
+            fs.unlinkSync(pidFilePath);
+        }
+        
+        // Exit with success code
+        process.exit(0);
     } catch (error) {
-        console.error(`Error during shutdown: ${error.message}`);
+        // Log error
+        if (logger === console) {
+            logger.error(`Error during shutdown: ${error.message}`);
+            logger.error(error.stack);
+        } else {
+            logger.error('system', `Error during shutdown: ${error.message}`, error.stack);
+        }
+        
+        // Remove PID file
+        if (fs.existsSync(pidFilePath)) {
+            fs.unlinkSync(pidFilePath);
+        }
+        
+        // Exit with error code
+        process.exit(1);
     }
+}
+
+/**
+ * Format uptime in a human-readable format
+ * @param {number} ms - Uptime in milliseconds
+ * @returns {string} Formatted uptime
+ */
+function formatUptime(ms) {
+    const seconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
     
-    // Exit process
-    process.exit(signal === 'UNCAUGHT_EXCEPTION' ? 1 : 0);
+    if (days > 0) {
+        return `${days}d ${hours % 24}h ${minutes % 60}m ${seconds % 60}s`;
+    } else if (hours > 0) {
+        return `${hours}h ${minutes % 60}m ${seconds % 60}s`;
+    } else if (minutes > 0) {
+        return `${minutes}m ${seconds % 60}s`;
+    } else {
+        return `${seconds}s`;
+    }
 }
 
 // Start the bot
-initialize().catch(error => {
-    console.error(`Fatal error during initialization: ${error.message}`);
-    process.exit(1);
-}); 
+initialize(); 

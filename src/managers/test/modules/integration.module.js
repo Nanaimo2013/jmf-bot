@@ -70,11 +70,43 @@ class IntegrationModule extends BaseModule {
     async initialize(config = {}) {
         await super.initialize(config);
         
-        // Create test directory if it doesn't exist
-        const testDir = path.join(process.cwd(), this.getConfig('testDir'));
-        await fs.mkdir(testDir, { recursive: true });
-        
-        this.log('info', 'Integration test module initialized');
+        try {
+            // Create test directory if it doesn't exist
+            let testDir = this.getConfig('testDir');
+            
+            // Check if paths configuration is available
+            let managerConfig;
+            try {
+                managerConfig = this.manager.getConfig();
+            } catch (error) {
+                this.log('warn', 'Could not get manager config, using default paths');
+                managerConfig = null;
+            }
+            
+            if (!testDir && managerConfig && managerConfig.paths && managerConfig.paths.tests && managerConfig.paths.tests.integration) {
+                testDir = managerConfig.paths.tests.integration;
+            }
+            
+            // Use default path if not configured
+            if (!testDir) {
+                testDir = 'tests/integration';
+                this.log('warn', `Test directory not configured, using default: ${testDir}`);
+            }
+            
+            // Ensure testDir is a string
+            if (typeof testDir !== 'string') {
+                this.log('warn', `Test directory is not a string, using default instead`);
+                testDir = 'tests/integration';
+            }
+            
+            const fullTestDir = path.join(process.cwd(), testDir);
+            await fs.mkdir(fullTestDir, { recursive: true });
+            
+            this.log('info', 'Integration test module initialized');
+        } catch (error) {
+            this.log('error', `Failed to initialize integration module: ${error.message}`);
+            throw error;
+        }
     }
 
     /**

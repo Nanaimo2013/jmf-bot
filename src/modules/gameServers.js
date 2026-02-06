@@ -1,38 +1,208 @@
 /**
- * JMF Hosting Discord Bot
+ * JMF Hosting Discord Bot - Game Servers Module
+ * Version: 1.0.0
+ * Last Updated: 03/14/2025
+ * 
+ * This module handles game server integration for the bot.
  * 
  * © 2025 JMFHosting. All Rights Reserved.
  * Developed by Nanaimo2013 (https://github.com/Nanaimo2013)
- * 
- * This source code is licensed under the MIT license found in the
- * LICENSE file in the root directory of this source tree.
  */
 
+const Module = require('./base.module');
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-const config = require('../../config.json');
-const logger = require('../utils/logger');
 const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
 
-/**
- * Game server integration module for JMF Hosting
- */
-module.exports = {
-  name: 'gameServers',
+class GameServersModule extends Module {
+  /**
+   * Create a new game servers module
+   */
+  constructor() {
+    super({
+      name: 'gameServers',
+      description: 'Handles game server integration for the bot',
+      enabled: true,
+      dependencies: []
+    });
+    
+    this.updateInterval = null;
+    this.listeners = new Map();
+    this.servers = [];
+    this.enabled = true;
+    
+    // Helper method to check if module is enabled
+    this.isEnabled = () => this.enabled;
+  }
+
+  /**
+   * Initialize the game servers module
+   * @param {Client} client - The Discord.js client
+   * @returns {Promise<boolean>}
+   */
+  async initialize(client) {
+    try {
+      await super.initialize(client);
+      
+      // Get game servers config
+      this.moduleConfig = this.configManager.getConfig('gameServers') || {};
+      
+      // Get API configuration from environment variables
+      this.apiUrl = process.env.PTERODACTYL_API_URL;
+      this.apiKey = process.env.PTERODACTYL_API_KEY;
+      this.adminApiKey = process.env.PTERODACTYL_ADMIN_API_KEY || this.apiKey;
+      
+      // Validate required configuration
+      if (!this.apiUrl || !this.apiKey) {
+        this.logger.warn('Game servers API URL and API key not configured, module will be disabled');
+        this.enabled = false;
+        return;
+      }
+      
+      // Normalize API URL
+      this.apiUrl = this.apiUrl.replace(/\/+$/, '').replace(/\/api\/application$/, '');
+      this.apiUrl = `${this.apiUrl}/api/application`;
+      
+      // Ensure API key is properly formatted
+      this.apiKey = this.apiKey.trim();
+      this.adminApiKey = this.adminApiKey.trim();
+      
+      // Get other configuration
+      this.panelUrl = this.moduleConfig.panelUrl;
+      this.statusChannel = this.moduleConfig.statusChannel;
+      this.serverManagerRole = this.moduleConfig.serverManagerRole;
+      this.updateInterval = this.moduleConfig.updateInterval || 60;
+      
+      // Log API configuration for debugging
+      console.log('Game Servers API Configuration:', {
+        url: this.apiUrl,
+        keyLength: this.apiKey ? this.apiKey.length : 0,
+        adminKeyLength: this.adminApiKey ? this.adminApiKey.length : 0
+      });
+      
+      // Test API connection
+      await this.testApiConnection();
+      
+      // Initialize servers array
+      this.servers = [];
+      
+      // Fetch initial server data
+      await this.fetchAllServers();
+      
+      return true;
+    } catch (error) {
+      this.handleError('initialize', error);
+      return false;
+    }
+  }
+  
+  async testApiConnection() {
+    try {
+      const headers = {
+        'Authorization': `Bearer ${this.adminApiKey.trim()}`,
+        'Accept': 'Application/vnd.pterodactyl.v1+json',
+        'Content-Type': 'application/json'
+      };
+      
+      console.log('Testing API connection...');
+      console.log('Request URL:', `${this.apiUrl}/servers`);
+      console.log('Request headers:', {
+        ...headers,
+        'Authorization': headers.Authorization.replace(this.adminApiKey, '***')
+      });
+      
+      const response = await fetch(`${this.apiUrl}/servers`, { headers });
+      
+      console.log('Response status:', response.status);
+      console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.log('API Error Response:', errorText);
+        throw new Error(`API connection test failed: ${response.status} ${response.statusText}`);
+      }
+      
+      console.log('API connection test successful');
+    } catch (error) {
+      console.error('API connection test failed:', error);
+      throw error;
+    }
+  }
   
   /**
-   * Initialize the game server module
-   * @param {Client} client - The Discord.js client
+   * Start the game servers module
+   * @returns {Promise<boolean>}
    */
-  init(client) {
-    logger.info('Game server module initialized');
-    
-    // Set up interval to update server status
-    setInterval(() => {
-      this.updateServerStatus(client);
-    }, config.gameServers.updateInterval * 1000);
-    
+  async start() {
+    try {
+      await super.start();
+      
+      if (!this.isEnabled()) {
+        this.logger.info('Game servers module is disabled, skipping start');
+        return true;
+      }
+      
+      // Register event listeners
+      this._registerEventListeners();
+      
+      // Set up interval to update server status
+      const updateInterval = this.moduleConfig.updateInterval || 60; // Default: 60 seconds
+      this.updateInterval = setInterval(() => {
+        this.updateServerStatus();
+      }, updateInterval * 1000);
+      
+      this.logger.info(this.name, `Server status updates scheduled every ${updateInterval} seconds`);
+      
+      return true;
+    } catch (error) {
+      this.handleError('start', error);
+      return false;
+    }
+  }
+  
+  /**
+   * Stop the game servers module
+   * @returns {Promise<boolean>}
+   */
+  async stop() {
+    try {
+      // Clear update interval
+      if (this.updateInterval) {
+        clearInterval(this.updateInterval);
+        this.updateInterval = null;
+      }
+      
+      // Remove event listeners
+      for (const [event, listener] of this.listeners.entries()) {
+        this.client.removeListener(event, listener);
+      }
+      this.listeners.clear();
+      
+      await super.stop();
+      return true;
+    } catch (error) {
+      this.handleError('stop', error);
+      return false;
+    }
+  }
+  
+  /**
+   * Register event listeners
+   * @private
+   */
+  _registerEventListeners() {
     // Handle button interactions for game servers
-    client.on('interactionCreate', async (interaction) => {
+    const onInteractionCreate = this._onInteractionCreate.bind(this);
+    this.client.on('interactionCreate', onInteractionCreate);
+    this.listeners.set('interactionCreate', onInteractionCreate);
+  }
+  
+  /**
+   * Handle interaction create event
+   * @param {Interaction} interaction - The interaction
+   * @private
+   */
+  async _onInteractionCreate(interaction) {
+    try {
       if (!interaction.isButton()) return;
       
       // Handle server actions
@@ -54,27 +224,31 @@ module.exports = {
             break;
         }
       }
-    });
-  },
+    } catch (error) {
+      this.handleError('_onInteractionCreate', error);
+    }
+  }
   
   /**
    * Update the server status in the designated channel
-   * @param {Client} client - The Discord.js client
    */
-  async updateServerStatus(client) {
+  async updateServerStatus() {
     try {
       // Get all servers from Pterodactyl
       const servers = await this.fetchAllServers();
       
       if (!servers || !servers.data) {
-        logger.error('Failed to fetch servers from Pterodactyl API');
+        this.logger.error(this.name, 'Failed to fetch servers from Pterodactyl API');
         return;
       }
       
+      // Store servers for later use
+      this.servers = servers.data;
+      
       // Find the status channel in all guilds
-      client.guilds.cache.forEach(async (guild) => {
+      this.client.guilds.cache.forEach(async (guild) => {
         const statusChannel = guild.channels.cache.find(
-          channel => channel.name === config.gameServers.statusChannel && channel.type === 0
+          channel => channel.name === this.moduleConfig.statusChannel && channel.type === 0
         );
         
         if (!statusChannel) return;
@@ -88,219 +262,307 @@ module.exports = {
           
           // Create server status embed
           const statusEmbed = new EmbedBuilder()
-            .setColor(config.embedColor)
+            .setColor(this.config.embedColor || '#0099ff')
             .setTitle('JMF Hosting Game Servers Status')
             .setDescription('Current status of all game servers. Click the buttons to manage servers.')
             .setTimestamp()
-            .setFooter({ text: config.footerText });
+            .setFooter({ text: this.config.footerText || 'JMF Hosting' });
           
           // Group servers by game type
           const gameTypes = {};
           
           servers.data.forEach(server => {
             const gameType = this.determineGameType(server.attributes.description);
+            
             if (!gameTypes[gameType]) {
               gameTypes[gameType] = [];
             }
+            
             gameTypes[gameType].push(server);
           });
           
           // Add fields for each game type
-          for (const [gameType, gameServers] of Object.entries(gameTypes)) {
-            let serverList = '';
+          for (const [gameType, typeServers] of Object.entries(gameTypes)) {
+            let fieldValue = '';
             
-            gameServers.forEach(server => {
-              const status = server.attributes.status;
+            for (const server of typeServers) {
+              const status = server.attributes.status || 'unknown';
               const statusEmoji = this.getStatusEmoji(status);
-              const playerCount = server.attributes.relationships?.allocations?.data?.[0]?.attributes?.current_state === 'running' 
-                ? `(${server.attributes.relationships?.allocations?.data?.[0]?.attributes?.current_state?.players || 0}/${server.attributes.relationships?.allocations?.data?.[0]?.attributes?.current_state?.maxPlayers || 0})` 
-                : '';
               
-              serverList += `${statusEmoji} **${server.attributes.name}** ${playerCount}\n`;
+              fieldValue += `${statusEmoji} **${server.attributes.name}**\n`;
+              fieldValue += `ID: \`${server.attributes.identifier}\`\n`;
+              fieldValue += `Status: ${status}\n\n`;
+            }
+            
+            statusEmbed.addFields({ name: `${gameType} Servers`, value: fieldValue || 'No servers found', inline: false });
+          }
+          
+          // Add server stats
+          const stats = await this.getServerStats();
+          
+          statusEmbed.addFields({ 
+            name: 'Server Statistics', 
+            value: `Total Servers: ${stats.totalServers}\nOnline: ${stats.onlineServers}\nOffline: ${stats.offlineServers}`,
+            inline: true
+          });
+          
+          // Add node stats if available
+          try {
+            const nodeStats = await this.getNodeStats();
+            
+            statusEmbed.addFields({ 
+              name: 'Node Statistics', 
+              value: `Total Nodes: ${nodeStats.totalNodes}\nOnline: ${nodeStats.onlineNodes}\nOffline: ${nodeStats.offlineNodes}`,
+              inline: true
             });
-            
-            statusEmbed.addFields({ name: `${gameType} Servers`, value: serverList || 'No servers available', inline: false });
+          } catch (error) {
+            this.handleError('getNodeStats', error);
           }
           
-          // Send the status embed
-          const message = await statusChannel.send({ embeds: [statusEmbed] });
+          // Create action buttons
+          const row = new ActionRowBuilder()
+            .addComponents(
+              new ButtonBuilder()
+                .setCustomId('refresh_servers')
+                .setLabel('Refresh')
+                .setStyle(ButtonStyle.Primary)
+                .setEmoji('🔄'),
+              new ButtonBuilder()
+                .setURL(this.moduleConfig.panelUrl || 'https://panel.jmfhosting.net')
+                .setLabel('Control Panel')
+                .setStyle(ButtonStyle.Link)
+            );
           
-          // Create server control buttons for each server
-          for (const server of servers.data) {
-            const row = new ActionRowBuilder()
-              .addComponents(
-                new ButtonBuilder()
-                  .setCustomId(`server_details_${server.attributes.id}`)
-                  .setLabel(`${server.attributes.name} Details`)
-                  .setStyle(ButtonStyle.Primary)
-              );
-            
-            await statusChannel.send({ components: [row] });
-          }
+          // Send status message
+          await statusChannel.send({ embeds: [statusEmbed], components: [row] });
           
-          logger.info(`Updated server status in guild: ${guild.name}`);
+          this.logger.debug(this.name, `Updated server status in ${guild.name}`);
         } catch (error) {
-          logger.error(`Error updating server status in guild ${guild.name}: ${error.message}`);
+          this.handleError('updateServerStatus', error);
         }
       });
     } catch (error) {
-      logger.error(`Error in updateServerStatus: ${error.message}`);
+      this.handleError('updateServerStatus', error);
     }
-  },
+  }
   
   /**
-   * Start a game server
+   * Start a server
    * @param {ButtonInteraction} interaction - The button interaction
    * @param {string} serverId - The server ID
    */
   async startServer(interaction, serverId) {
-    await interaction.deferReply({ ephemeral: true });
-    
     try {
-      // Check if user has permission
+      // Defer reply
+      await interaction.deferReply({ ephemeral: true });
+      
+      // Check permissions
       if (!this.hasServerPermission(interaction.member)) {
-        await interaction.editReply({ content: 'You do not have permission to start servers.' });
+        await interaction.editReply({ content: 'You do not have permission to manage servers.' });
         return;
       }
       
-      // Send start signal to Pterodactyl
-      const response = await fetch(`${process.env.PTERODACTYL_API_URL}/servers/${serverId}/power`, {
+      // Get server details
+      const server = await this.fetchServer(serverId);
+      
+      if (!server) {
+        await interaction.editReply({ content: 'Server not found.' });
+        return;
+      }
+      
+      // Check if server is already running
+      if (server.attributes.status === 'running') {
+        await interaction.editReply({ content: 'Server is already running.' });
+        return;
+      }
+      
+      // Send start signal to Pterodactyl API
+      const response = await fetch(`${this.apiUrl}/servers/${serverId}/power`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${process.env.PTERODACTYL_API_KEY}`,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
+          'Authorization': `Bearer ${this.adminApiKey.trim()}`,
+          'Accept': 'Application/vnd.pterodactyl.v1+json',
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({ signal: 'start' })
       });
       
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(`API Error: ${error.message || 'Unknown error'}`);
+        const errorText = await response.text();
+        console.log('API Error Response:', errorText);
+        let errorMessage = 'Unknown error';
+        try {
+          const errorJson = JSON.parse(errorText);
+          if (errorJson.errors && errorJson.errors.length > 0) {
+            errorMessage = errorJson.errors[0].detail || errorJson.errors[0].message || errorMessage;
+          }
+        } catch (e) {
+          errorMessage = errorText;
+        }
+        throw new Error(`API Error: ${errorMessage} (Status: ${response.status})`);
+      }
+      
+      // Update server status
+      setTimeout(() => this.updateServerStatus(), 5000);
+      
+      await interaction.editReply({ content: `Server ${server.attributes.name} is starting...` });
+      
+      // Log action
+      this.logger.info(this.name, `User ${interaction.user.tag} started server ${server.attributes.name} (${serverId})`);
+    } catch (error) {
+      this.handleError('startServer', error);
+      await interaction.editReply({ content: `Error starting server: ${error.message}` });
+    }
+  }
+  
+  /**
+   * Stop a server
+   * @param {ButtonInteraction} interaction - The button interaction
+   * @param {string} serverId - The server ID
+   */
+  async stopServer(interaction, serverId) {
+    try {
+      // Defer reply
+      await interaction.deferReply({ ephemeral: true });
+      
+      // Check permissions
+      if (!this.hasServerPermission(interaction.member)) {
+        await interaction.editReply({ content: 'You do not have permission to manage servers.' });
+        return;
       }
       
       // Get server details
       const server = await this.fetchServer(serverId);
       
-      // Send confirmation
-      await interaction.editReply({ content: `✅ Started server: ${server.attributes.name}` });
-      logger.info(`User ${interaction.user.tag} started server ${server.attributes.name}`);
-      
-      // Update server status
-      setTimeout(() => {
-        this.updateServerStatus(interaction.client);
-      }, 5000);
-    } catch (error) {
-      logger.error(`Error starting server: ${error.message}`);
-      await interaction.editReply({ content: `❌ Error starting server: ${error.message}` });
-    }
-  },
-  
-  /**
-   * Stop a game server
-   * @param {ButtonInteraction} interaction - The button interaction
-   * @param {string} serverId - The server ID
-   */
-  async stopServer(interaction, serverId) {
-    await interaction.deferReply({ ephemeral: true });
-    
-    try {
-      // Check if user has permission
-      if (!this.hasServerPermission(interaction.member)) {
-        await interaction.editReply({ content: 'You do not have permission to stop servers.' });
+      if (!server) {
+        await interaction.editReply({ content: 'Server not found.' });
         return;
       }
       
-      // Send stop signal to Pterodactyl
-      const response = await fetch(`${process.env.PTERODACTYL_API_URL}/servers/${serverId}/power`, {
+      // Check if server is already stopped
+      if (server.attributes.status === 'stopped') {
+        await interaction.editReply({ content: 'Server is already stopped.' });
+        return;
+      }
+      
+      // Send stop signal to Pterodactyl API
+      const response = await fetch(`${this.apiUrl}/servers/${serverId}/power`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${process.env.PTERODACTYL_API_KEY}`,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
+          'Authorization': `Bearer ${this.adminApiKey.trim()}`,
+          'Accept': 'Application/vnd.pterodactyl.v1+json',
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({ signal: 'stop' })
       });
       
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(`API Error: ${error.message || 'Unknown error'}`);
+        const errorText = await response.text();
+        console.log('API Error Response:', errorText);
+        let errorMessage = 'Unknown error';
+        try {
+          const errorJson = JSON.parse(errorText);
+          if (errorJson.errors && errorJson.errors.length > 0) {
+            errorMessage = errorJson.errors[0].detail || errorJson.errors[0].message || errorMessage;
+          }
+        } catch (e) {
+          errorMessage = errorText;
+        }
+        throw new Error(`API Error: ${errorMessage} (Status: ${response.status})`);
+      }
+      
+      // Update server status
+      setTimeout(() => this.updateServerStatus(), 5000);
+      
+      await interaction.editReply({ content: `Server ${server.attributes.name} is stopping...` });
+      
+      // Log action
+      this.logger.info(this.name, `User ${interaction.user.tag} stopped server ${server.attributes.name} (${serverId})`);
+    } catch (error) {
+      this.handleError('stopServer', error);
+      await interaction.editReply({ content: `Error stopping server: ${error.message}` });
+    }
+  }
+  
+  /**
+   * Restart a server
+   * @param {ButtonInteraction} interaction - The button interaction
+   * @param {string} serverId - The server ID
+   */
+  async restartServer(interaction, serverId) {
+    try {
+      // Defer reply
+      await interaction.deferReply({ ephemeral: true });
+      
+      // Check permissions
+      if (!this.hasServerPermission(interaction.member)) {
+        await interaction.editReply({ content: 'You do not have permission to manage servers.' });
+        return;
       }
       
       // Get server details
       const server = await this.fetchServer(serverId);
       
-      // Send confirmation
-      await interaction.editReply({ content: `✅ Stopped server: ${server.attributes.name}` });
-      logger.info(`User ${interaction.user.tag} stopped server ${server.attributes.name}`);
-      
-      // Update server status
-      setTimeout(() => {
-        this.updateServerStatus(interaction.client);
-      }, 5000);
-    } catch (error) {
-      logger.error(`Error stopping server: ${error.message}`);
-      await interaction.editReply({ content: `❌ Error stopping server: ${error.message}` });
-    }
-  },
-  
-  /**
-   * Restart a game server
-   * @param {ButtonInteraction} interaction - The button interaction
-   * @param {string} serverId - The server ID
-   */
-  async restartServer(interaction, serverId) {
-    await interaction.deferReply({ ephemeral: true });
-    
-    try {
-      // Check if user has permission
-      if (!this.hasServerPermission(interaction.member)) {
-        await interaction.editReply({ content: 'You do not have permission to restart servers.' });
+      if (!server) {
+        await interaction.editReply({ content: 'Server not found.' });
         return;
       }
       
-      // Send restart signal to Pterodactyl
-      const response = await fetch(`${process.env.PTERODACTYL_API_URL}/servers/${serverId}/power`, {
+      // Check if server is running
+      if (server.attributes.status !== 'running') {
+        await interaction.editReply({ content: 'Server must be running to restart it.' });
+        return;
+      }
+      
+      // Send restart signal to Pterodactyl API
+      const response = await fetch(`${this.apiUrl}/servers/${serverId}/power`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${process.env.PTERODACTYL_API_KEY}`,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
+          'Authorization': `Bearer ${this.adminApiKey.trim()}`,
+          'Accept': 'Application/vnd.pterodactyl.v1+json',
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({ signal: 'restart' })
       });
       
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(`API Error: ${error.message || 'Unknown error'}`);
+        const errorText = await response.text();
+        console.log('API Error Response:', errorText);
+        let errorMessage = 'Unknown error';
+        try {
+          const errorJson = JSON.parse(errorText);
+          if (errorJson.errors && errorJson.errors.length > 0) {
+            errorMessage = errorJson.errors[0].detail || errorJson.errors[0].message || errorMessage;
+          }
+        } catch (e) {
+          errorMessage = errorText;
+        }
+        throw new Error(`API Error: ${errorMessage} (Status: ${response.status})`);
       }
       
-      // Get server details
-      const server = await this.fetchServer(serverId);
-      
-      // Send confirmation
-      await interaction.editReply({ content: `✅ Restarted server: ${server.attributes.name}` });
-      logger.info(`User ${interaction.user.tag} restarted server ${server.attributes.name}`);
-      
       // Update server status
-      setTimeout(() => {
-        this.updateServerStatus(interaction.client);
-      }, 5000);
+      setTimeout(() => this.updateServerStatus(), 5000);
+      
+      await interaction.editReply({ content: `Server ${server.attributes.name} is restarting...` });
+      
+      // Log action
+      this.logger.info(this.name, `User ${interaction.user.tag} restarted server ${server.attributes.name} (${serverId})`);
     } catch (error) {
-      logger.error(`Error restarting server: ${error.message}`);
-      await interaction.editReply({ content: `❌ Error restarting server: ${error.message}` });
+      this.handleError('restartServer', error);
+      await interaction.editReply({ content: `Error restarting server: ${error.message}` });
     }
-  },
+  }
   
   /**
-   * Show detailed information about a server
+   * Show server details
    * @param {ButtonInteraction} interaction - The button interaction
    * @param {string} serverId - The server ID
    */
   async showServerDetails(interaction, serverId) {
-    await interaction.deferReply({ ephemeral: true });
-    
     try {
+      // Defer reply
+      await interaction.deferReply({ ephemeral: true });
+      
       // Get server details
       const server = await this.fetchServer(serverId);
       
@@ -312,23 +574,29 @@ module.exports = {
       // Get server utilization
       const utilization = await this.fetchServerUtilization(serverId);
       
-      // Create server details embed
-      const detailsEmbed = new EmbedBuilder()
-        .setColor(config.embedColor)
-        .setTitle(`${server.attributes.name} Details`)
-        .setDescription(server.attributes.description || 'No description available')
+      // Create embed
+      const embed = new EmbedBuilder()
+        .setColor(this.config.embedColor || '#0099ff')
+        .setTitle(`Server Details: ${server.attributes.name}`)
+        .setDescription(server.attributes.description || 'No description')
         .addFields(
-          { name: 'Status', value: this.getStatusEmoji(server.attributes.status) + ' ' + server.attributes.status, inline: true },
-          { name: 'Node', value: server.attributes.node || 'Unknown', inline: true },
-          { name: 'Memory', value: `${utilization?.attributes?.resources?.memory_bytes ? Math.round(utilization.attributes.resources.memory_bytes / 1024 / 1024) : 0} MB / ${server.attributes.limits.memory} MB`, inline: true },
-          { name: 'CPU', value: `${utilization?.attributes?.resources?.cpu_absolute ? utilization.attributes.resources.cpu_absolute.toFixed(2) : 0}% / ${server.attributes.limits.cpu}%`, inline: true },
-          { name: 'Disk', value: `${utilization?.attributes?.resources?.disk_bytes ? Math.round(utilization.attributes.resources.disk_bytes / 1024 / 1024) : 0} MB / ${server.attributes.limits.disk} MB`, inline: true },
-          { name: 'Created', value: new Date(server.attributes.created_at).toLocaleString(), inline: true }
+          { name: 'Status', value: server.attributes.status || 'Unknown', inline: true },
+          { name: 'ID', value: server.attributes.identifier, inline: true },
+          { name: 'Node', value: server.attributes.node || 'Unknown', inline: true }
         )
         .setTimestamp()
-        .setFooter({ text: config.footerText });
+        .setFooter({ text: this.config.footerText || 'JMF Hosting' });
       
-      // Create server control buttons
+      // Add utilization data if available
+      if (utilization) {
+        embed.addFields(
+          { name: 'CPU Usage', value: `${utilization.cpu.toFixed(2)}%`, inline: true },
+          { name: 'Memory Usage', value: `${Math.round(utilization.memory / 1024 / 1024)} MB`, inline: true },
+          { name: 'Disk Usage', value: `${Math.round(utilization.disk / 1024 / 1024)} MB`, inline: true }
+        );
+      }
+      
+      // Create action buttons
       const row = new ActionRowBuilder()
         .addComponents(
           new ButtonBuilder()
@@ -345,268 +613,345 @@ module.exports = {
             .setCustomId(`server_stop_${serverId}`)
             .setLabel('Stop')
             .setStyle(ButtonStyle.Danger)
-            .setDisabled(server.attributes.status !== 'running')
+            .setDisabled(server.attributes.status !== 'running'),
+          new ButtonBuilder()
+            .setURL(`${this.moduleConfig.panelUrl}/server/${server.attributes.identifier}`)
+            .setLabel('Control Panel')
+            .setStyle(ButtonStyle.Link)
         );
       
-      // Send the details
-      await interaction.editReply({ embeds: [detailsEmbed], components: [row] });
+      await interaction.editReply({ embeds: [embed], components: [row] });
     } catch (error) {
-      logger.error(`Error showing server details: ${error.message}`);
-      await interaction.editReply({ content: `❌ Error fetching server details: ${error.message}` });
+      this.handleError('showServerDetails', error);
+      await interaction.editReply({ content: `Error fetching server details: ${error.message}` });
     }
-  },
+  }
   
   /**
-   * Fetch all servers from Pterodactyl
-   * @returns {Promise<Object>} The servers response
+   * Fetch all servers from Pterodactyl API
+   * @returns {Promise<Object>} - The servers data
    */
   async fetchAllServers() {
     try {
-      const response = await fetch(`${process.env.PTERODACTYL_API_URL}/servers`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${process.env.PTERODACTYL_API_KEY}`,
-          'Accept': 'application/json'
-        }
+      const headers = {
+        'Authorization': `Bearer ${this.adminApiKey.trim()}`,
+        'Accept': 'Application/vnd.pterodactyl.v1+json',
+        'Content-Type': 'application/json'
+      };
+      
+      console.log('Making API request to:', `${this.apiUrl}/servers`);
+      console.log('Request headers:', {
+        ...headers,
+        'Authorization': headers.Authorization.replace(this.adminApiKey, '***')
       });
       
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(`API Error: ${error.message || 'Unknown error'}`);
-      }
+      const response = await fetch(`${this.apiUrl}/servers`, { headers });
       
-      return await response.json();
-    } catch (error) {
-      logger.error(`Error fetching servers: ${error.message}`);
-      return null;
-    }
-  },
-  
-  /**
-   * Fetch a specific server from Pterodactyl
-   * @param {string} serverId - The server ID
-   * @returns {Promise<Object>} The server data
-   */
-  async fetchServer(serverId) {
-    try {
-      const response = await fetch(`${process.env.PTERODACTYL_API_URL}/servers/${serverId}`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${process.env.PTERODACTYL_API_KEY}`,
-          'Accept': 'application/json'
+      console.log('Response status:', response.status);
+      console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.log('API Error Response:', errorText);
+        let errorMessage = 'Unknown error';
+        try {
+          const errorJson = JSON.parse(errorText);
+          if (errorJson.errors && errorJson.errors.length > 0) {
+            errorMessage = errorJson.errors[0].detail || errorJson.errors[0].message || errorMessage;
+          }
+        } catch (e) {
+          errorMessage = errorText;
         }
-      });
-      
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(`API Error: ${error.message || 'Unknown error'}`);
+        throw new Error(`API Error: ${errorMessage} (Status: ${response.status})`);
       }
       
       const data = await response.json();
-      return data.attributes;
+      
+      if (data.object === 'list' && Array.isArray(data.data)) {
+        this.servers = data.data.map(server => ({
+          id: server.attributes.id,
+          identifier: server.attributes.identifier,
+          name: server.attributes.name,
+          description: server.attributes.description,
+          status: server.attributes.status || 'unknown'
+        }));
+        console.log(`Successfully fetched ${this.servers.length} servers`);
+        return data;
+      } else {
+        throw new Error('Invalid response format from API');
+      }
     } catch (error) {
-      logger.error(`Error fetching server ${serverId}: ${error.message}`);
+      this.handleError('fetchAllServers', error);
       return null;
     }
-  },
+  }
   
   /**
-   * Fetch server utilization from Pterodactyl
+   * Fetch a specific server from Pterodactyl API
    * @param {string} serverId - The server ID
-   * @returns {Promise<Object>} The utilization data
+   * @returns {Promise<Object>} - The server data
    */
-  async fetchServerUtilization(serverId) {
+  async fetchServer(serverId) {
     try {
-      const response = await fetch(`${process.env.PTERODACTYL_API_URL}/servers/${serverId}/resources`, {
-        method: 'GET',
+      const response = await fetch(`${this.apiUrl}/servers/${serverId}`, {
         headers: {
-          'Authorization': `Bearer ${process.env.PTERODACTYL_API_KEY}`,
-          'Accept': 'application/json'
+          'Authorization': `Bearer ${this.adminApiKey.trim()}`,
+          'Accept': 'Application/vnd.pterodactyl.v1+json',
+          'Content-Type': 'application/json'
         }
       });
       
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(`API Error: ${error.message || 'Unknown error'}`);
+        const errorText = await response.text();
+        console.log('API Error Response:', errorText);
+        let errorMessage = 'Unknown error';
+        try {
+          const errorJson = JSON.parse(errorText);
+          if (errorJson.errors && errorJson.errors.length > 0) {
+            errorMessage = errorJson.errors[0].detail || errorJson.errors[0].message || errorMessage;
+          }
+        } catch (e) {
+          errorMessage = errorText;
+        }
+        throw new Error(`API Error: ${errorMessage} (Status: ${response.status})`);
+      }
+      
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      this.handleError('fetchServer', error);
+      return null;
+    }
+  }
+  
+  /**
+   * Fetch server utilization from Pterodactyl API
+   * @param {string} serverId - The server ID
+   * @returns {Promise<Object>} - The utilization data
+   */
+  async fetchServerUtilization(serverId) {
+    try {
+      const response = await fetch(`${this.apiUrl}/servers/${serverId}/resources`, {
+        headers: {
+          'Authorization': `Bearer ${this.adminApiKey.trim()}`,
+          'Accept': 'Application/vnd.pterodactyl.v1+json',
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.log('API Error Response:', errorText);
+        let errorMessage = 'Unknown error';
+        try {
+          const errorJson = JSON.parse(errorText);
+          if (errorJson.errors && errorJson.errors.length > 0) {
+            errorMessage = errorJson.errors[0].detail || errorJson.errors[0].message || errorMessage;
+          }
+        } catch (e) {
+          errorMessage = errorText;
+        }
+        throw new Error(`API Error: ${errorMessage} (Status: ${response.status})`);
       }
       
       return await response.json();
     } catch (error) {
-      logger.error(`Error fetching server utilization for ${serverId}: ${error.message}`);
+      this.handleError('fetchServerUtilization', error);
       return null;
     }
-  },
+  }
   
   /**
-   * Determine the game type from server description
+   * Determine game type from server description
    * @param {string} description - The server description
-   * @returns {string} The game type
+   * @returns {string} - The game type
    */
   determineGameType(description) {
     if (!description) return 'Other';
     
+    const gameTypes = {
+      'minecraft': ['minecraft', 'mc', 'forge', 'paper', 'spigot', 'bukkit'],
+      'ark': ['ark', 'survival evolved'],
+      'rust': ['rust'],
+      'csgo': ['cs:go', 'csgo', 'counter-strike'],
+      'valheim': ['valheim'],
+      'terraria': ['terraria']
+    };
+    
     const lowerDesc = description.toLowerCase();
     
-    if (lowerDesc.includes('minecraft')) return 'Minecraft';
-    if (lowerDesc.includes('rust')) return 'Rust';
-    if (lowerDesc.includes('zomboid') || lowerDesc.includes('project zomboid')) return 'Project Zomboid';
-    if (lowerDesc.includes('ark')) return 'ARK';
-    if (lowerDesc.includes('valheim')) return 'Valheim';
-    if (lowerDesc.includes('terraria')) return 'Terraria';
+    for (const [type, keywords] of Object.entries(gameTypes)) {
+      if (keywords.some(keyword => lowerDesc.includes(keyword))) {
+        return type.charAt(0).toUpperCase() + type.slice(1);
+      }
+    }
     
     return 'Other';
-  },
+  }
   
   /**
-   * Get an emoji representing server status
+   * Get status emoji for server status
    * @param {string} status - The server status
-   * @returns {string} The status emoji
+   * @returns {string} - The status emoji
    */
   getStatusEmoji(status) {
-    switch (status) {
+    switch (status.toLowerCase()) {
       case 'running':
         return '🟢';
       case 'starting':
         return '🟡';
       case 'stopping':
         return '🟠';
-      case 'offline':
-      default:
+      case 'stopped':
         return '🔴';
+      default:
+        return '⚪';
     }
-  },
+  }
   
   /**
    * Check if a member has permission to manage servers
    * @param {GuildMember} member - The guild member
-   * @returns {boolean} Whether the member has permission
+   * @returns {boolean} - Whether the member has permission
    */
   hasServerPermission(member) {
-    // Allow server management for staff roles
-    return member.roles.cache.some(role => 
-      role.name === config.roles.owner || 
-      role.name === config.roles.admin || 
-      role.name === config.roles.moderator ||
-      role.name === config.roles.support ||
-      role.name === config.roles.developer
-    );
-  },
+    if (!member) return false;
+    
+    // Check for admin permission
+    if (member.permissions.has('ADMINISTRATOR')) return true;
+    
+    // Check for specific role
+    const serverManagerRole = this.moduleConfig.serverManagerRole;
+    if (serverManagerRole && member.roles.cache.has(serverManagerRole)) return true;
+    
+    return false;
+  }
   
   /**
    * Get server statistics
-   * @returns {Object} Server statistics
+   * @returns {Promise<Object>} - The server statistics
    */
   async getServerStats() {
     try {
-      // Fetch all servers
-      const servers = await this.fetchAllServers();
+      // Use cached servers if available
+      const servers = this.servers.length > 0 ? this.servers : (await this.fetchAllServers())?.data || [];
       
-      if (!servers || !Array.isArray(servers)) {
-        return {
-          total: 0,
-          active: 0,
-          suspended: 0,
-          cpuUsage: 0,
-          ramUsage: 0
-        };
-      }
+      const totalServers = servers.length;
+      const onlineServers = servers.filter(server => server.attributes.status === 'running').length;
+      const offlineServers = totalServers - onlineServers;
       
-      // Calculate statistics
-      const total = servers.length;
-      const active = servers.filter(server => server.attributes.status === 'running').length;
-      const suspended = servers.filter(server => server.attributes.status === 'suspended').length;
-      
-      // Calculate average resource usage
-      let totalCpuUsage = 0;
-      let totalRamUsage = 0;
-      let serversWithStats = 0;
-      
-      for (const server of servers) {
-        try {
-          const utilization = await this.fetchServerUtilization(server.attributes.id);
-          if (utilization) {
-            totalCpuUsage += utilization.attributes.resources.cpu_absolute || 0;
-            totalRamUsage += utilization.attributes.resources.memory_bytes || 0;
-            serversWithStats++;
-          }
-        } catch (error) {
-          // Skip servers with errors
-          logger.debug(`Error fetching utilization for server ${server.attributes.id}: ${error.message}`);
-        }
-      }
-      
-      const cpuUsage = serversWithStats > 0 ? Math.round(totalCpuUsage / serversWithStats) : 0;
-      const ramUsage = serversWithStats > 0 ? Math.round(totalRamUsage / serversWithStats) : 0;
+      // Count servers by game type
+      const gameTypeCounts = this.countServersByGameType(servers);
       
       return {
-        total,
-        active,
-        suspended,
-        cpuUsage,
-        ramUsage,
-        gameTypes: this.countServersByGameType(servers)
+        totalServers,
+        onlineServers,
+        offlineServers,
+        gameTypeCounts
       };
     } catch (error) {
-      logger.error(`Error getting server statistics: ${error.message}`);
+      this.handleError('getServerStats', error);
       return {
-        total: 0,
-        active: 0,
-        suspended: 0,
-        cpuUsage: 0,
-        ramUsage: 0
+        totalServers: 0,
+        onlineServers: 0,
+        offlineServers: 0,
+        gameTypeCounts: {}
       };
     }
-  },
+  }
   
   /**
    * Get node statistics
-   * @returns {Object} Node statistics
+   * @returns {Promise<Object>} - The node statistics
    */
   async getNodeStats() {
     try {
-      // This would normally fetch from the Pterodactyl API
-      // For now, we'll return placeholder data
+      const response = await fetch(`${this.apiUrl}/nodes`, {
+        headers: {
+          'Authorization': `Bearer ${this.adminApiKey.trim()}`,
+          'Accept': 'Application/vnd.pterodactyl.v1+json',
+          'Content-Type': 'application/json'
+        }
+      });
       
-      // In a real implementation, you would:
-      // 1. Fetch all nodes from the API
-      // 2. Calculate statistics based on the response
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.log('API Error Response:', errorText);
+        let errorMessage = 'Unknown error';
+        try {
+          const errorJson = JSON.parse(errorText);
+          if (errorJson.errors && errorJson.errors.length > 0) {
+            errorMessage = errorJson.errors[0].detail || errorJson.errors[0].message || errorMessage;
+          }
+        } catch (e) {
+          errorMessage = errorText;
+        }
+        throw new Error(`API Error: ${errorMessage} (Status: ${response.status})`);
+      }
+      
+      const data = await response.json();
+      const nodes = data.data || [];
+      
+      const totalNodes = nodes.length;
+      const onlineNodes = nodes.filter(node => !node.attributes.maintenance_mode).length;
+      const offlineNodes = totalNodes - onlineNodes;
       
       return {
-        total: config.gameServers?.nodes?.length || 3,
-        online: config.gameServers?.nodes?.filter(n => n.online)?.length || 2,
-        offline: config.gameServers?.nodes?.filter(n => !n.online)?.length || 1,
-        averageLoad: 45,
-        totalStorage: '2.5 TB'
+        totalNodes,
+        onlineNodes,
+        offlineNodes,
+        nodes: nodes.map(node => ({
+          id: node.attributes.id,
+          name: node.attributes.name,
+          status: node.attributes.maintenance_mode ? 'maintenance' : 'online',
+          location: node.attributes.location_id,
+          memory: node.attributes.memory,
+          disk: node.attributes.disk,
+          allocations: node.attributes.allocated_resources?.allocations || 0
+        }))
       };
     } catch (error) {
-      logger.error(`Error getting node statistics: ${error.message}`);
+      this.handleError('getNodeStats', error);
       return {
-        total: 0,
-        online: 0,
-        offline: 0,
-        averageLoad: 0,
-        totalStorage: '0 GB'
+        totalNodes: 'N/A',
+        onlineNodes: 'N/A',
+        offlineNodes: 'N/A',
+        nodes: []
       };
     }
-  },
+  }
   
   /**
    * Count servers by game type
-   * @param {Array} servers - Array of server objects
-   * @returns {Object} Counts by game type
+   * @param {Array} servers - The servers array
+   * @returns {Object} - The server counts by game type
    */
   countServersByGameType(servers) {
     const counts = {};
     
-    if (!servers || !Array.isArray(servers)) {
-      return counts;
-    }
-    
     servers.forEach(server => {
-      const gameType = this.determineGameType(server.attributes.description || '');
+      const gameType = this.determineGameType(server.attributes.description);
       counts[gameType] = (counts[gameType] || 0) + 1;
     });
     
     return counts;
   }
-}; 
+  
+  /**
+   * Get the module's status
+   * @returns {Object} - Module status
+   */
+  getStatus() {
+    const baseStatus = super.getStatus();
+    
+    return {
+      ...baseStatus,
+      metrics: {
+        totalServers: this.servers.length,
+        onlineServers: this.servers.filter(server => server?.attributes?.status === 'running').length
+      }
+    };
+  }
+}
+
+module.exports = GameServersModule; 

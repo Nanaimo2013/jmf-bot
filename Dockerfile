@@ -39,8 +39,9 @@ RUN npm ci --only=production && npm cache clean --force
 # Bundle app source
 COPY . .
 
-# Create logs directory and set permissions
-RUN mkdir -p logs && chmod 777 logs
+# Create necessary directories and set permissions
+RUN mkdir -p logs data/database/backups data/statistics && \
+    chmod -R 777 logs data
 
 # Set environment variables
 ENV NODE_ENV=production

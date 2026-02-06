@@ -1,159 +1,148 @@
 /**
- * JMF Hosting Discord Bot
+ * JMF Hosting Discord Bot - Command Deployment
+ * Version: 1.2.0
+ * Last Updated: 03/16/2025
+ * 
+ * This script registers slash commands with Discord's API.
+ * It uses the command registry to load all commands and deploy them.
  * 
  * © 2025 JMFHosting. All Rights Reserved.
  * Developed by Nanaimo2013 (https://github.com/Nanaimo2013)
- * 
- * This script registers slash commands with Discord's API.
  */
 
-require('dotenv').config();
-const { REST, Routes } = require('discord.js');
+// Core modules
 const fs = require('fs');
 const path = require('path');
-const logger = require('./utils/logger');
+const dotenv = require('dotenv');
+const { REST, Routes } = require('discord.js');
+
+// Load environment variables
+const envPath = path.resolve(__dirname, '../.env');
+dotenv.config({ path: envPath });
+
+// Import Bot class
+const Bot = require('./bot');
 
 // Parse command line arguments
 const args = process.argv.slice(2);
-const isGlobal = args.includes('--global');
+const isGlobal = args.includes('--global') || !args.includes('--guild');
 const isGuild = args.includes('--guild');
+const isDev = args.includes('--dev');
 
-// Initialize an array to hold command data
-const commands = [];
-// Track command names to prevent duplicates
-const commandNames = new Set();
-
-// Function to recursively load commands from directories
-function loadCommands(dir) {
-  const commandsPath = path.join(__dirname, dir);
-  const items = fs.readdirSync(commandsPath);
-
-  for (const item of items) {
-    const itemPath = path.join(commandsPath, item);
-    const stat = fs.statSync(itemPath);
-
-    if (stat.isDirectory()) {
-      // If it's a directory, check for index.js or load recursively
-      const indexPath = path.join(itemPath, 'index.js');
-      if (fs.existsSync(indexPath)) {
-        const command = require(indexPath);
-        if ('data' in command && 'execute' in command) {
-          const commandName = command.data.name;
-          
-          // Check for duplicate command names
-          if (commandNames.has(commandName)) {
-            logger.warn(`Duplicate command name found: ${commandName} in ${indexPath}. Skipping.`);
-            continue;
-          }
-          
-          commandNames.add(commandName);
-          commands.push(command.data.toJSON());
-          logger.debug(`Loaded command from folder: ${item}`);
-        } else {
-          logger.warn(`The command at ${indexPath} is missing required "data" or "execute" property.`);
-        }
-      } else {
-        // Recursively load commands from subdirectory
-        loadCommands(path.join(dir, item));
-      }
-    } else if (item.endsWith('.js') && item !== 'index.js') {
-      // If it's a JS file (not index.js), try to load it as a command
-      const command = require(itemPath);
-      if ('data' in command && 'execute' in command) {
-        const commandName = command.data.name;
-        
-        // Check for duplicate command names
-        if (commandNames.has(commandName)) {
-          logger.warn(`Duplicate command name found: ${commandName} in ${itemPath}. Skipping.`);
-          continue;
-        }
-        
-        commandNames.add(commandName);
-        commands.push(command.data.toJSON());
-        logger.debug(`Loaded command: ${item.slice(0, -3)}`);
-      } else {
-        logger.warn(`The command at ${itemPath} is missing required "data" or "execute" property.`);
-      }
-    }
-  }
+// CLI overrides
+const tokenArg = args.find(arg => arg.startsWith('--token='));
+if (tokenArg) {
+    process.env.DISCORD_TOKEN = tokenArg.split('=')[1];
+    console.log('[Override] Using token from CLI argument');
 }
 
-// Load all commands from main commands directory
-logger.info('Loading commands from src/commands');
-loadCommands('commands');
-
-// Check if we have any commands to register
-if (commands.length === 0) {
-  logger.error('No commands found to register. Check your commands directory structure.');
-  process.exit(1);
+const clientArg = args.find(arg => arg.startsWith('--client='));
+if (clientArg) {
+    process.env.CLIENT_ID = clientArg.split('=')[1];
+    console.log('[Override] Using client ID from CLI argument');
 }
 
-// Log the commands that will be registered
-logger.info(`Found ${commands.length} commands to register:`);
-commands.forEach(cmd => {
-  logger.debug(`- ${cmd.name}: ${cmd.description.substring(0, 50)}${cmd.description.length > 50 ? '...' : ''}`);
-});
+const guildArg = args.find(arg => arg.startsWith('--guildId='));
+if (guildArg) {
+    process.env.GUILD_ID = guildArg.split('=')[1];
+    console.log('[Override] Using guild ID from CLI argument');
+}
 
-// Create and configure REST instance
-const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+// Global managers object
+global.managers = {};
 
-// Function to register commands
+/**
+ * Main function to deploy commands
+ */
 async function deployCommands() {
-  try {
-    // Validate environment variables
-    if (!process.env.DISCORD_TOKEN) {
-      logger.error('DISCORD_TOKEN is not defined in .env file. Please add it and try again.');
-      process.exit(1);
-    }
+    const bot = new Bot();
 
-    if (!process.env.CLIENT_ID) {
-      logger.error('CLIENT_ID is not defined in .env file. Please add it and try again.');
-      process.exit(1);
-    }
+    try {
+        console.log('Starting command deployment...');
 
-    logger.info(`Started refreshing ${commands.length} application (/) commands.`);
-    
-    let data;
-    
-    // Determine where to deploy commands based on arguments
-    if (isGuild) {
-      // Guild-specific deployment
-      if (!process.env.GUILD_ID) {
-        logger.error('GUILD_ID is not defined in .env file. Required for guild-specific deployment.');
-        process.exit(1);
-      }
-      
-      logger.info(`Deploying commands to guild: ${process.env.GUILD_ID}`);
-      data = await rest.put(
-        Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
-        { body: commands },
-      );
-      
-      logger.info(`Successfully reloaded ${data.length} application (/) commands for guild ${process.env.GUILD_ID}.`);
-    } else {
-      // Global deployment (default)
-      logger.info('Deploying commands globally. This may take up to an hour to propagate to all servers.');
-      data = await rest.put(
-        Routes.applicationCommands(process.env.CLIENT_ID),
-        { body: commands },
-      );
-      
-      logger.info(`Successfully reloaded ${data.length} application (/) commands globally.`);
+        // Validate environment variables
+        if (!process.env.DISCORD_TOKEN) {
+            console.error('DISCORD_TOKEN is not defined. Please provide it via .env or --token CLI argument.');
+            process.exit(1);
+        }
+
+        if (!process.env.CLIENT_ID) {
+            console.error('CLIENT_ID is not defined. Please provide it via .env or --client CLI argument.');
+            process.exit(1);
+        }
+
+        // Initialize the bot
+        await bot.initialize({
+            logLevel: process.env.LOG_LEVEL || 'info',
+            logDirectory: process.env.LOG_DIRECTORY || './logs',
+            configPath: process.env.CONFIG_PATH || './config'
+        });
+
+        const logger = global.managers.logger;
+        logger.info('deploy', 'Loading commands from command registry...');
+
+        const commandRegistry = bot.commandRegistry;
+        await commandRegistry.loadCommands();
+        const allCommands = commandRegistry.getAllCommands();
+
+        logger.info('deploy', `Found ${allCommands.size} commands to register`);
+
+        const commandsToRegister = [];
+        for (const [name, command] of allCommands) {
+            if (command.hidden || !command.enabled || (command.dev && !isDev)) continue;
+            commandsToRegister.push(command.data.toJSON());
+        }
+
+        if (!commandsToRegister.length) {
+            logger.error('deploy', 'No commands found to register.');
+            process.exit(1);
+        }
+
+        // Configure REST instance
+        const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+
+        let data;
+        if (isGuild) {
+            if (!process.env.GUILD_ID) {
+                logger.error('deploy', 'GUILD_ID is required for guild deployment.');
+                process.exit(1);
+            }
+            data = await rest.put(
+                Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
+                { body: commandsToRegister },
+            );
+            logger.success('deploy', `Reloaded ${data.length} commands for guild ${process.env.GUILD_ID}`);
+        } else {
+            data = await rest.put(
+                Routes.applicationCommands(process.env.CLIENT_ID),
+                { body: commandsToRegister },
+            );
+            logger.success('deploy', `Reloaded ${data.length} commands globally`);
+        }
+
+        await gracefulShutdown('COMPLETION', bot);
+
+    } catch (error) {
+        const logger = global.managers?.logger || console;
+        logger.error('deploy', `Error deploying commands: ${error.message}`, error.stack);
+        await gracefulShutdown('ERROR', bot);
     }
-    
-    // Log the registered commands
-    if (data && data.length > 0) {
-      logger.debug('Registered commands:');
-      data.forEach(cmd => {
-        logger.debug(`- ${cmd.name} (ID: ${cmd.id})`);
-      });
-    }
-  } catch (error) {
-    logger.error(`Error deploying commands: ${error.message}`);
-    logger.debug(error.stack);
-    process.exit(1);
-  }
 }
 
-// Execute the deployment
-deployCommands(); 
+/**
+ * Graceful shutdown
+ */
+async function gracefulShutdown(signal, bot) {
+    const logger = global.managers?.logger || console;
+    try {
+        if (bot) await bot.stop();
+        logger.log(`Shutting down due to ${signal}`);
+        process.exit(signal === 'ERROR' ? 1 : 0);
+    } catch (err) {
+        logger.error(`Error during shutdown: ${err.message}`, err.stack);
+        process.exit(1);
+    }
+}
+
+// Execute
+deployCommands();

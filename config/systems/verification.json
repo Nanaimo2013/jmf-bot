@@ -1,0 +1,63 @@
+{
+    "enabled": true,
+    "roles": {
+        "verified": "Member",
+        "unverified": "Unverified"
+    },
+    "channels": {
+        "verification": "verification",
+        "welcome": "welcome"
+    },
+    "message": {
+        "content": "Welcome to the server! Please click the button below to verify yourself and gain access to the server.",
+        "embed": {
+            "enabled": true,
+            "color": "#00FF00",
+            "title": "Server Verification",
+            "description": "To access the server, please complete the verification process below.",
+            "fields": [
+                {
+                    "name": "Instructions",
+                    "value": "1. Click the verify button below\n2. Complete any additional steps if required\n3. Gain access to the server",
+                    "inline": false
+                },
+                {
+                    "name": "Note",
+                    "value": "This helps us protect our community from bots and malicious users.",
+                    "inline": false
+                }
+            ]
+        }
+    },
+    "button": {
+        "label": "Verify",
+        "style": "SUCCESS",
+        "emoji": "✅"
+    },
+    "success": {
+        "message": "You have been successfully verified! You now have access to the server.",
+        "sendWelcomeMessage": true
+    },
+    "captcha": {
+        "enabled": false,
+        "type": "image",
+        "length": 6,
+        "caseSensitive": false,
+        "timeout": 300
+    },
+    "requirements": {
+        "accountAge": {
+            "enabled": true,
+            "minDays": 7
+        },
+        "memberCount": {
+            "enabled": false,
+            "minMembers": 0
+        }
+    },
+    "logging": {
+        "enabled": true,
+        "channel": "mod-logs",
+        "logAttempts": true
+    }
+}

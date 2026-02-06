@@ -1,66 +1,141 @@
 /**
- * JMF Hosting Discord Bot - Base Database Module
+ * JMF Hosting Discord Bot - Database Base Module
  * Version: 1.0.0
  * Last Updated: 03/12/2025
  * 
- * This is the base class for all database modules. It provides common
- * functionality and enforces a consistent interface across modules.
+ * This module serves as the base for all database-specific modules.
+ * It extends the base module from the base manager and adds
+ * database-specific functionality.
  * 
  * © 2025 JMFHosting. All Rights Reserved.
+ * Developed by Nanaimo2013 (https://github.com/Nanaimo2013)
  */
 
+const BaseModule = require('../../base/base.module');
 const path = require('path');
-const LoggerManager = require('../../logger/logger.manager');
+const fs = require('fs').promises;
 
-class BaseDatabaseModule {
-    constructor(name) {
-        this.name = name;
-        this.logger = new LoggerManager();
-        
-        // Ensure name is a string to avoid path.join errors
-        const moduleName = typeof name === 'string' ? name : 'unknown';
-        
-        this.logger.initialize({
-            level: 'info',
-            directory: path.join(process.cwd(), 'logs', 'database', moduleName)
+class DatabaseBaseModule extends BaseModule {
+    /**
+     * Create a new database base module
+     * @param {DatabaseManager} manager - The database manager instance
+     * @param {Object} config - Module configuration
+     */
+    constructor(manager, config = {}) {
+        super(manager, {
+            name: config.name || 'database-module',
+            version: config.version || '1.0.0',
+            description: config.description || 'A database module'
         });
+
+        // Database-specific properties
+        this.config = config;
+        this.connection = null;
+        this._isConnected = false;
+        this._initialized = false;
+        this.connectionStartTime = null;
+        this.queryCount = 0;
+        this.lastQuery = null;
+        this.errors = 0;
     }
 
     /**
-     * Initialize the module with the provided configuration
-     * @param {Object} config - Module configuration
+     * Initialize the database module
+     * @returns {Promise<boolean>}
      */
-    async initialize(config) {
-        this.logger.info(this.name, `${this.logger.defaultIcons.start} Initializing ${this.name} module...`);
+    async initialize() {
         try {
-            await this._validateConfig(config);
-            this.config = config;
-            this.logger.success(this.name, `${this.logger.defaultIcons.success} ${this.name} module initialized`);
+            await super.initialize();
+            this.logger.info(this.name, `Initializing database module`);
+            this._initialized = true;
+            return true;
         } catch (error) {
-            this.logger.error(this.name, `${this.logger.defaultIcons.error} Failed to initialize ${this.name} module:`, error);
+            this._initialized = false;
+            this.logger.error(this.name, `Failed to initialize database module: ${error.message}`);
             throw error;
         }
     }
 
     /**
-     * Validate the module configuration
-     * @param {Object} config - Configuration to validate
-     * @protected
+     * Check if the module is initialized
+     * @returns {boolean}
      */
-    async _validateConfig(config) {
-        if (!config) {
-            throw new Error('Configuration is required');
+    isInitialized() {
+        return this._initialized === true;
+    }
+
+    /**
+     * Check if the module is connected
+     * @returns {boolean}
+     */
+    isConnected() {
+        return this._isConnected === true;
+    }
+
+    /**
+     * Connect to the database
+     * @returns {Promise<boolean>}
+     */
+    async connect() {
+        try {
+            if (!this._initialized) {
+                throw new Error('Module not initialized');
+            }
+
+            this.connectionStartTime = Date.now();
+            this._isConnected = true;
+            this.logger.info(this.name, 'Connected to database');
+            return true;
+        } catch (error) {
+            this._isConnected = false;
+            this.connectionStartTime = null;
+            this.logger.error(this.name, `Failed to connect to database: ${error.message}`);
+            throw error;
         }
     }
 
     /**
-     * Execute a database query
-     * @param {string} sql - SQL query to execute
+     * Disconnect from the database
+     * @returns {Promise<boolean>}
+     */
+    async disconnect() {
+        try {
+            this._isConnected = false;
+            this.connectionStartTime = null;
+            this.connection = null;
+            this.logger.info(this.name, 'Disconnected from database');
+            return true;
+        } catch (error) {
+            this.logger.error(this.name, `Failed to disconnect from database: ${error.message}`);
+            throw error;
+        }
+    }
+
+    /**
+     * Execute a query on the database
+     * @param {string} sql - SQL query
      * @param {Array} params - Query parameters
-     * @returns {Promise<any>} Query results
+     * @returns {Promise<Array>} - Query results
      */
     async query(sql, params = []) {
-        throw new Error('query() must be implemented by subclass');
+        try {
+            if (!this._isConnected) {
+                throw new Error('Database not connected');
+            }
+            
+            this.queryCount++;
+            this.lastQuery = {
+                sql,
+                params,
+                timestamp: Date.now()
+            };
+            
+            return [];
+        } catch (error) {
+            this.logger.error(this.name, `Query error: ${error.message}`, { sql, params });
+            this.errors++;
+            throw error;
+        }
     }
 
     /**
@@ -68,7 +143,17 @@ class BaseDatabaseModule {
      * @returns {Promise<void>}
      */
     async beginTransaction() {
-        throw new Error('beginTransaction() must be implemented by subclass');
+        try {
+            if (!this._isConnected) {
+                throw new Error('Database not connected');
+            }
+            
+            this.logger.debug(this.name, 'Beginning transaction');
+        } catch (error) {
+            this.logger.error(this.name, `Begin transaction error: ${error.message}`);
+            this.errors++;
+            throw error;
+        }
     }
 
     /**
@@ -76,7 +161,17 @@ class BaseDatabaseModule {
      * @returns {Promise<void>}
      */
     async commit() {
-        throw new Error('commit() must be implemented by subclass');
+        try {
+            if (!this._isConnected) {
+                throw new Error('Database not connected');
+            }
+            
+            this.logger.debug(this.name, 'Committing transaction');
+        } catch (error) {
+            this.logger.error(this.name, `Commit transaction error: ${error.message}`);
+            this.errors++;
+            throw error;
+        }
     }
 
     /**
@@ -84,103 +179,95 @@ class BaseDatabaseModule {
      * @returns {Promise<void>}
      */
     async rollback() {
-        throw new Error('rollback() must be implemented by subclass');
+        try {
+            if (!this._isConnected) {
+                throw new Error('Database not connected');
+            }
+            
+            this.logger.debug(this.name, 'Rolling back transaction');
+        } catch (error) {
+            this.logger.error(this.name, `Rollback transaction error: ${error.message}`);
+            this.errors++;
+            throw error;
+        }
     }
 
     /**
-     * Check if the module is connected to the database
-     * @returns {boolean}
+     * Check if a table exists in the database
+     * @param {string} tableName - Name of the table to check
+     * @returns {Promise<boolean>} - True if the table exists, false otherwise
      */
-    isConnected() {
-        throw new Error('isConnected() must be implemented by subclass');
-    }
-
-    /**
-     * Get the current database version
-     * @returns {Promise<number>}
-     */
-    async getVersion() {
-        throw new Error('getVersion() must be implemented by subclass');
+    async tableExists(tableName) {
+        try {
+            if (!this._isConnected) {
+                throw new Error('Database not connected');
+            }
+            
+            return false;
+        } catch (error) {
+            this.logger.error(this.name, `Error checking if table ${tableName} exists: ${error.message}`);
+            this.errors++;
+            throw error;
+        }
     }
 
     /**
      * Create a backup of the database
-     * @param {Object} options - Backup options
-     * @returns {Promise<string>} Backup file path
+     * @returns {Promise<string>} - Path to the backup file
      */
-    async backup(options = {}) {
-        throw new Error('backup() must be implemented by subclass');
+    async createBackup() {
+        try {
+            if (!this._isConnected) {
+                throw new Error('Database not connected');
+            }
+            
+            this.logger.info(this.name, 'Creating database backup...');
+            return '';
+        } catch (error) {
+            this.logger.error(this.name, `Create backup error: ${error.message}`);
+            this.errors++;
+            throw error;
+        }
     }
 
     /**
-     * Restore the database from a backup
-     * @param {string} backupPath - Path to the backup file
-     * @returns {Promise<void>}
+     * Get the connection uptime in milliseconds
+     * @returns {number} - Connection uptime in milliseconds
      */
-    async restore(backupPath) {
-        throw new Error('restore() must be implemented by subclass');
+    getUptime() {
+        if (!this.connectionStartTime) {
+            return 0;
+        }
+        
+        return Date.now() - this.connectionStartTime;
     }
 
     /**
-     * Verify the database integrity
-     * @returns {Promise<boolean>}
-     */
-    async verifyIntegrity() {
-        throw new Error('verifyIntegrity() must be implemented by subclass');
-    }
-
-    /**
-     * Get the database status
-     * @returns {Promise<Object>}
+     * Get the module status
+     * @returns {Object} Status object
      */
     async getStatus() {
-        throw new Error('getStatus() must be implemented by subclass');
-    }
-
-    /**
-     * Close the database connection
-     * @returns {Promise<void>}
-     */
-    async close() {
-        throw new Error('close() must be implemented by subclass');
-    }
-
-    /**
-     * Log a query execution
-     * @param {string} sql - SQL query
-     * @param {Array} params - Query parameters
-     * @param {number} duration - Query execution duration in milliseconds
-     * @protected
-     */
-    _logQuery(sql, params, duration) {
-        this.logger.debug(this.name, `${this.logger.defaultIcons.query} Query executed in ${duration}ms:`, {
-            sql,
-            params
-        });
-    }
-
-    /**
-     * Log an error
-     * @param {Error} error - Error object
-     * @param {string} context - Error context
-     * @protected
-     */
-    _logError(error, context) {
-        this.logger.error(this.name, `${this.logger.defaultIcons.error} ${context}:`, error);
-    }
-
-    /**
-     * Format a duration for logging
-     * @param {number} ms - Duration in milliseconds
-     * @returns {string}
-     * @protected
-     */
-    _formatDuration(ms) {
-        if (ms < 1000) return `${ms}ms`;
-        const seconds = Math.floor(ms / 1000);
-        const milliseconds = ms % 1000;
-        return `${seconds}s ${milliseconds}ms`;
+        try {
+            return {
+                name: this.name,
+                version: this.version,
+                initialized: this._initialized === true,
+                connected: this._isConnected === true,
+                uptime: this.connectionStartTime ? Date.now() - this.connectionStartTime : 0,
+                queryCount: this.queryCount,
+                errors: this.errors,
+                lastQuery: this.lastQuery,
+                error: null
+            };
+        } catch (error) {
+            return {
+                name: this.name,
+                error: error.message,
+                initialized: this._initialized === true,
+                connected: this._isConnected === true
+            };
+        }
     }
 }
 
-module.exports = BaseDatabaseModule; 
+module.exports = DatabaseBaseModule; 

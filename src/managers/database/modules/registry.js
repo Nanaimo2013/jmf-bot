@@ -1,142 +1,171 @@
 /**
  * JMF Hosting Discord Bot - Database Module Registry
  * Version: 1.0.0
- * Last Updated: 03/12/2025
+ * Last Updated: 03/13/2025
  * 
- * This registry manages all database modules and provides a centralized
- * way to access and manage them.
+ * This module provides a registry for database modules, allowing
+ * for dynamic loading and management of database modules.
  * 
  * © 2025 JMFHosting. All Rights Reserved.
+ * Developed by Nanaimo2013 (https://github.com/Nanaimo2013)
  */
 
+const BaseModule = require('../../base/base.module');
 const path = require('path');
-const LoggerManager = require('../../logger/logger.manager');
-const SQLiteModule = require('./sqlite.module');
-const MySQLModule = require('./mysql.module');
+const fs = require('fs').promises;
+const winston = require('winston');
 
-class DatabaseModuleRegistry {
-    constructor() {
+class DatabaseModuleRegistry extends BaseModule {
+    /**
+     * Create a new database module registry
+     * @param {Object} manager - The parent manager instance
+     * @param {Object} [options] - Module options
+     */
+    constructor(manager, options = {}) {
+        super(manager, {
+            name: 'registry',
+            version: '1.0.0',
+            defaultConfig: {
+                modulesDir: path.join(__dirname, '..', 'modules'),
+                enabledModules: ['sqlite']
+            },
+            ...options
+        });
+        
         this.modules = new Map();
-        this.logger = new LoggerManager();
-        this.logger.initialize({
+        this.logger = this.manager.logger || winston.createLogger({
             level: 'info',
-            directory: path.join(process.cwd(), 'logs', 'database', 'registry')
+            format: winston.format.combine(
+                winston.format.timestamp(),
+                winston.format.colorize(),
+                winston.format.printf(({ timestamp, level, message }) => {
+                    return `${timestamp} [${level.toUpperCase()}] [registry] ${message}`;
+                })
+            ),
+            transports: [
+                new winston.transports.Console()
+            ]
         });
     }
 
     /**
-     * Initialize the registry and load all modules
+     * Initialize the database module registry
+     * @returns {Promise<void>}
      */
     async initialize() {
-        this.logger.info('registry', `${this.logger.defaultIcons.start} Initializing Database Module Registry...`);
-
         try {
-            // Register built-in modules
-            this.register('sqlite', new SQLiteModule());
-            this.register('mysql', new MySQLModule());
-
-            this.logger.success('registry', `${this.logger.defaultIcons.success} Database Module Registry initialized with ${this.modules.size} modules`);
+            await super.initialize();
+            this.logger.info('Initializing Database Module Registry...');
+            
+            // Load SQLite module directly
+            const SQLiteModule = require('./sqlite.module');
+            const dbPath = path.join(process.cwd(), 'data', 'database', 'bot.db');
+            const sqliteModule = new SQLiteModule(this.manager, {
+                path: dbPath,
+                options: {
+                    enableWAL: true,
+                    enableForeignKeys: true,
+                    timeout: 5000,
+                    ...(this.manager.config?.options || {})
+                }
+            });
+            
+            // Initialize and register the SQLite module
+            await sqliteModule.initialize();
+            this.modules.set('sqlite', sqliteModule);
+            
+            // Connect to the database
+            await sqliteModule.connect();
+            
+            this._initialized = true;
+            this.logger.info('Database Module Registry initialized successfully');
         } catch (error) {
-            this.logger.error('registry', `${this.logger.defaultIcons.error} Failed to initialize Database Module Registry:`, error);
+            this._initialized = false;
+            this.logger.error(`Failed to initialize Database Module Registry: ${error.message}`);
             throw error;
         }
     }
 
     /**
-     * Register a new database module
-     * @param {string} name - Module name
-     * @param {BaseDatabaseModule} module - Module instance
+     * Get a database module
+     * @param {string} moduleName - Name of the module to get
+     * @returns {Object} Database module
      */
-    register(name, module) {
-        if (this.modules.has(name)) {
-            throw new Error(`Module '${name}' is already registered`);
-        }
-
-        this.modules.set(name, module);
-        this.logger.info('registry', `${this.logger.defaultIcons.add} Registered database module: ${name}`);
+    getModule(moduleName) {
+        return this.modules.get(moduleName);
     }
 
     /**
-     * Unregister a database module
-     * @param {string} name - Module name
+     * Check if a module exists
+     * @param {string} moduleName - Name of the module to check
+     * @returns {boolean} Whether the module exists
      */
-    unregister(name) {
-        if (!this.modules.has(name)) {
-            throw new Error(`Module '${name}' is not registered`);
-        }
-
-        this.modules.delete(name);
-        this.logger.info('registry', `${this.logger.defaultIcons.delete} Unregistered database module: ${name}`);
+    hasModule(moduleName) {
+        return this.modules.has(moduleName);
     }
 
     /**
-     * Get a database module by name
-     * @param {string} name - Module name
-     * @returns {BaseDatabaseModule} Module instance
+     * Get the default database module
+     * @returns {Object} Default database module
      */
-    get(name) {
-        const module = this.modules.get(name);
-        if (!module) {
-            throw new Error(`Module '${name}' not found`);
-        }
-        return module;
+    getDefaultModule() {
+        return this.modules.get('sqlite') || this.modules.values().next().value;
     }
 
     /**
-     * Check if a module is registered
-     * @param {string} name - Module name
+     * Check if the registry is initialized
      * @returns {boolean}
      */
-    has(name) {
-        return this.modules.has(name);
+    isInitialized() {
+        return this._initialized === true;
     }
 
     /**
-     * Get all registered module names
-     * @returns {string[]}
-     */
-    getModuleNames() {
-        return Array.from(this.modules.keys());
-    }
-
-    /**
-     * Get the status of all registered modules
-     * @returns {Promise<Object>}
+     * Get the registry status
+     * @returns {Object} Status object
      */
     async getStatus() {
-        const status = {};
-        for (const [name, module] of this.modules) {
-            try {
-                status[name] = await module.getStatus();
-            } catch (error) {
-                this.logger.error('registry', `${this.logger.defaultIcons.error} Failed to get status for module ${name}:`, error);
-                status[name] = { error: error.message };
-            }
+        try {
+            const status = await super.getStatus();
+            return {
+                ...status,
+                initialized: this._initialized === true,
+                modules: Array.from(this.modules.keys()),
+                defaultModule: this.getDefaultModule()?.name || null
+            };
+        } catch (error) {
+            return {
+                name: this.name,
+                error: error.message,
+                initialized: this._initialized === true
+            };
         }
-        return status;
     }
 
     /**
-     * Close all module connections
+     * Shutdown the database module registry
+     * @returns {Promise<void>}
      */
     async shutdown() {
-        this.logger.info('registry', `${this.logger.defaultIcons.stop} Shutting down all database modules...`);
-
-        const errors = [];
-        for (const [name, module] of this.modules) {
-            try {
-                await module.close();
-            } catch (error) {
-                this.logger.error('registry', `${this.logger.defaultIcons.error} Failed to close module ${name}:`, error);
-                errors.push({ name, error });
+        try {
+            this.logger.info('Shutting down Database Module Registry...');
+            
+            // Shutdown all modules
+            for (const [name, module] of this.modules.entries()) {
+                try {
+                    if (module && typeof module.shutdown === 'function') {
+                        await module.shutdown();
+                    }
+                } catch (error) {
+                    this.logger.error(`Failed to shutdown module ${name}: ${error.message}`);
+                }
             }
+            
+            this.logger.info('Database Module Registry shut down successfully');
+        } catch (error) {
+            this.logger.error(`Failed to shutdown Database Module Registry: ${error.message}`);
+            throw error;
         }
-
-        if (errors.length > 0) {
-            throw new Error('Failed to close all modules: ' + JSON.stringify(errors, null, 2));
-        }
-
-        this.logger.success('registry', `${this.logger.defaultIcons.success} All database modules shut down successfully`);
     }
 }
 

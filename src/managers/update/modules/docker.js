@@ -60,33 +60,29 @@ class DockerModule extends BaseModule {
      * @returns {Promise<void>}
      */
     async initialize(config = {}) {
-        await super.initialize(config);
-        
-        // Check if Docker is available
-        this._isDockerAvailable = await this._checkDockerAvailability();
-        
-        if (!this._isDockerAvailable) {
-            this.log('warn', 'Docker is not available on this system');
-            return;
-        }
-        
-        // Load container and image information
-        await this._loadContainerInfo();
-        await this._loadImageInfo();
-        
-        this.log('info', 'Docker module initialized');
-    }
-
-    /**
-     * Check if Docker is available on the system
-     * @returns {Promise<boolean>} Whether Docker is available
-     * @private
-     */
-    async _checkDockerAvailability() {
         try {
-            execSync('docker --version', { stdio: 'ignore' });
+            await super.initialize(config);
+            
+            // Check if Docker is available
+            try {
+                await this.executeCommand('docker --version');
+                this._isDockerAvailable = true;
+            } catch (error) {
+                this._isDockerAvailable = false;
+                this.log('warn', 'Docker is not available - some features will be disabled');
+                return true; // Still return true as this is not a critical error
+            }
+            
+            if (this._isDockerAvailable) {
+                // Load container and image information
+                await this._loadContainerInfo();
+                await this._loadImageInfo();
+            }
+            
+            this.log('info', 'Docker module initialized');
             return true;
         } catch (error) {
+            this.log('error', `Failed to initialize Docker module: ${error.message}`);
             return false;
         }
     }
@@ -96,40 +92,40 @@ class DockerModule extends BaseModule {
      * @private
      */
     async _loadContainerInfo() {
-        return this.executeOperation('loadContainerInfo', async () => {
-            if (!this._isDockerAvailable) {
-                return;
+        if (!this._isDockerAvailable) {
+            this._containers.clear();
+            return;
+        }
+
+        try {
+            const output = await this.executeCommand('docker ps -a --format "{{.ID}}|{{.Names}}|{{.Image}}|{{.Status}}|{{.Ports}}"');
+            const lines = output.trim().split('\n');
+            
+            this._containers.clear();
+            
+            for (const line of lines) {
+                if (!line.trim()) continue;
+                
+                const [id, name, image, status, ports] = line.split('|');
+                
+                // Only track containers with our prefix
+                if (name.startsWith(this.getConfig('containerPrefix'))) {
+                    this._containers.set(name, {
+                        id,
+                        name,
+                        image,
+                        status,
+                        ports,
+                        isRunning: status.toLowerCase().includes('up')
+                    });
+                }
             }
             
-            try {
-                const output = execSync('docker ps -a --format "{{.ID}}|{{.Names}}|{{.Image}}|{{.Status}}|{{.Ports}}"').toString();
-                const lines = output.trim().split('\n');
-                
-                this._containers.clear();
-                
-                for (const line of lines) {
-                    if (!line.trim()) continue;
-                    
-                    const [id, name, image, status, ports] = line.split('|');
-                    
-                    // Only track containers with our prefix
-                    if (name.startsWith(this.getConfig('containerPrefix'))) {
-                        this._containers.set(name, {
-                            id,
-                            name,
-                            image,
-                            status,
-                            ports,
-                            isRunning: status.toLowerCase().includes('up')
-                        });
-                    }
-                }
-                
-                this.log('debug', `Loaded information for ${this._containers.size} containers`);
-            } catch (error) {
-                this.log('error', `Failed to load container information: ${error.message}`);
-            }
-        });
+            this.log('debug', `Loaded information for ${this._containers.size} containers`);
+        } catch (error) {
+            this.log('warn', `Failed to load container information: ${error.message}`);
+            this._containers.clear();
+        }
     }
 
     /**
@@ -137,40 +133,40 @@ class DockerModule extends BaseModule {
      * @private
      */
     async _loadImageInfo() {
-        return this.executeOperation('loadImageInfo', async () => {
-            if (!this._isDockerAvailable) {
-                return;
+        if (!this._isDockerAvailable) {
+            this._images.clear();
+            return;
+        }
+
+        try {
+            const output = await this.executeCommand('docker images --format "{{.Repository}}|{{.Tag}}|{{.ID}}|{{.CreatedAt}}|{{.Size}}"');
+            const lines = output.trim().split('\n');
+            
+            this._images.clear();
+            
+            for (const line of lines) {
+                if (!line.trim()) continue;
+                
+                const [repository, tag, id, createdAt, size] = line.split('|');
+                
+                // Only track images with our prefix
+                if (repository.startsWith(this.getConfig('imagePrefix'))) {
+                    const imageName = `${repository}:${tag}`;
+                    this._images.set(imageName, {
+                        repository,
+                        tag,
+                        id,
+                        createdAt,
+                        size
+                    });
+                }
             }
             
-            try {
-                const output = execSync('docker images --format "{{.Repository}}|{{.Tag}}|{{.ID}}|{{.CreatedAt}}|{{.Size}}"').toString();
-                const lines = output.trim().split('\n');
-                
-                this._images.clear();
-                
-                for (const line of lines) {
-                    if (!line.trim()) continue;
-                    
-                    const [repository, tag, id, createdAt, size] = line.split('|');
-                    
-                    // Only track images with our prefix
-                    if (repository.startsWith(this.getConfig('imagePrefix'))) {
-                        const imageName = `${repository}:${tag}`;
-                        this._images.set(imageName, {
-                            repository,
-                            tag,
-                            id,
-                            createdAt,
-                            size
-                        });
-                    }
-                }
-                
-                this.log('debug', `Loaded information for ${this._images.size} images`);
-            } catch (error) {
-                this.log('error', `Failed to load image information: ${error.message}`);
-            }
-        });
+            this.log('debug', `Loaded information for ${this._images.size} images`);
+        } catch (error) {
+            this.log('warn', `Failed to load image information: ${error.message}`);
+            this._images.clear();
+        }
     }
 
     /**

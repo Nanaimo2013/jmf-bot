@@ -15,6 +15,8 @@ const BaseManager = require('../base/base.manager');
 const path = require('path');
 const fs = require('fs').promises;
 const winston = require('winston');
+const { createLogger, format, transports } = winston;
+const { combine, timestamp, printf, colorize, json } = format;
 
 class LoggerManager extends BaseManager {
     /**
@@ -68,17 +70,24 @@ class LoggerManager extends BaseManager {
             ]
         });
         
-        // Override the logger from BaseManager with our basic logger
-        this.logger = {
-            debug: (category, message, ...meta) => this._basicLogger.debug(`[${category}] ${message}`, ...meta),
-            info: (category, message, ...meta) => this._basicLogger.info(`[${category}] ${message}`, ...meta),
-            warn: (category, message, ...meta) => this._basicLogger.warn(`[${category}] ${message}`, ...meta),
-            error: (category, message, ...meta) => this._basicLogger.error(`[${category}] ${message}`, ...meta),
-            success: (category, message, ...meta) => this._basicLogger.info(`[${category}] ✓ ${message}`, ...meta)
-        };
+        // Create basic logging methods
+        ['error', 'warn', 'info', 'debug', 'success'].forEach(level => {
+            this[level] = (category, message, ...meta) => {
+                const formattedMessage = this._formatMessage(message);
+                if (level === 'success') {
+                    this._basicLogger.info(`[${category}] ✓ ${formattedMessage}`, ...meta);
+                } else {
+                    this._basicLogger[level](`[${category}] ${formattedMessage}`, ...meta);
+                }
+            };
+        });
         
         // Timers for performance logging
         this.timers = new Map();
+
+        // Set default properties
+        this.sections = {};
+        this.currentSection = null;
     }
 
     /**
@@ -87,19 +96,36 @@ class LoggerManager extends BaseManager {
      * @returns {Promise<void>}
      */
     async initialize(config = {}) {
-        // We need to set up a basic console logger first for initialization messages
-        this._setupBasicLogger();
-        
-        // Now initialize properly with the base manager
-        await super.initialize(config);
-        
-        // Load modules before creating loggers
-        await this._loadModules();
-        
-        // Create loggers after modules are loaded
-        await this._createLoggers();
-        
-        this.info('logger', 'Logger manager initialized successfully');
+        try {
+            // We need to set up a basic console logger first for initialization messages
+            this._setupBasicLogger();
+            
+            // Merge the provided config with our default config
+            this._config = {
+                ...this._config,
+                ...config
+            };
+            
+            // Create log directory
+            await this._setupLogDirectory();
+            
+            // Load modules before creating loggers
+            await this._loadModules();
+            
+            // Create loggers after modules are loaded
+            await this._createLoggers();
+            
+            // Set up sections
+            this._setupSections();
+            
+            // Mark as initialized
+            this._initialized = true;
+            
+            this.info('logger', 'Logger manager initialized successfully');
+        } catch (error) {
+            console.error(`Logger initialization failed: ${error.message}`);
+            throw error;
+        }
     }
 
     /**
@@ -122,10 +148,14 @@ class LoggerManager extends BaseManager {
         });
 
         // Create basic logging methods
-        ['error', 'warn', 'info', 'debug'].forEach(level => {
+        ['error', 'warn', 'info', 'debug', 'success'].forEach(level => {
             if (!this[level]) {
                 this[level] = (category, message, ...meta) => {
-                    basicLogger.log(level, `[${category}] ${message}`, ...meta);
+                    if (level === 'success') {
+                        basicLogger.info(`[${category}] ✓ ${message}`, ...meta);
+                    } else {
+                        basicLogger.log(level, `[${category}] ${message}`, ...meta);
+                    }
                 };
             }
         });
@@ -167,8 +197,8 @@ class LoggerManager extends BaseManager {
                 await fs.mkdir(directory, { recursive: true });
                 
                 // Create category-specific directories
-                if (this.config.categories) {
-                    const categories = Object.keys(this.config.categories);
+                if (this._config && this._config.categories) {
+                    const categories = Object.keys(this._config.categories);
                     for (const category of categories) {
                         await fs.mkdir(path.join(directory, category), { recursive: true });
                     }
@@ -190,35 +220,43 @@ class LoggerManager extends BaseManager {
     async _createLoggers() {
         try {
             // Set default level
-            const defaultLevel = 'info';
+            const defaultLevel = this.getConfig('level') || 'info';
             
-            // Create console transport
-            const consoleTransport = new winston.transports.Console({
-                format: winston.format.combine(
-                    winston.format.timestamp(),
-                    winston.format.colorize(),
-                    winston.format.printf(({ timestamp, level, message }) => {
-                        return `${timestamp} [${level.toUpperCase()}] ${message}`;
-                    })
-                )
-            });
-
-            // Create default logger
+            // Get console formatter module
+            const consoleModule = this.getModule('console');
+            if (!consoleModule) {
+                throw new Error('Console formatter module not found');
+            }
+            
+            // Create default logger with console transport only
             this.loggers.set('default', winston.createLogger({
                 level: defaultLevel,
-                transports: [consoleTransport]
+                transports: [
+                    consoleModule.createTransport('default')
+                ]
             }));
             
             // Create category-specific loggers if config is available
-            if (this.config && this.config.categories) {
-                const categories = Object.keys(this.config.categories);
+            if (this._config && this._config.categories) {
+                const categories = Object.keys(this._config.categories);
                 for (const category of categories) {
-                    const categoryConfig = this.config.categories[category] || {};
-                    const level = categoryConfig.level || (this.config && this.config.level) || defaultLevel;
+                    const categoryConfig = this._config.categories[category] || {};
+                    const level = categoryConfig.level || defaultLevel;
                     
+                    // Create category-specific transports
+                    const transports = [consoleModule.createTransport(category)];
+                    
+                    // Add file transport if enabled
+                    const fileModule = this.getModule('file');
+                    if (fileModule && this.getConfig('enableFile')) {
+                        transports.push(fileModule.createTransport(category));
+                    }
+                    
+                    // Create logger with unique transports
                     this.loggers.set(category, winston.createLogger({
-                        level: level,
-                        transports: [consoleTransport]
+                        level,
+                        transports,
+                        exitOnError: false
                     }));
                 }
             }
@@ -232,25 +270,30 @@ class LoggerManager extends BaseManager {
             
             // Add special logging methods
             this.success = (category, message, ...meta) => {
-                this._log('info', category, `✓ ${message}`, ...meta);
+                this._log('info', category, `✓ ${message}`, { icon: '✅', ...meta });
             };
             
             this.fatal = (category, message, ...meta) => {
-                this._log('error', category, `☠️ ${message}`, ...meta);
+                this._log('error', category, `☠️ ${message}`, { icon: '💀', ...meta });
             };
             
             this.dev = (category, message, ...meta) => {
                 if (process.env.NODE_ENV === 'development') {
-                    this._log('debug', category, `🛠️ ${message}`, ...meta);
+                    this._log('debug', category, `🛠️ ${message}`, { icon: '👨‍💻', ...meta });
                 }
             };
             
             this.performance = (category, message, duration, ...meta) => {
-                this._log('info', category, `🏎️ ${message} (${duration}ms)`, { duration, ...meta });
+                this._log('info', category, `${message}`, { icon: '⚡', duration, ...meta });
             };
             
             this.security = (category, message, level = 'info', ...meta) => {
-                this._log(level, category, `🔐 ${message}`, { security: true, ...meta });
+                this._log(level, category, `${message}`, { icon: '🔐', security: true, ...meta });
+            };
+            
+            // Add section logging method
+            this.section = (sectionName) => {
+                this._log('info', 'system', '', { section: sectionName });
             };
         } catch (error) {
             console.error('Failed to create loggers:', error);
@@ -259,27 +302,42 @@ class LoggerManager extends BaseManager {
     }
 
     /**
-     * Log a message
-     * @param {string} level - Log level
-     * @param {string} category - Log category
+     * Log a message with the specified level and section
+     * @param {string} level - Log level (debug, info, warn, error)
+     * @param {string} section - Log section/category
      * @param {string} message - Log message
-     * @param {...any} meta - Additional metadata
+     * @param {any} metadata - Additional metadata
      * @private
      */
-    _log(level, category, message, ...meta) {
-        try {
-            const logger = this.loggers.get(category) || this.loggers.get('default');
-            if (!logger) {
-                console.error(`No logger found for category: ${category}`);
-                return;
+    _log(level, section, message, metadata) {
+        // Skip if no message
+        if (!message) return;
+        
+        // Format message if needed
+        const formattedMessage = this._formatMessage(message);
+        
+        // Get logger for section
+        const logger = this.getLogger(section);
+        
+        // If we have a logger for this section, use it
+        if (logger) {
+            // Only log once - don't log to both section logger and default logger
+            if (level === 'success') {
+                // Success is a special case - log as info with success prefix
+                logger.info(`✓ ${formattedMessage}`, metadata);
+            } else if (logger[level]) {
+                logger[level](formattedMessage, metadata);
             }
-            
-            logger.log(level, `[${category}] ${message}`, ...meta);
-            
-            // Emit log event for potential subscribers
-            this.emit('log', { level, category, message, meta });
-        } catch (error) {
-            console.error('Error logging message:', error);
+        } else {
+            // Fall back to default logger
+            const defaultLogger = this.loggers.get('default');
+            if (defaultLogger) {
+                if (level === 'success') {
+                    defaultLogger.info(`[${section}] ✓ ${formattedMessage}`, metadata);
+                } else if (defaultLogger[level]) {
+                    defaultLogger[level](`[${section}] ${formattedMessage}`, metadata);
+                }
+            }
         }
     }
 
@@ -380,6 +438,62 @@ class LoggerManager extends BaseManager {
             level: this.getConfig('level'),
             directory: this.getConfig('directory')
         };
+    }
+
+    /**
+     * Format a message for logging
+     * @param {any} message - The message to format
+     * @returns {string} The formatted message
+     * @private
+     */
+    _formatMessage(message) {
+        if (message === null || message === undefined) {
+            return '';
+        }
+        
+        if (typeof message === 'object') {
+            try {
+                return JSON.stringify(message);
+            } catch (e) {
+                return '[Object]';
+            }
+        }
+        
+        return message;
+    }
+
+    /**
+     * Set up logging sections
+     * @private
+     */
+    _setupSections() {
+        // Check if sections are defined
+        if (!this._config.sections) return;
+        
+        // Store sections
+        this.sections = this._config.sections;
+    }
+
+    /**
+     * Show a section header
+     * @param {string} sectionName - Name of the section
+     */
+    section(sectionName) {
+        // Check if section exists
+        if (!this.sections[sectionName]) {
+            this.warn('logger', `Section "${sectionName}" not found`);
+            return;
+        }
+        
+        // Set current section
+        this.currentSection = sectionName;
+        
+        // Get section config
+        const section = this.sections[sectionName];
+        
+        // Log section header
+        const title = section.title || `=== ${sectionName.toUpperCase()} ===`;
+        this.info('logger', title);
     }
 }
 

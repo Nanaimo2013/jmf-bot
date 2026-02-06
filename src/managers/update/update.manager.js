@@ -48,7 +48,7 @@ class UpdateManager extends BaseManager {
         });
 
         this.updateHistory = [];
-        this.updateHistoryPath = path.join(process.cwd(), 'data', 'updates', 'history.json');
+        this.updateHistoryPath = 'data/updates/history.json';
         this.isUpdating = false;
         this.lastCheckTime = null;
         this.updateInterval = null;
@@ -63,27 +63,58 @@ class UpdateManager extends BaseManager {
      * @returns {Promise<void>}
      */
     async initialize(config = {}) {
+        // Call parent initialize
         await super.initialize(config);
         
-        // Set up a fallback logger if the logger dependency is not available
-        if (!this.logger) {
-            this.logger = {
-                debug: (module, message) => console.debug(`[${module}] DEBUG: ${message}`),
-                info: (module, message) => console.info(`[${module}] INFO: ${message}`),
-                warn: (module, message) => console.warn(`[${module}] WARN: ${message}`),
-                error: (module, message, error) => console.error(`[${module}] ERROR: ${message}`, error || '')
-            };
-            console.warn('[update] Logger dependency not found, using fallback console logger');
+        try {
+            // Set up paths
+            const rootDir = process.cwd();
+            
+            // Ensure paths are properly set
+            this.updateHistoryPath = path.join(rootDir, 'data', 'update', 'history.json');
+            this.tempDir = path.join(rootDir, 'temp', 'update');
+            this.backupDir = this.getConfig('backup.location') || path.join(rootDir, 'backups');
+            
+            // Create directories if they don't exist
+            await this._createDirectories();
+            
+            // Load update history
+            await this._loadUpdateHistory();
+            
+            // Check for updates if auto-update is enabled
+            if (this.getConfig('autoUpdate')) {
+                this._scheduleUpdateCheck();
+            }
+            
+            this.logger.info(this.name, 'Update manager initialized');
+        } catch (error) {
+            this.logger.error(this.name, `Failed to initialize update manager: ${error.message}`);
+            throw error;
         }
-        
-        // Create necessary directories
-        const backupDir = this.getConfig('backup.location') || './backups';
-        await fs.mkdir(path.join(process.cwd(), backupDir), { recursive: true });
-        
-        // Load update history
-        await this._loadUpdateHistory();
-        
-        this.logger.info('update', 'Update manager initialized');
+    }
+
+    /**
+     * Create required directories
+     * @returns {Promise<void>}
+     * @private
+     */
+    async _createDirectories() {
+        try {
+            // Create update history directory
+            const historyDir = path.dirname(this.updateHistoryPath);
+            await fs.mkdir(historyDir, { recursive: true });
+            
+            // Create temp directory
+            await fs.mkdir(this.tempDir, { recursive: true });
+            
+            // Create backup directory
+            await fs.mkdir(this.backupDir, { recursive: true });
+            
+            this.logger.debug(this.name, 'Created update directories');
+        } catch (error) {
+            this.logger.error(this.name, `Failed to create directories: ${error.message}`);
+            throw error;
+        }
     }
 
     /**
@@ -728,6 +759,51 @@ class UpdateManager extends BaseManager {
         this._updateIntervals.clear();
         
         await super.shutdown();
+    }
+
+    /**
+     * Schedule automatic update checks
+     * @private
+     */
+    _scheduleUpdateCheck() {
+        // Clear any existing interval
+        if (this.updateInterval) {
+            clearInterval(this.updateInterval);
+            this.updateInterval = null;
+        }
+        
+        // Get check interval from config
+        const checkInterval = this.getConfig('checkInterval') || 86400000; // Default to daily
+        
+        // Schedule update check
+        this.updateInterval = setInterval(async () => {
+            try {
+                this.logger.debug(this.name, 'Running scheduled update check...');
+                
+                // Check for updates
+                const updateInfo = await this.checkForUpdates();
+                
+                // If updates are available and auto-update is enabled, update
+                if (updateInfo.updateAvailable) {
+                    this.logger.info(this.name, `Update available: ${updateInfo.currentVersion} → ${updateInfo.latestVersion}`);
+                    
+                    // Emit event
+                    this.emitEvent('updateAvailable', updateInfo);
+                    
+                    // Auto-update if enabled
+                    if (this.getConfig('autoUpdate')) {
+                        this.logger.info(this.name, 'Auto-update is enabled, updating...');
+                        await this.update();
+                    }
+                } else {
+                    this.logger.debug(this.name, 'No updates available');
+                }
+            } catch (error) {
+                this.logger.error(this.name, `Error during scheduled update check: ${error.message}`);
+            }
+        }, checkInterval);
+        
+        this.logger.debug(this.name, `Scheduled update checks every ${checkInterval / 1000 / 60} minutes`);
     }
 }
 

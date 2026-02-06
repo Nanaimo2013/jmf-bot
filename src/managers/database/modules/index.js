@@ -18,18 +18,6 @@ const MySQLModule = require('./mysql.module');
 const MigrationModule = require('./migration.module');
 const Registry = require('./registry');
 
-/**
- * Database modules registry
- * @type {Object}
- */
-const registry = {
-    'base': BaseModule,
-    'sqlite': SQLiteModule,
-    'mysql': MySQLModule,
-    'migration': MigrationModule,
-    'registry': Registry
-};
-
 // Export all modules
 module.exports = {
     // Base module
@@ -41,6 +29,28 @@ module.exports = {
     MigrationModule,
     Registry,
     
-    // Module registry
-    registry
+    // Default constructor for module loading
+    default: BaseModule,
+    
+    // Module registry for easy access
+    registry: {
+        'base': BaseModule,
+        'sqlite': SQLiteModule,
+        'mysql': MySQLModule,
+        'migration': MigrationModule,
+        'registry': Registry
+    },
+    
+    // Helper function to get module by name
+    getModule: function(name) {
+        return this.registry[name] || null;
+    },
+    
+    // Helper function to register a new module
+    registerModule: function(name, moduleClass) {
+        if (typeof moduleClass !== 'function') {
+            throw new Error('Module must be a constructor function');
+        }
+        this.registry[name] = moduleClass;
+    }
 }; 

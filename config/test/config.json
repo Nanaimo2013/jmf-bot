@@ -1,0 +1,44 @@
+{
+  "enabled": true,
+  "timeout": 10000,
+  "reporters": ["spec", "json"],
+  "reporterOptions": {
+    "json": {
+      "output": "./test-results.json"
+    }
+  },
+  "coverage": {
+    "enabled": true,
+    "reporter": ["text", "lcov", "html"],
+    "directory": "./coverage",
+    "excludes": [
+      "node_modules/**",
+      "test/**",
+      "scripts/**"
+    ]
+  },
+  "database": {
+    "useTestDatabase": true,
+    "testDatabaseName": "jmf_bot_test",
+    "cleanupAfterTests": true
+  },
+  "mocks": {
+    "discord": true,
+    "api": true,
+    "filesystem": false
+  },
+  "suites": {
+    "unit": {
+      "enabled": true,
+      "pattern": "test/unit/**/*.test.js"
+    },
+    "integration": {
+      "enabled": true,
+      "pattern": "test/integration/**/*.test.js"
+    },
+    "e2e": {
+      "enabled": false,
+      "pattern": "test/e2e/**/*.test.js"
+    }
+  }
+} 

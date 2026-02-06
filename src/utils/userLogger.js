@@ -1,5 +1,9 @@
 /**
- * JMF Hosting Discord Bot
+ * JMF Hosting Discord Bot - User Logger
+ * Version: 1.0.0
+ * Last Updated: 03/14/2025
+ * 
+ * This utility handles user activity logging.
  * 
  * © 2025 JMFHosting. All Rights Reserved.
  * Developed by Nanaimo2013 (https://github.com/Nanaimo2013)
@@ -9,26 +13,38 @@
  */
 
 const { EmbedBuilder } = require('discord.js');
-const fs = require('fs/promises');
+const fs = require('fs').promises;
 const path = require('path');
-const logger = require('./logger');
-const config = require('../../config.json');
+const configManager = require('../../config.json');
 
 class UserLogger {
   constructor() {
+    // Get logger from global managers
+    this.logger = global.managers?.logger || console;
+    
+    // Get config manager from global managers
+    this.configManager = global.managers?.config;
+    
+    // Get database manager from global managers
+    this.database = global.managers?.database;
+    
+    // Initialize log directory
+    this.logDir = path.join(process.cwd(), 'logs', 'users');
+    this.ensureLogDirectory();
+
     this.userDataPath = path.join(__dirname, '../../data/users');
-    this.logsChannelId = config.channels?.logs || null;
-    this.joinLeaveChannelId = config.channels?.joinLeave || null;
-    this.moderationLogsChannelId = config.channels?.moderationLogs || null;
+    this.logsChannelId = configManager.channels?.logs || null;
+    this.joinLeaveChannelId = configManager.channels?.joinLeave || null;
+    this.moderationLogsChannelId = configManager.channels?.moderationLogs || null;
     this.init();
   }
 
   async init() {
     try {
       await fs.mkdir(this.userDataPath, { recursive: true });
-      logger.info('User data directory initialized');
+      this.logger.info('User data directory initialized');
     } catch (error) {
-      logger.error(`Failed to initialize user data directory: ${error.message}`);
+      this.logger.error(`Failed to initialize user data directory: ${error.message}`);
     }
   }
 
@@ -72,7 +88,7 @@ class UserLogger {
         };
       }
       
-      logger.error(`Failed to read user data for ${userId}: ${error.message}`);
+      this.logger.error(`Failed to read user data for ${userId}: ${error.message}`);
       throw error;
     }
   }
@@ -88,7 +104,7 @@ class UserLogger {
       const filePath = this.getUserFilePath(userId);
       await fs.writeFile(filePath, JSON.stringify(userData, null, 2), 'utf8');
     } catch (error) {
-      logger.error(`Failed to save user data for ${userId}: ${error.message}`);
+      this.logger.error(`Failed to save user data for ${userId}: ${error.message}`);
       throw error;
     }
   }
@@ -133,15 +149,15 @@ class UserLogger {
               { name: 'Member Count', value: `${member.guild.memberCount}`, inline: false }
             )
             .setTimestamp()
-            .setFooter({ text: config.footerText });
+            .setFooter({ text: configManager.footerText });
           
           await channel.send({ embeds: [joinEmbed] });
         }
       }
       
-      logger.info(`User ${member.user.tag} (${member.id}) joined the server`);
+      this.logger.info(`User ${member.user.tag} (${member.id}) joined the server`);
     } catch (error) {
-      logger.error(`Failed to log join for ${member.id}: ${error.message}`);
+      this.logger.error(`Failed to log join for ${member.id}: ${error.message}`);
     }
   }
 
@@ -187,15 +203,15 @@ class UserLogger {
               { name: 'Member Count', value: `${member.guild.memberCount}`, inline: false }
             )
             .setTimestamp()
-            .setFooter({ text: config.footerText });
+            .setFooter({ text: configManager.footerText });
           
           await channel.send({ embeds: [leaveEmbed] });
         }
       }
       
-      logger.info(`User ${member.user.tag} (${member.id}) left the server`);
+      this.logger.info(`User ${member.user.tag} (${member.id}) left the server`);
     } catch (error) {
-      logger.error(`Failed to log leave for ${member.id}: ${error.message}`);
+      this.logger.error(`Failed to log leave for ${member.id}: ${error.message}`);
     }
   }
 
@@ -237,16 +253,16 @@ class UserLogger {
               { name: 'Total Warnings', value: `${userData.warnings.length}`, inline: false }
             )
             .setTimestamp()
-            .setFooter({ text: config.footerText });
+            .setFooter({ text: configManager.footerText });
           
           await channel.send({ embeds: [warnEmbed] });
         }
       }
       
-      logger.info(`User ${user.tag} (${user.id}) was warned by ${moderator.tag} (${moderator.id}) for: ${reason}`);
+      this.logger.info(`User ${user.tag} (${user.id}) was warned by ${moderator.tag} (${moderator.id}) for: ${reason}`);
       return warning;
     } catch (error) {
-      logger.error(`Failed to log warning for ${user.id}: ${error.message}`);
+      this.logger.error(`Failed to log warning for ${user.id}: ${error.message}`);
       throw error;
     }
   }
@@ -292,16 +308,16 @@ class UserLogger {
               { name: 'Total Bans', value: `${userData.bans.length}`, inline: false }
             )
             .setTimestamp()
-            .setFooter({ text: config.footerText });
+            .setFooter({ text: configManager.footerText });
           
           await channel.send({ embeds: [banEmbed] });
         }
       }
       
-      logger.info(`User ${user.tag} (${user.id}) was banned by ${moderator.tag} (${moderator.id}) for: ${reason}`);
+      this.logger.info(`User ${user.tag} (${user.id}) was banned by ${moderator.tag} (${moderator.id}) for: ${reason}`);
       return ban;
     } catch (error) {
-      logger.error(`Failed to log ban for ${user.id}: ${error.message}`);
+      this.logger.error(`Failed to log ban for ${user.id}: ${error.message}`);
       throw error;
     }
   }
@@ -344,16 +360,16 @@ class UserLogger {
               { name: 'Total Kicks', value: `${userData.kicks.length}`, inline: false }
             )
             .setTimestamp()
-            .setFooter({ text: config.footerText });
+            .setFooter({ text: configManager.footerText });
           
           await channel.send({ embeds: [kickEmbed] });
         }
       }
       
-      logger.info(`User ${user.tag} (${user.id}) was kicked by ${moderator.tag} (${moderator.id}) for: ${reason}`);
+      this.logger.info(`User ${user.tag} (${user.id}) was kicked by ${moderator.tag} (${moderator.id}) for: ${reason}`);
       return kick;
     } catch (error) {
-      logger.error(`Failed to log kick for ${user.id}: ${error.message}`);
+      this.logger.error(`Failed to log kick for ${user.id}: ${error.message}`);
       throw error;
     }
   }
@@ -401,16 +417,16 @@ class UserLogger {
               { name: 'Total Timeouts', value: `${userData.mutes.length}`, inline: false }
             )
             .setTimestamp()
-            .setFooter({ text: config.footerText });
+            .setFooter({ text: configManager.footerText });
           
           await channel.send({ embeds: [muteEmbed] });
         }
       }
       
-      logger.info(`User ${user.tag} (${user.id}) was timed out by ${moderator.tag} (${moderator.id}) for ${this.formatDuration(duration)}: ${reason}`);
+      this.logger.info(`User ${user.tag} (${user.id}) was timed out by ${moderator.tag} (${moderator.id}) for ${this.formatDuration(duration)}: ${reason}`);
       return mute;
     } catch (error) {
-      logger.error(`Failed to log mute for ${user.id}: ${error.message}`);
+      this.logger.error(`Failed to log mute for ${user.id}: ${error.message}`);
       throw error;
     }
   }
@@ -451,16 +467,16 @@ class UserLogger {
               { name: 'Note', value: content, inline: false }
             )
             .setTimestamp()
-            .setFooter({ text: config.footerText });
+            .setFooter({ text: configManager.footerText });
           
           await channel.send({ embeds: [noteEmbed] });
         }
       }
       
-      logger.info(`Note added to ${user.tag} (${user.id}) by ${moderator.tag} (${moderator.id}): ${content}`);
+      this.logger.info(`Note added to ${user.tag} (${user.id}) by ${moderator.tag} (${moderator.id}): ${content}`);
       return note;
     } catch (error) {
-      logger.error(`Failed to log note for ${user.id}: ${error.message}`);
+      this.logger.error(`Failed to log note for ${user.id}: ${error.message}`);
       throw error;
     }
   }
@@ -479,7 +495,7 @@ class UserLogger {
       userData.lastSeen = new Date().toISOString();
       await this.saveUserData(message.author.id, userData);
     } catch (error) {
-      logger.error(`Failed to log message for ${message.author.id}: ${error.message}`);
+      this.logger.error(`Failed to log message for ${message.author.id}: ${error.message}`);
     }
   }
 
@@ -505,9 +521,9 @@ class UserLogger {
       userData.lastSeen = new Date().toISOString();
       
       await this.saveUserData(user.id, userData);
-      logger.info(`Ticket ${ticketId} created by ${user.tag} (${user.id}) for: ${reason}`);
+      this.logger.info(`Ticket ${ticketId} created by ${user.tag} (${user.id}) for: ${reason}`);
     } catch (error) {
-      logger.error(`Failed to log ticket for ${user.id}: ${error.message}`);
+      this.logger.error(`Failed to log ticket for ${user.id}: ${error.message}`);
     }
   }
 
@@ -528,10 +544,10 @@ class UserLogger {
         ticket.closedAt = status === 'closed' ? new Date().toISOString() : undefined;
         
         await this.saveUserData(userId, userData);
-        logger.info(`Ticket ${ticketId} for user ${userId} updated to status: ${status}`);
+        this.logger.info(`Ticket ${ticketId} for user ${userId} updated to status: ${status}`);
       }
     } catch (error) {
-      logger.error(`Failed to update ticket status for ${userId}: ${error.message}`);
+      this.logger.error(`Failed to update ticket status for ${userId}: ${error.message}`);
     }
   }
 
@@ -562,7 +578,7 @@ class UserLogger {
       const userData = await this.getUserData(user.id);
       
       const embed = new EmbedBuilder()
-        .setColor(config.embedColor)
+        .setColor(configManager.embedColor)
         .setTitle(`User Case File: ${user.tag}`)
         .setThumbnail(user.displayAvatarURL({ dynamic: true }))
         .addFields(
@@ -579,7 +595,7 @@ class UserLogger {
           { name: 'Tickets', value: userData.tickets.length.toString(), inline: true }
         )
         .setTimestamp()
-        .setFooter({ text: config.footerText });
+        .setFooter({ text: configManager.footerText });
       
       // Add recent warnings if any
       if (userData.warnings.length > 0) {
@@ -621,7 +637,7 @@ class UserLogger {
       
       return embed;
     } catch (error) {
-      logger.error(`Failed to get case file for ${user.id}: ${error.message}`);
+      this.logger.error(`Failed to get case file for ${user.id}: ${error.message}`);
       throw error;
     }
   }

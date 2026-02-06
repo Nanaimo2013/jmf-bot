@@ -1,0 +1,48 @@
+{
+  "enabled": true,
+  "autoUpdate": false,
+  "checkInterval": 86400000,
+  "repositories": {
+    "main": {
+      "url": "https://github.com/Nanaimo2013/jmf-bot.git",
+      "branch": "main",
+      "auth": {
+        "type": "none"
+      }
+    }
+  },
+  "backup": {
+    "enabled": true,
+    "location": "./backups/update",
+    "maxBackups": 5
+  },
+  "notifications": {
+    "discord": {
+      "enabled": true,
+      "channelId": ""
+    },
+    "console": true,
+    "log": true
+  },
+  "scripts": {
+    "preUpdate": "",
+    "postUpdate": "npm install"
+  },
+  "update": {
+    "enabled": true,
+    "autoUpdate": false,
+    "checkInterval": 86400000,
+    "notifyOnUpdate": true,
+    "github": {
+      "enabled": true,
+      "owner": "JMFHosting",
+      "repo": "discord-bot",
+      "branch": "main"
+    },
+    "backup": {
+      "enabled": true,
+      "location": "./backups",
+      "maxBackups": 5
+    }
+  }
+}

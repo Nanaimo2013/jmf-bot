@@ -44,7 +44,10 @@ class BaseManager extends EventEmitter {
         this._hooks = new Map();
         this._permissionManager = new PermissionManager();
         this._config = options.defaultConfig || {};
-        this._configPath = options.configPath || path.join(process.cwd(), 'config', this.name, 'config.json');
+        
+        // Use the new config structure path
+        this._configPath = options.configPath || path.join(process.cwd(), 'config', 'config.json');
+        
         this._metrics = {
             startTime: Date.now(),
             operations: 0,
@@ -132,7 +135,9 @@ class BaseManager extends EventEmitter {
             const manager = new ManagerClass();
             
             // Initialize manager if not already initialized
-            if (!manager.isInitialized()) {
+            if (typeof manager.isInitialized === 'function' && !manager.isInitialized()) {
+                await manager.initialize();
+            } else if (!manager._initialized) {
                 await manager.initialize();
             }
             
@@ -187,41 +192,30 @@ class BaseManager extends EventEmitter {
             // Run before initialize hook
             await managerUtils.runHook(this, 'beforeInitialize');
             
-            // Load configuration from new structure
-            const managerConfig = this.bot.config.managers || {};
-            this._config = utils.deepMerge({
-                enabled: managerConfig.enabled || false,
-                roles: managerConfig.roles || ["Owner", "Manager"],
-                permissions: managerConfig.permissions || {
-                    manageBot: true,
-                    manageUsers: true,
-                    manageServers: true,
-                    viewAnalytics: true,
-                    manageEconomy: true,
-                    manageGames: true
-                },
-                notifications: managerConfig.notifications || {
-                    enabled: true,
-                    channelId: null,
-                    mentions: true,
-                    events: {
-                        serverStatus: true,
-                        userReports: true,
-                        systemAlerts: true,
-                        backupStatus: true
-                    }
-                },
-                dashboard: managerConfig.dashboard || {
-                    enabled: true,
-                    port: 3000,
-                    secret: null
-                }
-            }, config);
+            // Merge provided config with default config
+            this._config = utils.deepMerge(this._config || {}, config);
             
-            // Initialize permission manager with new structure
+            // Load configuration from file if available
+            try {
+                await managerUtils.loadConfig(this);
+            } catch (error) {
+                this.logger.warn(this.name, `Failed to load configuration from file: ${error.message}`);
+            }
+            
+            // Initialize permission manager
+            const roles = this._config.roles || ["Owner", "Manager"];
+            const permissions = this._config.permissions || {
+                manageBot: true,
+                manageUsers: true,
+                manageServers: true,
+                viewAnalytics: true,
+                manageEconomy: true,
+                manageGames: true
+            };
+            
             this._permissionManager.initialize({
-                roles: this._config.roles,
-                permissions: this._config.permissions
+                roles: roles,
+                permissions: permissions
             });
             
             // Create necessary directories
@@ -234,12 +228,12 @@ class BaseManager extends EventEmitter {
             await this.loadModules();
             
             // Set up notifications if enabled
-            if (this._config.notifications.enabled && this._config.notifications.channelId) {
+            if (this._config.notifications && this._config.notifications.enabled && this._config.notifications.channelId) {
                 this.setupNotifications();
             }
             
             // Set up dashboard if enabled
-            if (this._config.dashboard.enabled) {
+            if (this._config.dashboard && this._config.dashboard.enabled) {
                 await this.setupDashboard();
             }
             
@@ -248,11 +242,9 @@ class BaseManager extends EventEmitter {
             
             this._initialized = true;
             const duration = Date.now() - startTime;
-            this.emit('initialized', { manager: this.name, duration });
             this.logger.success(this.name, `Manager initialized successfully in ${duration}ms`);
         } catch (error) {
-            this.logger.error(this.name, `Manager initialization failed:`, error);
-            this.emit('error', error);
+            this.logger.error(this.name, `Manager initialization failed: ${error.message}`);
             throw error;
         }
     }
@@ -378,8 +370,17 @@ class BaseManager extends EventEmitter {
             // Run before shutdown hook
             await managerUtils.runHook(this, 'beforeShutdown');
             
-            // Save configuration
-            await this.saveConfig();
+            // Save configuration if not explicitly disabled
+            if (this._saveConfigOnShutdown !== false) {
+                try {
+                    await this.saveConfig();
+                } catch (error) {
+                    this.logger.error(this.name, `Failed to save configuration during shutdown:`, error);
+                    // Continue with shutdown even if config save fails
+                }
+            } else {
+                this.logger.debug(this.name, `Configuration saving disabled for this manager during shutdown`);
+            }
             
             // Clean up modules
             for (const [name, module] of this.modules) {
@@ -411,7 +412,7 @@ class BaseManager extends EventEmitter {
             this.emit('shutdown');
             this.logger.success(this.name, `Manager shut down successfully`);
         } catch (error) {
-            this.logger.error(this.name, `Manager shutdown failed:`, error);
+            this.logger.error(this.name, `Failed to shut down manager:`, error);
             throw error;
         } finally {
             this._shuttingDown = false;

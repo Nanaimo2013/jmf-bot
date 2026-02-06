@@ -29,7 +29,6 @@ class BaseModule extends EventEmitter {
     constructor(manager, options = {}) {
         super();
         this.manager = manager;
-        this.bot = manager.bot;
         this.logger = manager.logger;
         this.name = options.name || this.constructor.name;
         this.version = options.version || '1.0.0';
@@ -38,6 +37,7 @@ class BaseModule extends EventEmitter {
         this._permissions = new Set();
         this._dependencies = new Set();
         this._hooks = new Map();
+        this._config = options.defaultConfig || {};
         this._dataDir = path.join(process.cwd(), 'data', manager.name, 'modules', this.name);
         this._metrics = {
             operations: 0,
@@ -59,47 +59,28 @@ class BaseModule extends EventEmitter {
 
     /**
      * Initialize the module
-     * @param {Object} config - Configuration options
      * @returns {Promise<void>}
      */
-    async initialize(config = {}) {
-        if (this._initialized) {
-            this.logger.warn(this.name, `Module already initialized`);
-            return;
-        }
-
+    async initialize() {
         try {
-            this.logger.info(this.name, `Initializing module...`);
-            
-            // Load configuration from new structure
-            const moduleConfig = this.manager._config.modules?.[this.name] || {};
-            this._config = utils.deepMerge({
-                enabled: true,
-                permissions: [],
-                commands: {},
-                features: {}
-            }, moduleConfig, config);
-            
-            // Set up permissions based on new structure
-            if (this._config.permissions) {
-                this.setPermissions(this._config.permissions);
+            if (this._initialized) {
+                return;
             }
-            
-            // Register commands with new permission structure
-            if (this._config.commands) {
-                for (const [name, cmdConfig] of Object.entries(this._config.commands)) {
-                    this.registerCommand(name, {
-                        ...cmdConfig,
-                        permissions: cmdConfig.permissions || []
-                    });
-                }
+
+            // Initialize logger if not provided
+            if (!this.logger && this.manager?.logger) {
+                this.logger = this.manager.logger;
             }
-            
+
+            // Log initialization
+            this.logger?.info(`Initializing module...`);
+
+            // Set initialized flag
             this._initialized = true;
-            this._enabled = this._config.enabled;
-            this.logger.success(this.name, `Module initialized successfully`);
+            this.logger?.info(`Module initialized successfully`);
         } catch (error) {
-            this.logger.error(this.name, `Module initialization failed:`, error);
+            this._initialized = false;
+            this.logger?.error(`Failed to initialize module: ${error.message}`);
             throw error;
         }
     }

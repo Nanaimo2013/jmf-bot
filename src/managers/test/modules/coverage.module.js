@@ -69,12 +69,26 @@ class CoverageModule extends BaseModule {
     async initialize(config = {}) {
         await super.initialize(config);
         
+        // Set default config values if not provided
+        if (!this.config) {
+            this.config = {};
+        }
+        
+        // Set default paths
+        if (!this.getConfig('reportDir')) {
+            this.config.reportDir = './coverage';
+        }
+        
+        if (!this.getConfig('tempDir')) {
+            this.config.tempDir = './coverage/tmp';
+        }
+        
         // Create coverage directory if it doesn't exist
-        const reportDir = path.join(process.cwd(), this.getConfig('reportDir'));
+        const reportDir = path.join(process.cwd(), this.getConfig('reportDir') || './coverage');
         await fs.mkdir(reportDir, { recursive: true });
         
         // Create temp directory if it doesn't exist
-        const tempDir = path.join(process.cwd(), this.getConfig('tempDir'));
+        const tempDir = path.join(process.cwd(), this.getConfig('tempDir') || './coverage/tmp');
         await fs.mkdir(tempDir, { recursive: true });
         
         this.log('info', 'Coverage module initialized');

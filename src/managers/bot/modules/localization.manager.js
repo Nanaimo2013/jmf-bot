@@ -81,7 +81,13 @@ class LocalizationManager extends BaseModule {
      * @returns {Promise<void>}
      */
     async loadLanguages() {
-        const languagesPath = this.getConfig('languagesPath');
+        let languagesPath = this.getConfig('languagesPath');
+        
+        // Use default path if not configured
+        if (!languagesPath) {
+            languagesPath = path.join(process.cwd(), 'src', 'languages');
+            this.logger.warn(this.name, `Languages directory not configured, using default: ${languagesPath}`);
+        }
         
         try {
             // Check if languages directory exists
@@ -89,6 +95,9 @@ class LocalizationManager extends BaseModule {
                 await fs.access(languagesPath);
             } catch (error) {
                 this.logger.warn(this.name, `Languages directory not found: ${languagesPath}`);
+                // Create the directory
+                await fs.mkdir(languagesPath, { recursive: true });
+                this.logger.info(this.name, `Created languages directory: ${languagesPath}`);
                 return;
             }
             
@@ -147,35 +156,39 @@ class LocalizationManager extends BaseModule {
      */
     async loadPreferences() {
         try {
-            const preferencesPath = path.join(this.getConfig('languagesPath'), 'preferences.json');
+            let languagesPath = this.getConfig('languagesPath');
             
-            // Check if preferences file exists
+            // Use default path if not configured
+            if (!languagesPath) {
+                languagesPath = path.join(process.cwd(), 'src', 'languages');
+                this.logger.warn(this.name, `Languages directory not configured, using default: ${languagesPath}`);
+            }
+            
+            const preferencesPath = path.join(languagesPath, 'preferences.json');
+            
             try {
-                await fs.access(preferencesPath);
+                const data = await fs.readFile(preferencesPath, 'utf8');
+                const preferences = JSON.parse(data);
+                
+                // Load user preferences
+                if (preferences.users) {
+                    this.userLanguages = new Map(Object.entries(preferences.users));
+                }
+                
+                // Load guild preferences
+                if (preferences.guilds) {
+                    this.guildLanguages = new Map(Object.entries(preferences.guilds));
+                }
+                
+                this.logger.debug(this.name, `Loaded language preferences for ${this.userLanguages.size} users and ${this.guildLanguages.size} guilds`);
             } catch (error) {
-                this.logger.debug(this.name, 'Language preferences file not found, using defaults');
-                return;
-            }
-            
-            // Read preferences file
-            const data = await fs.readFile(preferencesPath, 'utf8');
-            const preferences = JSON.parse(data);
-            
-            // Load user preferences
-            if (preferences.users) {
-                for (const [userId, language] of Object.entries(preferences.users)) {
-                    this.userLanguages.set(userId, language);
+                if (error.code === 'ENOENT') {
+                    this.logger.warn(this.name, `Language preferences file not found, creating new one`);
+                    await this.savePreferences();
+                } else {
+                    this.logger.error(this.name, `Failed to load language preferences: ${error.message}`);
                 }
             }
-            
-            // Load guild preferences
-            if (preferences.guilds) {
-                for (const [guildId, language] of Object.entries(preferences.guilds)) {
-                    this.guildLanguages.set(guildId, language);
-                }
-            }
-            
-            this.logger.info(this.name, 'Loaded language preferences');
         } catch (error) {
             this.logger.error(this.name, `Failed to load language preferences: ${error.message}`);
         }

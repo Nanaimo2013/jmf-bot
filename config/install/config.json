@@ -1,0 +1,64 @@
+{
+  "steps": [
+    {
+      "name": "dependencies",
+      "description": "Install dependencies",
+      "command": "npm install",
+      "required": true
+    },
+    {
+      "name": "database",
+      "description": "Setup database",
+      "command": "node scripts/setup-database.js",
+      "required": true
+    },
+    {
+      "name": "config",
+      "description": "Setup configuration",
+      "command": "node scripts/setup-config.js",
+      "required": true
+    },
+    {
+      "name": "directories",
+      "description": "Create required directories",
+      "command": "node scripts/setup-directories.js",
+      "required": true
+    }
+  ],
+  "directories": [
+    {
+      "path": "./data",
+      "description": "Data storage directory"
+    },
+    {
+      "path": "./logs",
+      "description": "Log files directory"
+    },
+    {
+      "path": "./backups",
+      "description": "Backup files directory"
+    },
+    {
+      "path": "./data/monitor",
+      "description": "Monitor data directory"
+    },
+    {
+      "path": "./backups/database",
+      "description": "Database backup directory"
+    },
+    {
+      "path": "./backups/update",
+      "description": "Update backup directory"
+    }
+  ],
+  "templates": {
+    "config": {
+      "source": "./templates/config",
+      "destination": "./config"
+    }
+  },
+  "permissions": {
+    "check": true,
+    "fix": true
+  }
+} 

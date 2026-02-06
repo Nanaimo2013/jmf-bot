@@ -1,928 +1,529 @@
 /**
  * JMF Hosting Discord Bot - Database Migration Module
- * Version: 1.1.0
+ * Version: 1.0.0
  * Last Updated: 03/12/2025
  * 
- * This module provides database migration functionality, extending the base
- * module with migration-specific implementations.
+ * This module provides database migration functionality for the bot.
+ * It handles creating, applying, and rolling back migrations.
  * 
  * © 2025 JMFHosting. All Rights Reserved.
  * Developed by Nanaimo2013 (https://github.com/Nanaimo2013)
  */
 
-const BaseModule = require('../../base/base.module');
-const fs = require('fs').promises;
+const DatabaseBaseModule = require('./base.module');
 const path = require('path');
-const semver = require('semver');
+const fs = require('fs').promises;
 
-class MigrationModule extends BaseModule {
+class MigrationModule extends DatabaseBaseModule {
     /**
      * Create a new migration module
-     * @param {Object} manager - The parent manager instance
-     * @param {Object} [options] - Module options
+     * @param {DatabaseManager} manager - The database manager instance
+     * @param {Object} config - Module configuration
      */
-    constructor(manager, options = {}) {
+    constructor(manager, config = {}) {
         super(manager, {
             name: 'migration',
-            version: '1.1.0',
-            defaultConfig: {
-                migrationsDir: path.join(process.cwd(), 'src', 'database', 'migrations'),
-                seedsDir: path.join(process.cwd(), 'src', 'database', 'seeds'),
-                tableName: 'migrations',
-                testMigrationsDir: path.join(process.cwd(), 'src', 'database', 'test', 'migrations')
-            },
-            ...options
+            version: '1.0.0',
+            description: 'Database migration module',
+            ...config
         });
-
+        
+        this.migrationsDir = path.join(process.cwd(), 'src', 'database', 'migrations');
+        this.tableName = 'migrations';
         this.migrations = [];
-        this.seeds = [];
-        this.isTestMode = process.env.NODE_ENV === 'test';
+        this.appliedMigrations = new Set();
+        this._initialized = false;
+        this._migrationsLoaded = false;
     }
-
+    
     /**
      * Initialize the migration module
      * @returns {Promise<void>}
      */
     async initialize() {
-        return this.executeOperation('initialize', async () => {
+        try {
             await super.initialize();
             
             // Ensure migrations directory exists
-            const migrationsDir = this.isTestMode ? 
-                this.getConfig('testMigrationsDir') : 
-                this.getConfig('migrationsDir');
-                
-            await fs.mkdir(migrationsDir, { recursive: true });
+            await this._ensureDirectories();
             
-            // Ensure seeds directory exists
-            await fs.mkdir(this.getConfig('seedsDir'), { recursive: true });
+            // Only create migrations table and load migrations if database is connected
+            if (this._isConnected) {
+                await this._createMigrationsTable();
+                await this._loadMigrations();
+            } else {
+                this.logger.debug('Database not connected, deferring migration operations');
+            }
             
-            // Load migrations and seeds
-        await this._loadMigrations();
-            await this._loadSeeds();
+            this._initialized = true;
+            this.logger.info('Migration module initialized successfully');
+        } catch (error) {
+            this._initialized = false;
+            this.logger.error(`Failed to initialize migration module: ${error.message}`);
+            throw error;
+        }
+    }
+    
+    /**
+     * Complete migration setup when database is connected
+     * @returns {Promise<void>}
+     */
+    async completeSetup() {
+        try {
+            if (this._isConnected && !this._migrationsLoaded) {
+                await this._createMigrationsTable();
+                await this._loadMigrations();
+                this.logger.debug('Migration setup completed');
+            }
+        } catch (error) {
+            this.logger.error(`Failed to complete migration setup: ${error.message}`);
+            throw error;
+        }
+    }
+    
+    /**
+     * Check if the module is initialized
+     * @returns {boolean}
+     */
+    isInitialized() {
+        return this._initialized === true;
+    }
+    
+    /**
+     * Ensure migrations directory exists
+     * @private
+     */
+    async _ensureDirectories() {
+        try {
+            await fs.mkdir(this.migrationsDir, { recursive: true });
+            this.logger.debug(this.name, `Ensured migrations directory exists: ${this.migrationsDir}`);
+        } catch (error) {
+            this.logger.error(this.name, `Failed to ensure migrations directory: ${error.message}`);
+            throw error;
+        }
+    }
+    
+    /**
+     * Create migrations table if it doesn't exist
+     * @private
+     */
+    async _createMigrationsTable() {
+        const sql = `
+            CREATE TABLE IF NOT EXISTS migrations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `;
+        
+        try {
+            await this.query(sql);
+            this.logger.debug('Migrations table created/verified');
+        } catch (error) {
+            this.logger.error(`Failed to create migrations table: ${error.message}`);
+            throw error;
+        }
+    }
+    
+    /**
+     * Connect to the database
+     * @returns {Promise<boolean>}
+     */
+    async connect() {
+        try {
+            // Call parent connect
+            await super.connect();
             
             // Ensure migrations table exists
             await this._ensureMigrationsTable();
             
-            this.logger.info('migration', 'Migration module initialized');
-        });
-    }
-
-    /**
-     * Load migrations from the migrations directory
-     * @returns {Promise<void>}
-     * @private
-     */
-    async _loadMigrations() {
-        return this.executeOperation('loadMigrations', async () => {
-            const migrationsDir = this.isTestMode ? 
-                this.getConfig('testMigrationsDir') : 
-                this.getConfig('migrationsDir');
-                
-            this.logger.info('migration', `Loading migrations from ${migrationsDir}`);
+            // Load migrations
+            await this._loadMigrations();
             
-            try {
-                // Get all migration files
-                const files = await fs.readdir(migrationsDir);
-                
-                // Filter for JavaScript files
-                const migrationFiles = files.filter(file => file.endsWith('.js'));
-                
-                // Clear existing migrations
-                this.migrations = [];
-                
-                // Load each migration
-            for (const file of migrationFiles) {
-                    const filePath = path.join(migrationsDir, file);
-                    
-                    try {
-                        // Clear require cache to ensure fresh load
-                        delete require.cache[require.resolve(filePath)];
-                        
-                        // Load migration
-                        const migration = require(filePath);
-                        
-                        // Parse version from filename (format: v1.0.0_description.js)
-                        const versionMatch = file.match(/^v([\d.]+)_(.+)\.js$/);
-                        
-                        if (!versionMatch) {
-                            this.logger.warn('migration', `Invalid migration filename format: ${file}. Expected format: v1.0.0_description.js`);
-                            continue;
-                        }
-                        
-                        const [, version, description] = versionMatch;
-                        
-                        // Validate migration
-                        if (!migration.up || typeof migration.up !== 'function') {
-                            this.logger.warn('migration', `Migration ${file} is missing 'up' function`);
-                            continue;
-                        }
-                        
-                        if (!migration.down || typeof migration.down !== 'function') {
-                            this.logger.warn('migration', `Migration ${file} is missing 'down' function`);
-                            continue;
-                        }
-                        
-                        // Add to migrations list
-                        this.migrations.push({
-                        version,
-                            description: description.replace(/_/g, ' '),
-                            up: migration.up,
-                            down: migration.down,
-                            file
-                        });
-                    } catch (error) {
-                        this.logger.error('migration', `Failed to load migration ${file}: ${error.message}`);
-                    }
-                }
-                
-                // Sort migrations by version
-                this.migrations.sort((a, b) => semver.compare(a.version, b.version));
-                
-                this.logger.info('migration', `Loaded ${this.migrations.length} migrations`);
-            } catch (error) {
-                this.logger.error('migration', `Failed to load migrations: ${error.message}`);
-                throw error;
-            }
-        });
-    }
-
-    /**
-     * Load seeds from the seeds directory
-     * @returns {Promise<void>}
-     * @private
-     */
-    async _loadSeeds() {
-        return this.executeOperation('loadSeeds', async () => {
-            const seedsDir = this.getConfig('seedsDir');
-            
-            this.logger.info('migration', `Loading seeds from ${seedsDir}`);
-            
-            try {
-                // Get all seed files
-                const files = await fs.readdir(seedsDir);
-                
-                // Filter for JavaScript files
-                const seedFiles = files.filter(file => file.endsWith('.js'));
-                
-                // Clear existing seeds
-                this.seeds = [];
-                
-                // Load each seed
-                for (const file of seedFiles) {
-                    const filePath = path.join(seedsDir, file);
-                    
-                    try {
-                        // Clear require cache to ensure fresh load
-                        delete require.cache[require.resolve(filePath)];
-                        
-                        // Load seed
-                        const seed = require(filePath);
-                        
-                        // Parse name from filename (format: 001_users.js)
-                        const nameMatch = file.match(/^(\d+)_(.+)\.js$/);
-                        
-                        if (!nameMatch) {
-                            this.logger.warn('migration', `Invalid seed filename format: ${file}. Expected format: 001_name.js`);
-                            continue;
-                        }
-                        
-                        const [, order, name] = nameMatch;
-                        
-                        // Validate seed
-                        if (!seed.seed || typeof seed.seed !== 'function') {
-                            this.logger.warn('migration', `Seed ${file} is missing 'seed' function`);
-                            continue;
-                        }
-                        
-                        if (!seed.unseed || typeof seed.unseed !== 'function') {
-                            this.logger.warn('migration', `Seed ${file} is missing 'unseed' function`);
-                            continue;
-                        }
-                        
-                        // Add to seeds list
-                        this.seeds.push({
-                            order: parseInt(order, 10),
-                            name: name.replace(/_/g, ' '),
-                            seed: seed.seed,
-                            unseed: seed.unseed,
-                            file
-                        });
-                    } catch (error) {
-                        this.logger.error('migration', `Failed to load seed ${file}: ${error.message}`);
-                    }
-                }
-                
-                // Sort seeds by order
-                this.seeds.sort((a, b) => a.order - b.order);
-                
-                this.logger.info('migration', `Loaded ${this.seeds.length} seeds`);
+            return true;
         } catch (error) {
-                this.logger.error('migration', `Failed to load seeds: ${error.message}`);
+            this.logger.error(this.name, `Failed to connect migration module: ${error.message}`);
+            this.errors++;
             throw error;
         }
-        });
     }
-
+    
     /**
      * Ensure migrations table exists
-     * @returns {Promise<void>}
      * @private
      */
     async _ensureMigrationsTable() {
-        return this.executeOperation('ensureMigrationsTable', async () => {
-            const db = this.manager.getModule('sqlite') || this.manager.getModule('mysql');
+        try {
+            const dbManager = this.manager;
             
-            if (!db) {
-                throw new Error('No database module found');
-            }
+            // Check if migrations table exists
+            const tableExists = await dbManager.tableExists(this.tableName);
             
-            const tableName = this.getConfig('tableName');
-            
-            try {
-                // Check if migrations table exists
-                const tableExists = await this._tableExists(tableName);
+            if (!tableExists) {
+                this.logger.info(this.name, `Creating migrations table: ${this.tableName}`);
                 
-                if (!tableExists) {
-                    this.logger.info('migration', `Creating migrations table: ${tableName}`);
-                    
-                    // Create migrations table
-                    await db.query(`
-                        CREATE TABLE ${tableName} (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            version VARCHAR(255) NOT NULL,
-                            description VARCHAR(255) NOT NULL,
-                    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            `);
-                    
-                    this.logger.success('migration', 'Migrations table created');
-                }
+                // Get database type from active module or config
+                const dbType = dbManager.activeModule?.type || dbManager.getConfig('type') || 'sqlite';
+                
+                // Create migrations table
+                await dbManager.query(`
+                    CREATE TABLE ${this.tableName} (
+                        id INTEGER PRIMARY KEY ${dbType === 'mysql' ? 'AUTO_INCREMENT' : 'AUTOINCREMENT'},
+                        name VARCHAR(255) NOT NULL,
+                        batch INTEGER NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                `);
+                
+                this.logger.info(this.name, `Created migrations table: ${this.tableName}`);
+            } else {
+                this.logger.debug(this.name, `Migrations table already exists: ${this.tableName}`);
+            }
         } catch (error) {
-                this.logger.error('migration', `Failed to ensure migrations table: ${error.message}`);
+            // If the error is that the table already exists, that's okay
+            if (error.message && error.message.includes('already exists')) {
+                this.logger.debug(this.name, `Migrations table already exists: ${this.tableName}`);
+                return;
+            }
+            this.logger.error(this.name, `Failed to ensure migrations table: ${error.message}`);
             throw error;
         }
-        });
     }
-
+    
     /**
-     * Check if a table exists
-     * @param {string} tableName - Table name
-     * @returns {Promise<boolean>} Whether the table exists
+     * Load migrations from the migrations directory
      * @private
      */
-    async _tableExists(tableName) {
-        return this.executeOperation('tableExists', async () => {
-            const db = this.manager.getModule('sqlite') || this.manager.getModule('mysql');
+    async _loadMigrations() {
+        try {
+            // Get list of migration files
+            const files = await fs.readdir(this.migrationsDir);
+            const migrationFiles = files.filter(file => file.endsWith('.js'));
             
-            if (!db) {
-                throw new Error('No database module found');
+            // Load each migration
+            this.migrations = [];
+            for (const file of migrationFiles) {
+                try {
+                    const migration = require(path.join(this.migrationsDir, file));
+                    this.migrations.push({
+                        name: file,
+                        ...migration
+                    });
+                } catch (error) {
+                    this.logger.error(`Failed to load migration ${file}: ${error.message}`);
+                }
             }
             
-            try {
-                // SQLite
-                if (db.name === 'sqlite') {
-                    const result = await db.query(
-                        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-                        [tableName]
-                    );
-                    return result.length > 0;
-                }
-                
-                // MySQL
-                if (db.name === 'mysql') {
-                    const [result] = await db.query(
-                        "SELECT TABLE_NAME FROM information_schema.tables WHERE table_schema = ? AND TABLE_NAME = ?",
-                        [db.isTestMode ? db.getConfig('testDatabase') : db.getConfig('database'), tableName]
-                    );
-                    return result.length > 0;
-                }
-                
-                return false;
-            } catch (error) {
-                this.logger.error('migration', `Failed to check if table exists: ${error.message}`);
-                return false;
-            }
-        });
-    }
-
-    /**
-     * Get applied migrations
-     * @returns {Promise<Array>} Applied migrations
-     */
-    async getAppliedMigrations() {
-        return this.executeOperation('getAppliedMigrations', async () => {
-            const db = this.manager.getModule('sqlite') || this.manager.getModule('mysql');
+            // Get applied migrations
+            const appliedMigrations = await this._loadAppliedMigrations();
+            this.appliedMigrations = new Set(appliedMigrations.map(m => m.name));
             
-            if (!db) {
-                throw new Error('No database module found');
-            }
-            
-            const tableName = this.getConfig('tableName');
-            
-            try {
-                // Check if migrations table exists
-                const tableExists = await this._tableExists(tableName);
-                
-                if (!tableExists) {
-                    return [];
-                }
-                
-                // Get applied migrations
-                const migrations = await db.query(
-                    `SELECT * FROM ${tableName} ORDER BY id ASC`
-                );
-                
-                return migrations;
+            this._migrationsLoaded = true;
+            this.logger.info(`Loaded ${this.migrations.length} migrations`);
         } catch (error) {
-                this.logger.error('migration', `Failed to get applied migrations: ${error.message}`);
+            this.logger.error(`Failed to load migrations: ${error.message}`);
             throw error;
         }
-        });
     }
-
+    
+    /**
+     * Load applied migrations from the database
+     * @private
+     * @returns {Promise<Array>} List of applied migrations
+     */
+    async _loadAppliedMigrations() {
+        try {
+            const sql = 'SELECT * FROM migrations ORDER BY id ASC';
+            return await this.query(sql);
+        } catch (error) {
+            this.logger.error(`Failed to load applied migrations: ${error.message}`);
+            return [];
+        }
+    }
+    
     /**
      * Get pending migrations
-     * @returns {Promise<Array>} Pending migrations
+     * @returns {Array} - Pending migrations
      */
-    async getPendingMigrations() {
-        return this.executeOperation('getPendingMigrations', async () => {
-            // Get applied migrations
-            const applied = await this.getAppliedMigrations();
-            
-            // Get applied versions
-            const appliedVersions = applied.map(m => m.version);
-            
-            // Filter out applied migrations
-            const pending = this.migrations.filter(m => !appliedVersions.includes(m.version));
-            
-            return pending;
-        });
+    getPendingMigrations() {
+        // Get names of applied migrations
+        const appliedNames = Array.from(this.appliedMigrations);
+        
+        // Filter out migrations that have already been applied
+        return this.migrations.filter(m => !appliedNames.includes(m.name));
     }
-
+    
+    /**
+     * Get applied migrations
+     * @returns {Array} - Applied migrations
+     */
+    getAppliedMigrations() {
+        // Get names of applied migrations
+        const appliedNames = Array.from(this.appliedMigrations);
+        
+        // Return migrations that have been applied
+        return this.migrations.filter(m => appliedNames.includes(m.name));
+    }
+    
     /**
      * Run migrations
-     * @param {Object} [options] - Migration options
-     * @param {string} [options.to] - Target version to migrate to
-     * @returns {Promise<Array>} Applied migrations
+     * @returns {Promise<Array>} - Applied migrations
      */
-    async migrate(options = {}) {
-        return this.executeOperation('migrate', async () => {
-            const db = this.manager.getModule('sqlite') || this.manager.getModule('mysql');
+    async migrate() {
+        try {
+            const dbManager = this.manager;
+            const pendingMigrations = this.getPendingMigrations();
             
-            if (!db) {
-                throw new Error('No database module found');
-            }
-            
-            // Get pending migrations
-            const pending = await this.getPendingMigrations();
-            
-            if (pending.length === 0) {
-                this.logger.info('migration', 'No pending migrations');
+            if (pendingMigrations.length === 0) {
+                this.logger.info(this.name, 'No pending migrations');
                 return [];
             }
             
-            // Filter migrations if target version is specified
-            let migrationsToApply = pending;
-            if (options.to) {
-                migrationsToApply = pending.filter(m => semver.lte(m.version, options.to));
+            this.logger.info(this.name, `Running ${pendingMigrations.length} migrations...`);
+            
+            // Get current batch number
+            let batch = 1;
+            
+            if (this.appliedMigrations.size > 0) {
+                const maxBatch = Math.max(...Array.from(this.appliedMigrations).map(m => m.batch));
+                batch = maxBatch + 1;
             }
             
-            if (migrationsToApply.length === 0) {
-                this.logger.info('migration', `No migrations to apply up to version ${options.to}`);
-                return [];
-            }
-            
-            this.logger.info('migration', `Applying ${migrationsToApply.length} migrations`);
-            
+            // Run each migration
             const applied = [];
-            const tableName = this.getConfig('tableName');
             
-            // Begin transaction
-            await db.beginTransaction();
-            
-            try {
-                // Apply each migration
-                for (const migration of migrationsToApply) {
-                    this.logger.info('migration', `Applying migration v${migration.version}: ${migration.description}`);
+            for (const migration of pendingMigrations) {
+                try {
+                    this.logger.info(this.name, `Migrating: ${migration.name}`);
                     
-                    // Apply migration
-                    await migration.up(db);
+                    // Begin transaction
+                    await dbManager.beginTransaction();
+                    
+                    // Run migration
+                    await migration.up(dbManager);
                     
                     // Record migration
-                    await db.query(
-                        `INSERT INTO ${tableName} (version, description) VALUES (?, ?)`,
-                        [migration.version, migration.description]
-                    );
+                    await dbManager.query(`
+                        INSERT INTO ${this.tableName} (name, batch)
+                        VALUES (?, ?)
+                    `, [migration.name, batch]);
                     
-                    applied.push(migration);
+                    // Commit transaction
+                    await dbManager.commit();
                     
-                    this.logger.success('migration', `Applied migration v${migration.version}`);
+                    this.logger.info(this.name, `Migrated: ${migration.name}`);
+                    
+                    applied.push({
+                        name: migration.name,
+                        batch
+                    });
+                } catch (error) {
+                    // Rollback transaction
+                    await dbManager.rollback();
+                    
+                    this.logger.error(this.name, `Failed to migrate: ${migration.name}`, error);
+                    throw error;
                 }
-                
-                // Commit transaction
-                await db.commit();
-                
-                this.logger.success('migration', `Successfully applied ${applied.length} migrations`);
-                return applied;
-            } catch (error) {
-                // Rollback transaction
-                await db.rollback();
-                
-                this.logger.error('migration', `Migration failed: ${error.message}`);
-                throw error;
             }
-        });
+            
+            // Reload applied migrations
+            await this._loadAppliedMigrations();
+            
+            this.logger.info(this.name, `Ran ${applied.length} migrations`);
+            
+            return applied;
+        } catch (error) {
+            this.logger.error(this.name, `Migration failed: ${error.message}`);
+            this.errors++;
+            throw error;
+        }
     }
-
+    
     /**
-     * Rollback migrations
-     * @param {Object} [options] - Rollback options
-     * @param {number} [options.steps=1] - Number of migrations to rollback
-     * @param {string} [options.to] - Target version to rollback to
-     * @returns {Promise<Array>} Rolled back migrations
+     * Rollback the last batch of migrations
+     * @returns {Promise<Array>} - Rolled back migrations
      */
-    async rollback(options = {}) {
-        return this.executeOperation('rollback', async () => {
-            const db = this.manager.getModule('sqlite') || this.manager.getModule('mysql');
+    async rollbackLast() {
+        try {
+            const dbManager = this.manager;
             
-            if (!db) {
-                throw new Error('No database module found');
-            }
-            
-            // Get applied migrations
-            const applied = await this.getAppliedMigrations();
-            
-            if (applied.length === 0) {
-                this.logger.info('migration', 'No migrations to rollback');
+            // Get last batch number
+            if (this.appliedMigrations.size === 0) {
+                this.logger.info(this.name, 'No migrations to rollback');
                 return [];
             }
             
-            // Determine migrations to rollback
-            let migrationsToRollback = [];
+            const maxBatch = Math.max(...Array.from(this.appliedMigrations).map(m => m.batch));
             
-            if (options.to) {
-                // Rollback to specific version
-                const targetIndex = this.migrations.findIndex(m => m.version === options.to);
+            // Get migrations from last batch
+            const lastBatchMigrations = Array.from(this.appliedMigrations)
+                .filter(m => m.batch === maxBatch)
+                .reverse(); // Rollback in reverse order
+            
+            if (lastBatchMigrations.length === 0) {
+                this.logger.info(this.name, 'No migrations to rollback');
+                return [];
+            }
+            
+            this.logger.info(this.name, `Rolling back ${lastBatchMigrations.length} migrations from batch ${maxBatch}...`);
+            
+            // Rollback each migration
+            const rolledBack = [];
+            
+            for (const appliedMigration of lastBatchMigrations) {
+                // Find migration in loaded migrations
+                const migration = this.migrations.find(m => m.name === appliedMigration.name);
                 
-                if (targetIndex === -1) {
-                    throw new Error(`Target version ${options.to} not found`);
+                if (!migration) {
+                    this.logger.warn(this.name, `Migration not found: ${appliedMigration.name}`);
+                    continue;
                 }
                 
-                // Get migrations after target version
-                migrationsToRollback = this.migrations
-                    .filter(m => semver.gt(m.version, options.to))
-                    .filter(m => applied.some(a => a.version === m.version))
-                    .reverse();
-            } else {
-                // Rollback specified number of steps
-                const steps = options.steps || 1;
-                
-                // Get last N applied migrations
-                const appliedMigrations = this.migrations
-                    .filter(m => applied.some(a => a.version === m.version))
-                    .reverse()
-                    .slice(0, steps);
-                
-                migrationsToRollback = appliedMigrations;
-            }
-            
-            if (migrationsToRollback.length === 0) {
-                this.logger.info('migration', 'No migrations to rollback');
-                return [];
-            }
-            
-            this.logger.info('migration', `Rolling back ${migrationsToRollback.length} migrations`);
-            
-            const rolledBack = [];
-            const tableName = this.getConfig('tableName');
-            
-            // Begin transaction
-            await db.beginTransaction();
-            
-            try {
-                // Rollback each migration
-                for (const migration of migrationsToRollback) {
-                    this.logger.info('migration', `Rolling back migration v${migration.version}: ${migration.description}`);
+                try {
+                    this.logger.info(this.name, `Rolling back: ${migration.name}`);
                     
-                    // Rollback migration
-                    await migration.down(db);
+                    // Begin transaction
+                    await dbManager.beginTransaction();
+                    
+                    // Run migration down method
+                    await migration.down(dbManager);
                     
                     // Remove migration record
-                    await db.query(
-                        `DELETE FROM ${tableName} WHERE version = ?`,
-                        [migration.version]
-                    );
+                    await dbManager.query(`
+                        DELETE FROM ${this.tableName}
+                        WHERE name = ?
+                    `, [migration.name]);
                     
-                    rolledBack.push(migration);
+                    // Commit transaction
+                    await dbManager.commit();
                     
-                    this.logger.success('migration', `Rolled back migration v${migration.version}`);
+                    this.logger.info(this.name, `Rolled back: ${migration.name}`);
+                    
+                    rolledBack.push({
+                        name: migration.name,
+                        batch: appliedMigration.batch
+                    });
+                } catch (error) {
+                    // Rollback transaction
+                    await dbManager.rollback();
+                    
+                    this.logger.error(this.name, `Failed to rollback: ${migration.name}`, error);
+                    throw error;
                 }
-                
-                // Commit transaction
-                await db.commit();
-                
-                this.logger.success('migration', `Successfully rolled back ${rolledBack.length} migrations`);
-                return rolledBack;
+            }
+            
+            // Reload applied migrations
+            await this._loadAppliedMigrations();
+            
+            this.logger.info(this.name, `Rolled back ${rolledBack.length} migrations`);
+            
+            return rolledBack;
         } catch (error) {
-                // Rollback transaction
-                await db.rollback();
-                
-                this.logger.error('migration', `Rollback failed: ${error.message}`);
+            this.logger.error(this.name, `Rollback failed: ${error.message}`);
+            this.errors++;
             throw error;
         }
-        });
     }
-
-    /**
-     * Run database seeds
-     * @param {Object} [options] - Seed options
-     * @param {string} [options.name] - Specific seed to run
-     * @returns {Promise<Array>} Applied seeds
-     */
-    async seed(options = {}) {
-        return this.executeOperation('seed', async () => {
-            const db = this.manager.getModule('sqlite') || this.manager.getModule('mysql');
-            
-            if (!db) {
-                throw new Error('No database module found');
-            }
-            
-            // Filter seeds if name is specified
-            let seedsToApply = this.seeds;
-            if (options.name) {
-                seedsToApply = this.seeds.filter(s => s.name.toLowerCase().includes(options.name.toLowerCase()));
-                
-                if (seedsToApply.length === 0) {
-                    throw new Error(`No seeds found matching '${options.name}'`);
-                }
-            }
-            
-            if (seedsToApply.length === 0) {
-                this.logger.info('migration', 'No seeds to apply');
-                return [];
-            }
-            
-            this.logger.info('migration', `Applying ${seedsToApply.length} seeds`);
-            
-            const applied = [];
-            
-            // Begin transaction
-            await db.beginTransaction();
-            
-            try {
-                // Apply each seed
-                for (const seed of seedsToApply) {
-                    this.logger.info('migration', `Applying seed: ${seed.name}`);
-                    
-                    // Apply seed
-                    await seed.seed(db);
-                    
-                    applied.push(seed);
-                    
-                    this.logger.success('migration', `Applied seed: ${seed.name}`);
-                }
-                
-                // Commit transaction
-                await db.commit();
-                
-                this.logger.success('migration', `Successfully applied ${applied.length} seeds`);
-                return applied;
-            } catch (error) {
-                // Rollback transaction
-                await db.rollback();
-                
-                this.logger.error('migration', `Seeding failed: ${error.message}`);
-                throw error;
-            }
-        });
-    }
-
-    /**
-     * Unseed the database
-     * @param {Object} [options] - Unseed options
-     * @param {string} [options.name] - Specific seed to unseed
-     * @returns {Promise<Array>} Removed seeds
-     */
-    async unseed(options = {}) {
-        return this.executeOperation('unseed', async () => {
-            const db = this.manager.getModule('sqlite') || this.manager.getModule('mysql');
-            
-            if (!db) {
-                throw new Error('No database module found');
-            }
-            
-            // Filter seeds if name is specified
-            let seedsToRemove = [...this.seeds].reverse();
-            if (options.name) {
-                seedsToRemove = seedsToRemove.filter(s => s.name.toLowerCase().includes(options.name.toLowerCase()));
-                
-                if (seedsToRemove.length === 0) {
-                    throw new Error(`No seeds found matching '${options.name}'`);
-                }
-            }
-            
-            if (seedsToRemove.length === 0) {
-                this.logger.info('migration', 'No seeds to remove');
-                return [];
-            }
-            
-            this.logger.info('migration', `Removing ${seedsToRemove.length} seeds`);
-            
-            const removed = [];
-            
-            // Begin transaction
-            await db.beginTransaction();
-            
-            try {
-                // Remove each seed
-                for (const seed of seedsToRemove) {
-                    this.logger.info('migration', `Removing seed: ${seed.name}`);
-                    
-                    // Remove seed
-                    await seed.unseed(db);
-                    
-                    removed.push(seed);
-                    
-                    this.logger.success('migration', `Removed seed: ${seed.name}`);
-                }
-                
-                // Commit transaction
-                await db.commit();
-                
-                this.logger.success('migration', `Successfully removed ${removed.length} seeds`);
-                return removed;
-        } catch (error) {
-                // Rollback transaction
-                await db.rollback();
-                
-                this.logger.error('migration', `Unseeding failed: ${error.message}`);
-            throw error;
-        }
-        });
-    }
-
+    
     /**
      * Create a new migration file
-     * @param {string} description - Migration description
-     * @returns {Promise<string>} Path to created migration file
+     * @param {string} name - Migration name
+     * @returns {Promise<string>} - Path to the created migration file
      */
-    async createMigration(description) {
-        return this.executeOperation('createMigration', async () => {
-            // Sanitize description for filename
-            const sanitizedDescription = description
+    async createMigration(name) {
+        try {
+            // Format name
+            const formattedName = name
                 .toLowerCase()
-                .replace(/[^a-z0-9]+/g, '_')
-                .replace(/^_+|_+$/g, '');
+                .replace(/[^a-z0-9_]/g, '_')
+                .replace(/_+/g, '_')
+                .replace(/^_|_$/g, '');
             
-            // Get current version
-            const currentVersion = await this._getCurrentVersion();
-            
-            // Increment version
-            const newVersion = semver.inc(currentVersion, 'patch');
+            // Create timestamp
+            const timestamp = new Date().toISOString().replace(/[-:]/g, '').split('.')[0];
             
             // Create filename
-            const filename = `v${newVersion}_${sanitizedDescription}.js`;
-            
-            // Get migrations directory
-            const migrationsDir = this.isTestMode ? 
-                this.getConfig('testMigrationsDir') : 
-                this.getConfig('migrationsDir');
-            
-            // Create file path
-            const filePath = path.join(migrationsDir, filename);
+            const filename = `${timestamp}_${formattedName}.js`;
+            const filePath = path.join(this.migrationsDir, filename);
             
             // Create migration template
             const template = `/**
- * Migration: ${description}
- * Version: ${newVersion}
+ * Migration: ${name}
  * Created: ${new Date().toISOString()}
  */
 
 /**
- * Apply the migration
- * @param {Object} db - Database module
- * @returns {Promise<void>}
+ * Run the migration
+ * @param {DatabaseManager} db - Database manager
  */
-exports.up = async (db) => {
-    // TODO: Implement migration
+exports.up = async function(db) {
+    // Add your migration code here
+    // Example:
+    // await db.query(\`
+    //     CREATE TABLE users (
+    //         id INTEGER PRIMARY KEY AUTOINCREMENT,
+    //         username VARCHAR(255) NOT NULL,
+    //         email VARCHAR(255) NOT NULL,
+    //         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    //     )
+    // \`);
 };
 
 /**
- * Revert the migration
- * @param {Object} db - Database module
- * @returns {Promise<void>}
+ * Rollback the migration
+ * @param {DatabaseManager} db - Database manager
  */
-exports.down = async (db) => {
-    // TODO: Implement rollback
+exports.down = async function(db) {
+    // Add your rollback code here
+    // Example:
+    // await db.query('DROP TABLE users');
 };
 `;
             
-            // Write file
+            // Ensure migrations directory exists
+            await this._ensureDirectories();
+            
+            // Write migration file
             await fs.writeFile(filePath, template);
             
-            this.logger.success('migration', `Created migration file: ${filename}`);
+            this.logger.info(this.name, `Created migration: ${filename}`);
+            
+            // Reload migrations
+            await this._loadMigrations();
             
             return filePath;
-        });
-    }
-
-    /**
-     * Create a new seed file
-     * @param {string} name - Seed name
-     * @returns {Promise<string>} Path to created seed file
-     */
-    async createSeed(name) {
-        return this.executeOperation('createSeed', async () => {
-            // Sanitize name for filename
-            const sanitizedName = name
-                .toLowerCase()
-                .replace(/[^a-z0-9]+/g, '_')
-                .replace(/^_+|_+$/g, '');
-            
-            // Get next order number
-            const nextOrder = this._getNextSeedOrder();
-            
-            // Create filename
-            const filename = `${nextOrder}_${sanitizedName}.js`;
-            
-            // Create file path
-            const filePath = path.join(this.getConfig('seedsDir'), filename);
-            
-            // Create seed template
-            const template = `/**
- * Seed: ${name}
- * Created: ${new Date().toISOString()}
- */
-
-/**
- * Apply the seed
- * @param {Object} db - Database module
- * @returns {Promise<void>}
- */
-exports.seed = async (db) => {
-    // TODO: Implement seed
-};
-
-/**
- * Revert the seed
- * @param {Object} db - Database module
- * @returns {Promise<void>}
- */
-exports.unseed = async (db) => {
-    // TODO: Implement unseed
-};
-`;
-            
-            // Write file
-            await fs.writeFile(filePath, template);
-            
-            this.logger.success('migration', `Created seed file: ${filename}`);
-            
-            return filePath;
-        });
-    }
-
-    /**
-     * Get current database version
-     * @returns {Promise<string>} Current version
-     * @private
-     */
-    async _getCurrentVersion() {
-        return this.executeOperation('getCurrentVersion', async () => {
-            // Get applied migrations
-            const applied = await this.getAppliedMigrations();
-            
-            if (applied.length === 0) {
-                return '0.0.0';
-            }
-            
-            // Get latest version
-            const latestMigration = applied[applied.length - 1];
-            return latestMigration.version;
-        });
-    }
-
-    /**
-     * Get next seed order number
-     * @returns {string} Next order number (padded with zeros)
-     * @private
-     */
-    _getNextSeedOrder() {
-        // Get highest order
-        let highestOrder = 0;
-        
-        for (const seed of this.seeds) {
-            if (seed.order > highestOrder) {
-                highestOrder = seed.order;
-            }
+        } catch (error) {
+            this.logger.error(this.name, `Failed to create migration: ${error.message}`);
+            this.errors++;
+            throw error;
         }
-        
-        // Increment order
-        const nextOrder = highestOrder + 1;
-        
-        // Pad with zeros
-        return nextOrder.toString().padStart(3, '0');
     }
-
+    
     /**
-     * Get migration status
-     * @returns {Promise<Object>} Migration status
+     * Get the migration module status
+     * @returns {Object} - Module status
      */
     async getStatus() {
-        return this.executeOperation('getStatus', async () => {
-        const status = await super.getStatus();
+        try {
+            const status = await super.getStatus();
             
-            // Get applied migrations
-            const applied = await this.getAppliedMigrations();
-            
-            // Get pending migrations
-            const pending = await this.getPendingMigrations();
-            
-            // Get current version
-            const currentVersion = await this._getCurrentVersion();
-            
-            // Get latest available version
-            const latestVersion = this.migrations.length > 0 ? 
-                this.migrations[this.migrations.length - 1].version : 
-                '0.0.0';
-        
-        return {
-            ...status,
-                currentVersion,
-                latestVersion,
-                upToDate: currentVersion === latestVersion,
-                appliedCount: applied.length,
-                pendingCount: pending.length,
+            return {
+                ...status,
+                initialized: this._initialized,
+                migrationsDir: this.migrationsDir,
+                tableName: this.tableName,
                 totalMigrations: this.migrations.length,
-                seedsCount: this.seeds.length,
-                testMode: this.isTestMode
+                appliedMigrations: this.appliedMigrations.size,
+                pendingMigrations: this.getPendingMigrations().length
             };
-        });
-    }
-
-    /**
-     * Create a test migration for unit testing
-     * @returns {Promise<string>} Path to created migration file
-     */
-    async createTestMigration() {
-        return this.executeOperation('createTestMigration', async () => {
-            // Store original environment
-            const originalEnv = process.env.NODE_ENV;
-            process.env.NODE_ENV = 'test';
-            
-            try {
-                // Create test migration
-                const filePath = await this.createMigration('test_migration');
-                
-                // Update migration content
-                const template = `/**
- * Test Migration
- * Version: ${await this._getCurrentVersion()}
- * Created: ${new Date().toISOString()}
- */
-
-/**
- * Apply the migration
- * @param {Object} db - Database module
- * @returns {Promise<void>}
- */
-exports.up = async (db) => {
-    await db.query(\`
-        CREATE TABLE test_migration (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    \`);
-    
-    await db.query(
-        'INSERT INTO test_migration (name) VALUES (?)',
-        ['Test Record']
-    );
-};
-
-/**
- * Revert the migration
- * @param {Object} db - Database module
- * @returns {Promise<void>}
- */
-exports.down = async (db) => {
-    await db.query('DROP TABLE IF EXISTS test_migration');
-};
-`;
-                
-                // Write updated content
-                await fs.writeFile(filePath, template);
-                
-                this.logger.success('migration', 'Created test migration');
-                
-                return filePath;
-            } finally {
-                // Restore original environment
-                process.env.NODE_ENV = originalEnv;
-            }
-        });
+        } catch (error) {
+            this.logger.error(this.name, `Error getting status: ${error.message}`);
+            return {
+                name: this.name,
+                error: error.message,
+                initialized: this._initialized
+            };
+        }
     }
 }
 

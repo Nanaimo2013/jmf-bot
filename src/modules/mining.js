@@ -1,56 +1,125 @@
 /**
- * JMF Hosting Discord Bot
+ * JMF Hosting Discord Bot - Mining Module
+ * Version: 1.0.0
+ * Last Updated: 03/14/2025
+ * 
+ * This module handles the mining game functionality for the bot.
  * 
  * © 2025 JMFHosting. All Rights Reserved.
  * Developed by Nanaimo2013 (https://github.com/Nanaimo2013)
- * 
- * This source code is licensed under the MIT license found in the
- * LICENSE file in the root directory of this source tree.
  */
 
+const Module = require('./base.module');
 const { EmbedBuilder } = require('discord.js');
-const config = require('../../config.json');
 const logger = require('../utils/logger');
 const database = require('../utils/database');
 const economy = require('./economy');
 
-class MiningGame {
+class MiningModule extends Module {
+  /**
+   * Create a new mining module
+   */
   constructor() {
+    super({
+      name: 'mining',
+      description: 'Handles the mining game functionality for the bot',
+      enabled: true,
+      dependencies: ['database', 'economy']
+    });
+    
     this.userCooldowns = new Map();
     this.userInventories = new Map();
     this.userStats = new Map();
-    this.isInitialized = false;
   }
 
   /**
-   * Initialize the mining game module with database
-   * @param {Object} db - Database connection
+   * Initialize the mining module
+   * @param {Client} client - The Discord.js client
+   * @returns {Promise<boolean>}
    */
-  async init(db) {
+  async initialize(client) {
     try {
-      this.db = db;
+      await super.initialize(client);
+      
+      // Get mining config
+      const miningConfig = this.configManager.getConfig('mining') || {};
       
       // Load data from database if available
-      if (this.db && this.db.isConnected) {
+      if (this.database && this.database.isConnected) {
         await this.loadDataFromDatabase();
-        logger.info('Mining game data loaded from database');
+        this.logger.info(this.name, 'Mining game data loaded from database');
+      } else {
+        this.logger.warn(this.name, 'Database not available, mining data will not be persistent');
       }
       
-      this.isInitialized = true;
+      // Set up auto-save interval
+      this.autoSaveInterval = setInterval(() => this.saveAllData(), 
+        miningConfig.autoSaveInterval || 300000); // Default: 5 minutes
+      
+      return true;
     } catch (error) {
-      logger.error(`Failed to initialize mining game: ${error.message}`);
+      this.handleError('initialize', error);
+      return false;
+    }
+  }
+  
+  /**
+   * Start the mining module
+   * @returns {Promise<boolean>}
+   */
+  async start() {
+    try {
+      await super.start();
+      
+      // Get economy module reference
+      this.economy = this.client.economy;
+      
+      if (!this.economy) {
+        this.logger.warn(this.name, 'Economy module not found, some features may not work properly');
+      }
+      
+      return true;
+    } catch (error) {
+      this.handleError('start', error);
+      return false;
+    }
+  }
+  
+  /**
+   * Stop the mining module
+   * @returns {Promise<boolean>}
+   */
+  async stop() {
+    try {
+      // Clear intervals
+      if (this.autoSaveInterval) {
+        clearInterval(this.autoSaveInterval);
+        this.autoSaveInterval = null;
+      }
+      
+      // Save all data before stopping
+      await this.saveAllData();
+      
+      await super.stop();
+      return true;
+    } catch (error) {
+      this.handleError('stop', error);
+      return false;
     }
   }
 
   /**
    * Load mining data from database
+   * @returns {Promise<void>}
    */
   async loadDataFromDatabase() {
     try {
-      if (!this.db || !this.db.isConnected) return;
+      if (!this.database || !this.database.isConnected) {
+        throw new Error('Database not available');
+      }
       
       // Load user mining stats
-      const stats = await this.db.query('SELECT * FROM user_mining_data');
+      const stats = await this.database.query('SELECT * FROM user_mining_data');
       stats.forEach(row => {
         this.userStats.set(row.user_id, {
           level: row.level,
@@ -61,197 +130,160 @@ class MiningGame {
           pet: row.pet,
           armor: row.armor,
           activeBooster: row.active_booster,
-          boosterExpiry: row.booster_expiry
+          boosterExpiry: row.booster_expiry,
+          unlockedWorlds: row.unlocked_worlds ? row.unlocked_worlds.split(',') : ['overworld']
         });
       });
       
       // Load user inventories
-      const inventories = await this.db.query('SELECT * FROM user_mining_inventory');
+      const inventories = await this.database.query('SELECT * FROM user_mining_inventory');
       
       // Group by user_id
       const userItems = {};
       inventories.forEach(row => {
         if (!userItems[row.user_id]) {
-          userItems[row.user_id] = {
-            resources: {},
-            pickaxes: [],
-            pets: [],
-            armor: [],
-            boosters: []
-          };
+          userItems[row.user_id] = {};
         }
         
-        // Add item to appropriate category
-        switch (row.item_type) {
-          case 'resource':
-            userItems[row.user_id].resources[row.item_name] = row.quantity;
-            break;
-          case 'pickaxe':
-            userItems[row.user_id].pickaxes.push(row.item_name);
-            break;
-          case 'pet':
-            userItems[row.user_id].pets.push(row.item_name);
-            break;
-          case 'armor':
-            userItems[row.user_id].armor.push(row.item_name);
-            break;
-          case 'booster':
-            userItems[row.user_id].boosters.push(row.item_name);
-            break;
-        }
+        userItems[row.user_id][row.resource_id] = row.quantity;
       });
       
-      // Set inventories in memory
+      // Set user inventories
       Object.entries(userItems).forEach(([userId, inventory]) => {
         this.userInventories.set(userId, inventory);
       });
       
-      // Load cooldowns (last mining time)
-      const miningActions = await this.db.query(`
-        SELECT user_id, MAX(timestamp) as last_mine 
-        FROM mining_actions 
-        WHERE action_type = 'mine' 
-        GROUP BY user_id
-      `);
-      
-      miningActions.forEach(row => {
-        this.userCooldowns.set(row.user_id, new Date(row.last_mine).getTime());
-      });
+      this.logger.debug(this.name, `Loaded mining data for ${stats.length} users`);
     } catch (error) {
-      logger.error(`Failed to load mining data from database: ${error.message}`);
+      this.handleError('loadDataFromDatabase', error);
+      throw error;
     }
   }
 
   /**
-   * Save mining data to database
-   * @param {string} userId - The Discord user ID
+   * Save all mining data to database
+   * @returns {Promise<void>}
+   */
+  async saveAllData() {
+    try {
+      if (!this.database || !this.database.isConnected) {
+        this.logger.warn(this.name, 'Database not available, skipping save');
+        return;
+      }
+      
+      // Save all user stats
+      for (const [userId, stats] of this.userStats.entries()) {
+        await this.saveToDatabase(userId);
+      }
+      
+      this.logger.debug(this.name, 'All mining data saved to database');
+    } catch (error) {
+      this.handleError('saveAllData', error);
+    }
+  }
+
+  /**
+   * Save a user's mining data to database
+   * @param {string} userId - The user ID
+   * @returns {Promise<void>}
    */
   async saveToDatabase(userId) {
     try {
-      if (!this.db || !this.db.isConnected) return;
+      if (!this.database || !this.database.isConnected) {
+        return;
+      }
       
       const stats = this.userStats.get(userId);
       if (!stats) return;
       
-      // Save user mining stats
-      await this.db.query(`
-        INSERT INTO user_mining_data 
-        (user_id, level, xp, current_world, pickaxe, pet, armor, active_booster, booster_expiry, last_updated) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+      // Save user stats
+      await this.database.query(
+        `INSERT INTO user_mining_data 
+        (user_id, level, xp, current_world, pickaxe, pet, armor, active_booster, booster_expiry, unlocked_worlds) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) 
         ON DUPLICATE KEY UPDATE 
-        level = VALUES(level),
-        xp = VALUES(xp),
-        current_world = VALUES(current_world),
-        pickaxe = VALUES(pickaxe),
-        pet = VALUES(pet),
-        armor = VALUES(armor),
-        active_booster = VALUES(active_booster),
-        booster_expiry = VALUES(booster_expiry),
-        last_updated = NOW()
-      `, [
-        userId,
-        stats.level,
-        stats.xp,
-        stats.currentWorld,
-        stats.pickaxe,
-        stats.pet,
-        stats.armor,
-        stats.activeBooster,
-        stats.boosterExpiry
-      ]);
+        level = ?, xp = ?, current_world = ?, pickaxe = ?, pet = ?, armor = ?, 
+        active_booster = ?, booster_expiry = ?, unlocked_worlds = ?`,
+        [
+          userId, 
+          stats.level, 
+          stats.xp, 
+          stats.currentWorld, 
+          stats.pickaxe, 
+          stats.pet, 
+          stats.armor, 
+          stats.activeBooster, 
+          stats.boosterExpiry,
+          stats.unlockedWorlds ? stats.unlockedWorlds.join(',') : 'overworld',
+          stats.level, 
+          stats.xp, 
+          stats.currentWorld, 
+          stats.pickaxe, 
+          stats.pet, 
+          stats.armor, 
+          stats.activeBooster, 
+          stats.boosterExpiry,
+          stats.unlockedWorlds ? stats.unlockedWorlds.join(',') : 'overworld'
+        ]
+      );
       
-      // Save inventory
+      // Save user inventory
       const inventory = this.userInventories.get(userId);
       if (inventory) {
-        // Save resources
-        for (const [resourceName, quantity] of Object.entries(inventory.resources)) {
+        // Delete existing inventory
+        await this.database.query('DELETE FROM user_mining_inventory WHERE user_id = ?', [userId]);
+        
+        // Insert new inventory items
+        for (const [resourceId, quantity] of Object.entries(inventory)) {
           if (quantity > 0) {
-            await this.db.query(`
-              INSERT INTO user_mining_inventory 
-              (user_id, item_type, item_name, quantity) 
-              VALUES (?, 'resource', ?, ?)
-              ON DUPLICATE KEY UPDATE 
-              quantity = VALUES(quantity)
-            `, [userId, resourceName, quantity]);
+            await this.database.query(
+              'INSERT INTO user_mining_inventory (user_id, resource_id, quantity) VALUES (?, ?, ?)',
+              [userId, resourceId, quantity]
+            );
           }
-        }
-        
-        // Save pickaxes
-        for (const pickaxe of inventory.pickaxes) {
-          await this.db.query(`
-            INSERT IGNORE INTO user_mining_inventory 
-            (user_id, item_type, item_name, quantity) 
-            VALUES (?, 'pickaxe', ?, 1)
-          `, [userId, pickaxe]);
-        }
-        
-        // Save pets
-        for (const pet of inventory.pets) {
-          await this.db.query(`
-            INSERT IGNORE INTO user_mining_inventory 
-            (user_id, item_type, item_name, quantity) 
-            VALUES (?, 'pet', ?, 1)
-          `, [userId, pet]);
-        }
-        
-        // Save armor
-        for (const armor of inventory.armor) {
-          await this.db.query(`
-            INSERT IGNORE INTO user_mining_inventory 
-            (user_id, item_type, item_name, quantity) 
-            VALUES (?, 'armor', ?, 1)
-          `, [userId, armor]);
-        }
-        
-        // Save boosters
-        for (const booster of inventory.boosters) {
-          await this.db.query(`
-            INSERT INTO user_mining_inventory 
-            (user_id, item_type, item_name, quantity) 
-            VALUES (?, 'booster', ?, 1)
-            ON DUPLICATE KEY UPDATE 
-            quantity = quantity + 1
-          `, [userId, booster]);
         }
       }
     } catch (error) {
-      logger.error(`Failed to save mining data to database: ${error.message}`);
+      this.handleError('saveToDatabase', error);
     }
   }
 
   /**
    * Initialize a user's mining data if not exists
-   * @param {string} userId - The Discord user ID
+   * @param {string} userId - The user ID
+   * @returns {Object} - The user's mining stats
    */
   initializeUser(userId) {
     if (!this.userStats.has(userId)) {
-      this.userStats.set(userId, {
+      const defaultStats = {
         level: 1,
         xp: 0,
-        coins: config.economy.startingBalance,
-        currentWorld: config.miningGame.worlds[0].name,
-        pickaxe: config.miningGame.pickaxes[0].name,
+        coins: 0,
+        currentWorld: 'overworld',
+        pickaxe: 'wooden_pickaxe',
         pet: null,
         armor: null,
         activeBooster: null,
-        boosterExpiry: null
-      });
-    }
-
-    if (!this.userInventories.has(userId)) {
-      this.userInventories.set(userId, {
-        resources: {},
-        pickaxes: [config.miningGame.pickaxes[0].name],
-        pets: [],
-        armor: [],
-        boosters: []
-      });
+        boosterExpiry: null,
+        unlockedWorlds: ['overworld']
+      };
+      
+      this.userStats.set(userId, defaultStats);
+      
+      // Initialize inventory
+      if (!this.userInventories.has(userId)) {
+        this.userInventories.set(userId, {});
+      }
+      
+      // Save to database
+      this.saveToDatabase(userId).catch(error => this.handleError('initializeUser', error));
+      
+      this.logger.debug(this.name, `Initialized mining data for user ${userId}`);
+      
+      return defaultStats;
     }
     
-    // Save to database
-    this.saveToDatabase(userId).catch(err => {
-      logger.error(`Failed to initialize user mining data in database: ${err.message}`);
-    });
+    return this.userStats.get(userId);
   }
 
   /**
@@ -433,7 +465,7 @@ class MiningGame {
     let totalXp = 0;
 
     for (const resource of resources) {
-      inventory.resources[resource.name] = (inventory.resources[resource.name] || 0) + resource.quantity;
+      inventory[resource.name] = (inventory[resource.name] || 0) + resource.quantity;
       totalValue += resource.value;
       totalXp += resource.xp;
     }
@@ -452,10 +484,10 @@ class MiningGame {
     }
     
     // Record mining action in database
-    if (this.db && this.db.isConnected) {
+    if (this.database && this.database.isConnected) {
       try {
         // Log the mining action
-        await this.db.query(`
+        await this.database.query(`
           INSERT INTO mining_actions 
           (user_id, action_type, details, timestamp) 
           VALUES (?, 'mine', ?, NOW())
@@ -473,7 +505,7 @@ class MiningGame {
         // Save updated user data
         await this.saveToDatabase(userId);
       } catch (error) {
-        logger.error(`Failed to record mining action in database: ${error.message}`);
+        this.handleError('mine', error);
       }
     }
 
@@ -581,9 +613,9 @@ class MiningGame {
     }
     
     // Record purchase in database
-    if (this.db && this.db.isConnected) {
+    if (this.database && this.database.isConnected) {
       try {
-        await this.db.query(`
+        await this.database.query(`
           INSERT INTO mining_actions 
           (user_id, action_type, details, timestamp) 
           VALUES (?, 'purchase', ?, NOW())
@@ -599,7 +631,7 @@ class MiningGame {
         // Save updated user data
         await this.saveToDatabase(userId);
       } catch (error) {
-        logger.error(`Failed to record purchase in database: ${error.message}`);
+        this.handleError('purchaseItem', error);
       }
     }
 
@@ -635,9 +667,9 @@ class MiningGame {
     stats.currentWorld = world.name;
     
     // Record world change in database
-    if (this.db && this.db.isConnected) {
+    if (this.database && this.database.isConnected) {
       try {
-        await this.db.query(`
+        await this.database.query(`
           INSERT INTO mining_actions 
           (user_id, action_type, details, timestamp) 
           VALUES (?, 'world_change', ?, NOW())
@@ -652,7 +684,7 @@ class MiningGame {
         // Save updated user data
         await this.saveToDatabase(userId);
       } catch (error) {
-        logger.error(`Failed to record world change in database: ${error.message}`);
+        this.handleError('changeWorld', error);
       }
     }
     
@@ -704,7 +736,7 @@ class MiningGame {
       .setColor('#0099ff');
 
     // Resources
-    const resourcesList = Object.entries(inventory.resources)
+    const resourcesList = Object.entries(inventory)
       .map(([name, quantity]) => `${name}: ${quantity}`)
       .join('\n');
     if (resourcesList) {
@@ -727,6 +759,24 @@ class MiningGame {
 
     return embed;
   }
+
+  /**
+   * Get the module's status
+   * @returns {Object} - Module status
+   */
+  getStatus() {
+    const baseStatus = super.getStatus();
+    
+    return {
+      ...baseStatus,
+      metrics: {
+        activeMiners: this.userStats.size,
+        activeCooldowns: this.userCooldowns.size,
+        totalInventoryItems: Array.from(this.userInventories.values())
+          .reduce((acc, inv) => acc + Object.keys(inv).length, 0)
+      }
+    };
+  }
 }
 
-module.exports = new MiningGame();
+module.exports = MiningModule;

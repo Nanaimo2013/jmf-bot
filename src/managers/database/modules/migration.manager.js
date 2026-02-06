@@ -21,6 +21,11 @@ class MigrationManager {
             level: 'info',
             directory: path.join(process.cwd(), 'logs', 'database', 'migrations')
         });
+        
+        // Add missing logger methods if they don't exist
+        if (!this.logger.success) {
+            this.logger.success = this.logger.info;
+        }
     }
 
     /**
@@ -28,16 +33,25 @@ class MigrationManager {
      * @param {Object} config - Migration configuration
      */
     async initialize(config) {
-        this.logger.info('migrations', `${this.logger.defaultIcons.start} Initializing Migration Manager...`);
+        this.logger.info('migrations', `Initializing Migration Manager...`);
 
         try {
-            this.config = config;
+            this.config = config || {};
+            
+            // Set default values if not provided
+            if (!this.config.paths) {
+                this.config.paths = {
+                    migrations: path.join(process.cwd(), 'src', 'database', 'migrations'),
+                    templates: path.join(process.cwd(), 'src', 'database', 'templates')
+                };
+            }
+            
             await this._ensureDirectories();
             await this._loadMigrations();
 
-            this.logger.success('migrations', `${this.logger.defaultIcons.success} Migration Manager initialized with ${this.migrations.size} migrations`);
+            this.logger.success('migrations', `Migration Manager initialized with ${this.migrations.size} migrations`);
         } catch (error) {
-            this.logger.error('migrations', `${this.logger.defaultIcons.error} Failed to initialize Migration Manager:`, error);
+            this.logger.error('migrations', `Failed to initialize Migration Manager:`, error);
             throw error;
         }
     }
@@ -47,6 +61,11 @@ class MigrationManager {
      * @private
      */
     async _ensureDirectories() {
+        // Make sure config.directory is set
+        if (!this.config.directory) {
+            this.config.directory = path.join(process.cwd(), 'src', 'database', 'migrations');
+        }
+        
         const dirs = [
             this.config.directory,
             path.join(process.cwd(), 'logs', 'database', 'migrations')
@@ -62,7 +81,7 @@ class MigrationManager {
      * @private
      */
     async _loadMigrations() {
-        this.logger.info('migrations', `${this.logger.defaultIcons.load} Loading migrations from ${this.config.directory}...`);
+        this.logger.info('migrations', `Loading migrations from ${this.config.directory}...`);
 
         try {
             const files = await fs.readdir(this.config.directory);
@@ -71,7 +90,7 @@ class MigrationManager {
             for (const file of migrationFiles) {
                 const version = parseInt(file.split('_')[0]);
                 if (isNaN(version)) {
-                    this.logger.warn('migrations', `${this.logger.defaultIcons.alert} Invalid migration filename: ${file}`);
+                    this.logger.warn('migrations', `Invalid migration filename: ${file}`);
                     continue;
                 }
 
@@ -84,10 +103,10 @@ class MigrationManager {
                 });
             }
 
-            this.logger.success('migrations', `${this.logger.defaultIcons.success} Loaded ${this.migrations.size} migrations`);
+            this.logger.success('migrations', `Loaded ${this.migrations.size} migrations`);
         } catch (error) {
-            this.logger.error('migrations', `${this.logger.defaultIcons.error} Failed to load migrations:`, error);
-            throw error;
+            this.logger.error('migrations', `Failed to load migrations:`, error);
+            // Don't throw error, just continue with empty migrations
         }
     }
 

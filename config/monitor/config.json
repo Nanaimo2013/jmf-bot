@@ -1,0 +1,47 @@
+{
+  "enabled": true,
+  "interval": 60000,
+  "thresholds": {
+    "cpu": {
+      "warning": 80,
+      "critical": 90
+    },
+    "memory": {
+      "warning": 80,
+      "critical": 90
+    },
+    "disk": {
+      "warning": 80,
+      "critical": 90
+    }
+  },
+  "modules": {
+    "system": {
+      "enabled": true,
+      "interval": 60000,
+      "metrics": {
+        "cpu": true,
+        "memory": true,
+        "disk": true,
+        "network": true,
+        "process": true
+      }
+    },
+    "bot": {
+      "enabled": true,
+      "interval": 60000,
+      "metrics": {
+        "guilds": true,
+        "users": true,
+        "commands": true,
+        "events": true,
+        "memory": true
+      }
+    }
+  },
+  "storage": {
+    "type": "sqlite",
+    "retention": "7d",
+    "directory": "K:\\Projects\\Coding\\jmf-bot\\data\\monitor"
+  }
+} 

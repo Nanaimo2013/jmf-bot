@@ -1,5 +1,9 @@
 /**
- * JMF Hosting Discord Bot
+ * JMF Hosting Discord Bot - Status Monitor
+ * Version: 1.0.0
+ * Last Updated: 03/14/2025
+ * 
+ * This utility monitors the status of various services and systems.
  * 
  * © 2025 JMFHosting. All Rights Reserved.
  * Developed by Nanaimo2013 (https://github.com/Nanaimo2013)
@@ -16,6 +20,28 @@ const os = require('os');
 
 class StatusMonitor {
   constructor() {
+    // Get logger from global managers
+    this.logger = global.managers?.logger || console;
+    
+    // Get config manager from global managers
+    this.configManager = global.managers?.config;
+    
+    // Get database manager from global managers
+    this.database = global.managers?.database;
+    
+    // Initialize thresholds from config
+    const monitorConfig = this.configManager.getConfig('monitor') || {};
+    this.thresholds = {
+      cpu: monitorConfig.thresholds?.cpu || 80,
+      memory: monitorConfig.thresholds?.memory || 80,
+      disk: monitorConfig.thresholds?.disk || 80
+    };
+    
+    // Initialize status check interval
+    this.checkInterval = monitorConfig.checkInterval || 60000; // Default: 1 minute
+    this.statusHistory = [];
+    this.maxHistoryLength = monitorConfig.maxHistoryLength || 1440; // Default: 24 hours (1 minute intervals)
+
     this.botStartTime = Date.now();
     this.lastPanelCheck = null;
     this.panelStatus = {

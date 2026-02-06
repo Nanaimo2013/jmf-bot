@@ -15,6 +15,7 @@ const { GatewayIntentBits, Partials, ActivityType } = require('discord.js');
 const path = require('path');
 const fs = require('fs').promises;
 const dotenv = require('dotenv');
+const configUtils = require('../../../utils/config.utils');
 
 // Load environment variables
 dotenv.config();
@@ -145,17 +146,8 @@ class ConfigManager extends BaseModule {
         const configPath = this.getConfig('configPath');
         
         try {
-            // Check if config file exists
-            try {
-                await fs.access(configPath);
-            } catch (error) {
-                this.logger.warn(this.name, `Config file not found: ${configPath}`);
-                return;
-            }
-            
-            // Read config file
-            const configData = await fs.readFile(configPath, 'utf8');
-            const config = JSON.parse(configData);
+            // Use our improved loadConfig to properly handle defaults
+            const config = await configUtils.loadConfig(configPath, this.defaultConfig);
             
             // Merge with current config
             this._mergeConfig(config);
@@ -182,13 +174,17 @@ class ConfigManager extends BaseModule {
                 await fs.mkdir(configDir, { recursive: true });
             }
             
-            // Convert config to JSON
-            const configData = JSON.stringify(this._configToObject(), null, 2);
+            // Get the current config as an object
+            const configData = this._configToObject();
             
-            // Write config file
-            await fs.writeFile(configPath, configData, 'utf8');
+            // Use our improved saveConfig to properly merge with existing config
+            const success = await configUtils.saveConfig(configPath, configData, true);
             
-            this.logger.info(this.name, `Saved configuration to ${configPath}`);
+            if (success) {
+                this.logger.info(this.name, `Saved configuration to ${configPath}`);
+            } else {
+                this.logger.error(this.name, `Failed to save configuration to ${configPath}`);
+            }
         } catch (error) {
             this.logger.error(this.name, `Failed to save configuration: ${error.message}`);
         }
@@ -430,14 +426,17 @@ class ConfigManager extends BaseModule {
      * @private
      */
     _mergeConfig(config) {
-        for (const [key, value] of Object.entries(config)) {
-            if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-                // Recursively merge nested objects
-                const existingValue = this.get(key, {});
-                this.set(key, { ...existingValue, ...value });
-            } else {
-                this.set(key, value);
-            }
+        if (!config) return;
+        
+        // Use our improved mergeDefaults to safely add missing properties
+        // without overwriting existing ones
+        const merged = configUtils.mergeDefaults(this._configToObject(), config);
+        
+        // Convert back to Map if needed
+        if (this.config instanceof Map) {
+            this._objectToConfig(merged);
+        } else {
+            this.config = merged;
         }
     }
 
@@ -478,6 +477,21 @@ class ConfigManager extends BaseModule {
         }
         
         return result;
+    }
+
+    /**
+     * Convert object to configuration
+     * @param {Object} obj - The object to convert
+     * @private
+     */
+    _objectToConfig(obj) {
+        for (const [key, value] of Object.entries(obj)) {
+            if (value instanceof Map) {
+                this.set(key, this._mapToObject(value));
+            } else {
+                this.set(key, value);
+            }
+        }
     }
 }
 

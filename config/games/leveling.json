@@ -1,0 +1,108 @@
+{
+    "enabled": true,
+    "xp": {
+        "perMessage": 3,
+        "cooldown": 60,
+        "voicePerMinute": 1,
+        "messageRewardFrequency": 5,
+        "voiceRewardFrequency": 10
+    },
+    "levelUp": {
+        "message": "Congratulations {user}! You've reached level {level}!",
+        "channel": "⭐︱leveling",
+        "embed": {
+            "enabled": true,
+            "color": "#FFD700",
+            "title": "Level Up!",
+            "description": "{user} has reached level {level}!",
+            "thumbnail": "{userAvatar}",
+            "fields": [
+                {
+                    "name": "New Level",
+                    "value": "Level {level}",
+                    "inline": true
+                },
+                {
+                    "name": "Total XP",
+                    "value": "{totalXp} XP",
+                    "inline": true
+                },
+                {
+                    "name": "Next Level",
+                    "value": "{xpNeeded} XP needed",
+                    "inline": true
+                }
+            ]
+        }
+    },
+    "roles": {
+        "rewards": {
+            "5": "Level 5",
+            "10": "Level 10",
+            "20": "Level 20",
+            "30": "Level 30",
+            "50": "Level 50"
+        },
+        "multipliers": {
+            "premiumTier1": 1.1,
+            "premiumTier2": 1.25,
+            "premiumTier3": 1.5
+        }
+    },
+    "formula": {
+        "xpNeeded": "150 * (level ^ 1.8)",
+        "totalXp": "sum(1 to level) of xpNeeded"
+    },
+    "leaderboard": {
+        "enabled": true,
+        "channel": "🏆︱leaderboard",
+        "updateInterval": 300,
+        "displayTop": 10,
+        "embed": {
+            "color": "#FFD700",
+            "title": "Level Leaderboard",
+            "description": "Top {displayTop} members by level",
+            "footer": "Updated every {updateInterval} seconds"
+        }
+    },
+    "rewards": {
+        "coins": {
+            "enabled": true,
+            "formula": "100 * level"
+        },
+        "items": {
+            "enabled": true,
+            "milestones": {
+                "10": {
+                    "name": "Bronze Trophy",
+                    "description": "Reached level 10",
+                    "value": 1000
+                },
+                "25": {
+                    "name": "Silver Trophy",
+                    "description": "Reached level 25",
+                    "value": 5000
+                },
+                "50": {
+                    "name": "Gold Trophy",
+                    "description": "Reached level 50",
+                    "value": 25000
+                },
+                "100": {
+                    "name": "Diamond Trophy",
+                    "description": "Reached level 100",
+                    "value": 100000
+                }
+            }
+        }
+    },
+    "prestige": {
+        "enabled": true,
+        "minLevel": 100,
+        "rewards": {
+            "multiplier": 0.1,
+            "coins": 100000,
+            "role": "Prestige {level}"
+        }
+    }
+}

@@ -11,7 +11,7 @@
  * Developed by Nanaimo2013 (https://github.com/Nanaimo2013)
  */
 
-const BaseManager = require('../base.manager');
+const BaseManager = require('../base/base.manager');
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -53,9 +53,9 @@ class ApiManager extends BaseManager {
             // Load routes
             await this._loadRoutes();
             
-            // Start server if autoStart is enabled (default to true)
+            // Start server if autoStart is enabled (default to false)
             const autoStart = this.config && typeof this.config.autoStart !== 'undefined' ? 
-                this.config.autoStart : true;
+                this.config.autoStart : false;
                 
             if (autoStart) {
                 await this.start();
@@ -75,26 +75,49 @@ class ApiManager extends BaseManager {
      */
     async start() {
         // Default port and host if config is not available
-        const port = this.config && this.config.port ? this.config.port : 3000;
-        const host = this.config && this.config.host ? this.config.host : 'localhost';
+        let port = this.config && this.config.port ? this.config.port : 3560;
+        const host = this.config && this.config.host ? this.config.host : '0.0.0.0';
+        const maxRetries = this.config && this.config.maxPortRetries ? this.config.maxPortRetries : 3;
+        let retries = 0;
         
-        return new Promise((resolve, reject) => {
-            try {
-                this.server = this.app.listen(port, host, () => {
-                    this.logger.success(this.name, `API server started on http://${host}:${port}`);
-                    resolve();
-                });
-                
-                // Handle server errors
-                this.server.on('error', (error) => {
-                    this.logger.error(this.name, `Server error:`, error);
+        const startServer = (currentPort) => {
+            return new Promise((resolve, reject) => {
+                try {
+                    this.server = this.app.listen(currentPort, host, () => {
+                        this.logger.success(this.name, `API server started on http://${host}:${currentPort}`);
+                        // Update the port in the config if it's different from the original
+                        if (currentPort !== port) {
+                            // Ensure config object exists before setting properties
+                            if (!this.config) {
+                                this.config = {};
+                            }
+                            this.config.port = currentPort;
+                            this.logger.info(this.name, `Updated API port to ${currentPort} due to conflict`);
+                        }
+                        resolve();
+                    });
+                    
+                    // Handle server errors
+                    this.server.on('error', (error) => {
+                        if (error.code === 'EADDRINUSE' && retries < maxRetries) {
+                            retries++;
+                            const newPort = currentPort + 1;
+                            this.logger.warn(this.name, `Port ${currentPort} is in use, trying port ${newPort}...`);
+                            this.server.close();
+                            resolve(startServer(newPort));
+                        } else {
+                            this.logger.error(this.name, `Server error:`, error);
+                            reject(error);
+                        }
+                    });
+                } catch (error) {
+                    this.logger.error(this.name, `Failed to start server:`, error);
                     reject(error);
-                });
-            } catch (error) {
-                this.logger.error(this.name, `Failed to start server:`, error);
-                reject(error);
-            }
-        });
+                }
+            });
+        };
+        
+        return startServer(port);
     }
     
     /**
@@ -109,13 +132,23 @@ class ApiManager extends BaseManager {
         
         return new Promise((resolve, reject) => {
             try {
+                // Set a timeout to force close if it takes too long
+                const forceCloseTimeout = setTimeout(() => {
+                    this.logger.warn(this.name, `Server close operation timed out, forcing close`);
+                    this.server = null;
+                    resolve();
+                }, 5000);
+                
                 this.server.close(() => {
+                    clearTimeout(forceCloseTimeout);
                     this.server = null;
                     this.logger.success(this.name, `API server stopped`);
                     resolve();
                 });
             } catch (error) {
                 this.logger.error(this.name, `Failed to stop server:`, error);
+                // Still clear the server reference
+                this.server = null;
                 reject(error);
             }
         });
@@ -190,15 +223,42 @@ class ApiManager extends BaseManager {
      * @returns {Promise<void>}
      */
     async _loadRoutes() {
-        const routesPath = path.join(this.modulesPath, 'routes');
-        await fs.mkdir(routesPath, { recursive: true });
-        
         try {
-            this.logger.info(this.name, `Loading API routes...`);
+            // Ensure modulesPath is defined
+            if (!this.modulesPath) {
+                this.modulesPath = path.join(__dirname, 'modules');
+                this.logger.warn(this.name, `modulesPath not defined, using default: ${this.modulesPath}`);
+            }
+            
+            const routesPath = path.join(this.modulesPath, 'routes');
+            
+            // Create routes directory if it doesn't exist
+            await fs.mkdir(routesPath, { recursive: true });
+            
+            this.logger.info(this.name, `Loading API routes from ${routesPath}...`);
+            
+            // Check if directory exists and is accessible
+            try {
+                await fs.access(routesPath);
+            } catch (error) {
+                this.logger.warn(this.name, `Routes directory not accessible: ${error.message}`);
+                // Create an empty array of route files since the directory doesn't exist or isn't accessible
+                return;
+            }
             
             // Get all route files
-            const routeFiles = (await fs.readdir(routesPath))
-                .filter(file => file.endsWith('.js'));
+            let routeFiles = [];
+            try {
+                routeFiles = (await fs.readdir(routesPath))
+                    .filter(file => file.endsWith('.js'));
+            } catch (error) {
+                this.logger.warn(this.name, `Failed to read routes directory: ${error.message}`);
+                return;
+            }
+            
+            if (routeFiles.length === 0) {
+                this.logger.info(this.name, `No route files found in ${routesPath}`);
+            }
             
             for (const file of routeFiles) {
                 const filePath = path.join(routesPath, file);
@@ -229,7 +289,7 @@ class ApiManager extends BaseManager {
             this.logger.success(this.name, `Loaded ${this.routes.size} API routes`);
         } catch (error) {
             this.logger.error(this.name, `Error loading API routes:`, error);
-            throw error;
+            // Don't throw the error, just log it and continue
         }
     }
     
@@ -349,6 +409,9 @@ class ApiManager extends BaseManager {
         if (this.server) {
             await this.stop();
         }
+        
+        // Don't overwrite the config file during shutdown
+        this._saveConfigOnShutdown = false;
         
         // Call parent shutdown
         await super.shutdown();

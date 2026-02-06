@@ -73,7 +73,14 @@ class ErrorHandler extends BaseModule {
         await super.initialize();
         
         // Create error log directory if it doesn't exist
-        const errorLogPath = this.getConfig('errorLogPath');
+        let errorLogPath = this.getConfig('errorLogPath');
+        
+        // Use default path if not configured
+        if (!errorLogPath) {
+            errorLogPath = path.join(process.cwd(), 'logs', 'errors');
+            this.logger.warn(this.name, `Error log path not configured, using default: ${errorLogPath}`);
+        }
+        
         try {
             await fs.access(errorLogPath);
         } catch (error) {

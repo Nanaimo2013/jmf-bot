@@ -1,0 +1,24 @@
+{
+  "apiUrl": "${PTERODACTYL_API_URL}",
+  "apiKey": "${PTERODACTYL_API_KEY}",
+  "adminApiKey": "${PTERODACTYL_API_KEY}",
+  "panelUrl": "https://panel.jmfhosting.com",
+  "statusChannel": "${GUILD_ID}",
+  "serverManagerRole": "${GUILD_ID}",
+  "updateInterval": 60,
+  "enabled": true,
+  "features": {
+    "status": true,
+    "control": true,
+    "backup": true,
+    "monitoring": true
+  },
+  "defaults": {
+    "memory": "2048M",
+    "disk": "10240M",
+    "cpu": 100,
+    "io": 500,
+    "backupLimit": 5,
+    "backupRetention": 7
+  }
+} 

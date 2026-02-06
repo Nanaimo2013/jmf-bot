@@ -43,6 +43,7 @@ class MigrationModule extends BaseModule {
         this._currentVersion = null;
         this._migrations = new Map();
         this._migrationHistory = [];
+        this._dbManagerAvailable = false;
     }
 
     /**
@@ -53,30 +54,92 @@ class MigrationModule extends BaseModule {
     async initialize(config = {}) {
         await super.initialize(config);
         
-        // Create migrations directory if it doesn't exist
-        const migrationsDir = path.join(process.cwd(), this.getConfig('migrationsDir'));
-        await fs.mkdir(migrationsDir, { recursive: true });
-        
-        // Create backup directory if it doesn't exist
-        const backupDir = path.join(process.cwd(), this.getConfig('backupDir'));
-        await fs.mkdir(backupDir, { recursive: true });
-        
-        // Load migrations
-        await this._loadMigrations();
-        
-        // Get current schema version
-        await this._getCurrentVersion();
-        
-        // Auto-migrate if configured
-        if (this.getConfig('autoMigrate')) {
-            try {
-                await this.migrateToLatest();
-            } catch (error) {
-                this.log('error', `Auto-migration failed: ${error.message}`);
+        try {
+            // Check if database manager is available
+            const dbManager = this.manager.getManager('database');
+            this._dbManagerAvailable = dbManager && typeof dbManager.query === 'function';
+            
+            if (!this._dbManagerAvailable) {
+                this.log('warn', 'Database manager not available, some features will be disabled');
+                return;
             }
+
+            // Create migrations directory if it doesn't exist
+            let migrationsDir = this.getConfig('migrationsDir');
+            
+            // Check if paths configuration is available
+            let managerConfig;
+            try {
+                managerConfig = this.manager.getConfig();
+            } catch (error) {
+                this.log('warn', 'Could not get manager config, using default paths');
+                managerConfig = null;
+            }
+            
+            if (!migrationsDir && managerConfig && managerConfig.paths && managerConfig.paths.migrations) {
+                migrationsDir = managerConfig.paths.migrations;
+            }
+            
+            // Use default path if not configured
+            if (!migrationsDir) {
+                migrationsDir = 'data/migrations';
+                this.log('warn', `Migrations directory not configured, using default: ${migrationsDir}`);
+            }
+            
+            // Ensure migrationsDir is a string
+            if (typeof migrationsDir !== 'string') {
+                this.log('warn', `Migrations directory is not a string, using default instead`);
+                migrationsDir = 'data/migrations';
+            }
+            
+            const fullMigrationsDir = path.join(process.cwd(), migrationsDir);
+            await fs.mkdir(fullMigrationsDir, { recursive: true });
+            
+            // Create backup directory if it doesn't exist
+            let backupDir = this.getConfig('backupDir');
+            
+            // Check if paths configuration is available for backups
+            if (!backupDir && managerConfig && managerConfig.paths && managerConfig.paths.backups) {
+                backupDir = managerConfig.paths.backups;
+            }
+            
+            // Use default path if not configured
+            if (!backupDir) {
+                backupDir = 'data/backups/database';
+                this.log('warn', `Backup directory not configured, using default: ${backupDir}`);
+            }
+            
+            // Ensure backupDir is a string
+            if (typeof backupDir !== 'string') {
+                this.log('warn', `Backup directory is not a string, using default instead`);
+                backupDir = 'data/backups/database';
+            }
+            
+            const fullBackupDir = path.join(process.cwd(), backupDir);
+            await fs.mkdir(fullBackupDir, { recursive: true });
+            
+            // Load migrations
+            await this._loadMigrations();
+            
+            // Get current schema version if database is available
+            if (this._dbManagerAvailable) {
+                await this._getCurrentVersion();
+                
+                // Auto-migrate if configured
+                if (this.getConfig('autoMigrate')) {
+                    try {
+                        await this.migrateToLatest();
+                    } catch (error) {
+                        this.log('error', `Auto-migration failed: ${error.message}`);
+                    }
+                }
+            }
+            
+            this.log('info', 'Migration module initialized');
+        } catch (error) {
+            this.log('error', `Failed to initialize migration module: ${error.message}`);
+            throw error;
         }
-        
-        this.log('info', 'Migration module initialized');
     }
 
     /**
@@ -84,10 +147,18 @@ class MigrationModule extends BaseModule {
      * @private
      */
     async _loadMigrations() {
-        const migrationsDir = path.join(process.cwd(), this.getConfig('migrationsDir'));
+        let migrationsDir = this.getConfig('migrationsDir');
+        
+        // Use default path if not configured
+        if (!migrationsDir) {
+            migrationsDir = 'data/migrations';
+            this.log('warn', `Migrations directory not configured, using default: ${migrationsDir}`);
+        }
+        
+        const fullMigrationsDir = path.join(process.cwd(), migrationsDir);
         
         try {
-            const files = await fs.readdir(migrationsDir);
+            const files = await fs.readdir(fullMigrationsDir);
             
             // Filter and sort migration files
             const migrationFiles = files
@@ -101,7 +172,7 @@ class MigrationModule extends BaseModule {
             // Load each migration
             for (const file of migrationFiles) {
                 try {
-                    const filePath = path.join(migrationsDir, file);
+                    const filePath = path.join(fullMigrationsDir, file);
                     const migration = require(filePath);
                     
                     // Validate migration
@@ -139,6 +210,11 @@ class MigrationModule extends BaseModule {
      * @private
      */
     async _getCurrentVersion() {
+        if (!this._dbManagerAvailable) {
+            this.log('warn', 'Database manager not available, cannot get current version');
+            return 0;
+        }
+
         return this.executeOperation('getCurrentVersion', async () => {
             try {
                 // Get database manager
@@ -149,11 +225,22 @@ class MigrationModule extends BaseModule {
                 
                 // Check if schema version table exists
                 const schemaVersionTable = this.getConfig('schemaVersionTable');
-                const tableExists = await dbManager.tableExists(schemaVersionTable);
                 
-                if (!tableExists) {
-                    // Create schema version table
-                    await dbManager.executeQuery(`
+                try {
+                    // Try to get the current version
+                    const result = await dbManager.query(`
+                        SELECT MAX(version) as version 
+                        FROM ${schemaVersionTable}
+                        WHERE success = 1
+                    `);
+                    
+                    if (result && result.length > 0 && result[0].version !== null) {
+                        this._currentVersion = result[0].version;
+                        return this._currentVersion;
+                    }
+                } catch (error) {
+                    // Table doesn't exist, create it
+                    await dbManager.query(`
                         CREATE TABLE ${schemaVersionTable} (
                             id INTEGER PRIMARY KEY AUTOINCREMENT,
                             version INTEGER NOT NULL,
@@ -167,31 +254,11 @@ class MigrationModule extends BaseModule {
                     
                     this._currentVersion = 0;
                     this.log('info', 'Created schema version table');
-                } else {
-                    // Get current version
-                    const result = await dbManager.executeQuery(`
-                        SELECT version FROM ${schemaVersionTable}
-                        WHERE success = 1
-                        ORDER BY version DESC
-                        LIMIT 1
-                    `);
-                    
-                    this._currentVersion = result.length > 0 ? result[0].version : 0;
-                    
-                    // Load migration history
-                    const history = await dbManager.executeQuery(`
-                        SELECT * FROM ${schemaVersionTable}
-                        ORDER BY applied_at DESC
-                    `);
-                    
-                    this._migrationHistory = history;
                 }
                 
-                this.log('info', `Current schema version: ${this._currentVersion}`);
-                return this._currentVersion;
+                return this._currentVersion || 0;
             } catch (error) {
-                this.log('error', `Failed to get current schema version: ${error.message}`);
-                this._currentVersion = 0;
+                this.log('error', `Failed to get current version: ${error.message}`);
                 return 0;
             }
         });
@@ -205,6 +272,11 @@ class MigrationModule extends BaseModule {
      * @private
      */
     async _recordMigration(migration, success, executionTime) {
+        if (!this._dbManagerAvailable) {
+            this.log('warn', 'Database manager not available, cannot record migration');
+            return;
+        }
+
         try {
             // Get database manager
             const dbManager = this.manager.getManager('database');
@@ -215,7 +287,7 @@ class MigrationModule extends BaseModule {
             const schemaVersionTable = this.getConfig('schemaVersionTable');
             
             // Insert migration record
-            await dbManager.executeQuery(`
+            await dbManager.query(`
                 INSERT INTO ${schemaVersionTable} (version, name, description, execution_time, success)
                 VALUES (?, ?, ?, ?, ?)
             `, [
@@ -227,7 +299,7 @@ class MigrationModule extends BaseModule {
             ]);
             
             // Update migration history
-            const history = await dbManager.executeQuery(`
+            const history = await dbManager.query(`
                 SELECT * FROM ${schemaVersionTable}
                 ORDER BY applied_at DESC
             `);
@@ -810,6 +882,22 @@ module.exports = {
     async shutdown() {
         this.log('debug', 'Shutting down migration module');
         await super.shutdown();
+    }
+
+    /**
+     * Get module status
+     * @returns {Object} Module status
+     */
+    getStatus() {
+        return {
+            name: this.name,
+            version: this.version,
+            initialized: this._initialized,
+            dbManagerAvailable: this._dbManagerAvailable,
+            currentVersion: this._currentVersion,
+            migrationsLoaded: this._migrations.size,
+            migrationHistory: this._migrationHistory.length
+        };
     }
 }
 

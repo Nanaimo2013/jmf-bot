@@ -1,4 +1,4 @@
-const { InstallBaseModule } = require('./base.module');
+import { InstallBaseModule } from './base.module.js';
 const { LoggerManager } = require('../logger/manager');
 const path = require('path');
 const fs = require('fs-extra');

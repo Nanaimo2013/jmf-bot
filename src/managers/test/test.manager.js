@@ -10,7 +10,7 @@
  * Developed by Nanaimo2013 (https://github.com/Nanaimo2013)
  */
 
-const BaseManager = require('../base.manager');
+const BaseManager = require('../base/base.manager');
 const path = require('path');
 const fs = require('fs').promises;
 
@@ -62,6 +62,46 @@ class TestManager extends BaseManager {
      */
     async initialize(config = {}) {
         await super.initialize(config);
+        
+        // Ensure config exists
+        if (!this.config) {
+            this.config = {};
+        }
+        
+        // Ensure paths configuration exists
+        if (!this.config.paths) {
+            this.config.paths = {
+                coverage: './coverage',
+                reports: './reports',
+                tests: './tests',
+                unit: './tests/unit',
+                integration: './tests/integration',
+                e2e: './tests/e2e'
+            };
+            this.logger.warn('test', 'Paths configuration not found, using defaults');
+        }
+        
+        // Create test directories if they don't exist
+        try {
+            const directories = [
+                this.config.paths.tests,
+                this.config.paths.unit,
+                this.config.paths.integration,
+                this.config.paths.e2e,
+                this.config.paths.reports,
+                this.config.paths.coverage
+            ];
+            
+            for (const dir of directories) {
+                if (dir) {
+                    const fullPath = path.isAbsolute(dir) ? dir : path.join(process.cwd(), dir);
+                    await fs.mkdir(fullPath, { recursive: true });
+                }
+            }
+        } catch (error) {
+            this.logger.warn('test', `Error creating test directories: ${error.message}`);
+        }
+        
         this.logger.info('test', 'Test manager initialized');
     }
 
